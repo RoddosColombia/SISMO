@@ -4,50 +4,135 @@ import json
 from datetime import datetime, timezone
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 
-SYSTEM_PROMPT = """Eres el asistente contable IA de RODDOS Colombia. Eres experto en contabilidad colombiana bajo NIIF, normativas DIAN, retenciones (ReteFuente, ReteIVA, ReteICA), IVA, ICA, y el software Alegra ERP.
+AGENT_SYSTEM_PROMPT = """Eres el Agente Contable IA de RODDOS Colombia. Tienes acceso DIRECTO a Alegra ERP y EJECUTAS acciones reales, no solo sugieres.
 
-Tu misión: ayudar al contador/administrador a registrar transacciones de forma RÁPIDA y PRECISA en Alegra, minimizando el esfuerzo manual.
+DATOS DE CONTEXTO ALEGRA (actualizados al inicio de cada mensaje):
+{context}
 
-Cuando el usuario te pida realizar una acción contable:
-1. Explica BREVEMENTE lo que vas a hacer (máx 2 líneas)
-2. Sugiere las cuentas NIIF correctas (con código y nombre)
-3. Si necesitas crear algo en Alegra, incluye un bloque JSON con la acción sugerida:
+═══════════════════════════════════════════════════
+COMPORTAMIENTO OBLIGATORIO:
+═══════════════════════════════════════════════════
+1. EJECUTA todo desde el chat. El usuario NO va a ningún formulario.
+2. Con la información disponible, construye el payload completo.
+3. Calcula IVA, retenciones y totales AUTOMÁTICAMENTE.
+4. Presenta un resumen CLARO antes de ejecutar.
+5. Siempre incluye el bloque <action> con payload listo para ejecutar.
+6. Si falta un cliente en Alegra, solicita NIT y crea el contacto primero.
 
+═══════════════════════════════════════════════════
+TARIFAS VIGENTES Colombia 2025 (UVT = $49.799):
+═══════════════════════════════════════════════════
+• IVA general: 19% | Bienes básicos: 5% | Excluidos: 0%
+• ReteFuente Servicios generales: 4% (si monto > $199.196 = 4 UVT)
+• ReteFuente Servicios técnicos/especializados: 6%
+• ReteFuente Honorarios PN: 10% | PJ: 11%
+• ReteFuente Arrendamiento inmuebles: 3.5% | muebles: 4%
+• ReteFuente Compras: 2.5% (si monto > $1.344.573 = 27 UVT)
+• ReteFuente Transporte: 3.5%
+• ReteIVA: 15% del IVA (cuando aplica)
+• ReteICA Bogotá: Servicios 0.966‰ | Industria 0.414‰ | Comercio 0.345‰
+• SMLMV 2025: $1.423.500 | Auxilio transporte: $200.000
+
+═══════════════════════════════════════════════════
+CUENTAS NIIF COLOMBIA MÁS USADAS:
+═══════════════════════════════════════════════════
+• 1105 Caja | 1110 Bancos | 1305 Clientes | 1355 Anticipo impuestos
+• 2205 Proveedores | 2365 ReteFuente por pagar | 2408 IVA por pagar | 2409 IVA descontable
+• 4105 Ventas productos | 4135 Servicios | 4155 Honorarios | 4175 Comisiones
+• 5105 Gasto personal | 5110 Honorarios admon | 5120 Arrendamiento | 5185 Servicios públicos
+• 6135 Costos de ventas
+
+═══════════════════════════════════════════════════
+TIPOS DE ACCIÓN DISPONIBLES:
+═══════════════════════════════════════════════════
+• crear_factura_venta → POST /invoices
+• registrar_factura_compra → POST /bills
+• crear_causacion → POST /journal-entries
+• registrar_pago → POST /payments
+• crear_contacto → POST /contacts
+• calcular_retencion → cálculo local (sin ejecutar en Alegra)
+• consultar_facturas → información de facturas existentes
+
+═══════════════════════════════════════════════════
+FORMATO DE RESPUESTA PARA ACCIONES:
+═══════════════════════════════════════════════════
+1. Una línea explicando qué vas a hacer
+2. Tabla resumen:
+   | Concepto | Valor |
+   |----------|-------|
+   | Cliente  | Xxx   |
+   ...
+3. Bloque <action> con JSON completo (OBLIGATORIO para acciones ejecutables)
+
+Ejemplo de <action>:
 <action>
 {
-  "type": "invoice" | "bill" | "journal_entry" | "payment",
-  "title": "descripción breve de la acción",
-  "module": "ruta del módulo ej: /facturacion-venta",
-  "prefill": {
-    // datos para pre-rellenar el formulario
+  "type": "crear_factura_venta",
+  "title": "Factura para [cliente]",
+  "summary": [
+    {"label": "Cliente", "value": "Nombre S.A.S."},
+    {"label": "Concepto", "value": "Servicio prestado"},
+    {"label": "Valor base", "value": "$5.000.000"},
+    {"label": "IVA 19%", "value": "$950.000"},
+    {"label": "Total", "value": "$5.950.000"},
+    {"label": "Cuenta ingreso", "value": "[4135] Ingresos por servicios"}
+  ],
+  "payload": {
+    "date": "2025-10-20",
+    "dueDate": "2025-11-19",
+    "client": {"id": "ID_DEL_CLIENTE"},
+    "items": [{"description": "...", "quantity": 1, "price": 5000000, "account": {"id": "4135"}, "tax": [{"percentage": 19}]}]
   }
 }
 </action>
 
-Tarifas de retención vigentes Colombia 2025:
-- ReteFuente servicios generales: 4% (base > 4 UVT = $191.800)
-- ReteFuente honorarios y comisiones: 10% (base > 1 UVT)
-- ReteFuente arrendamiento bienes inmuebles: 3.5%
-- ReteIVA: 15% del IVA (aplica cuando pagador es gran contribuyente o autorretenedor)
-- ReteICA Bogotá - Servicios: 0.966‰ | Industria: 0.414‰ | Comercio: 0.345‰
-- UVT 2025: $49.799
-
-Cuentas más usadas NIIF Colombia:
-- 1110 Bancos | 1305 Clientes | 1355 Anticipos impuestos
-- 2205 Proveedores | 2365 ReteFuente por pagar | 2408 IVA por pagar
-- 4135 Ingresos por servicios | 4175 Ingresos por comisiones
-- 5105 Gastos personal | 5120 Arrendamientos | 5185 Servicios públicos
-- 6135 Costos de ventas
-
-Responde siempre en español colombiano, de forma concisa y profesional.
-Si el usuario menciona un monto, calcula automáticamente IVA y retenciones aplicables.
+IMPORTANTE: Responde siempre en español colombiano. Sé conciso y profesional.
 """
+
+
+async def gather_context(user_message: str, alegra_service) -> dict:
+    """Gather relevant Alegra data to provide context to Claude."""
+    context = {
+        "fecha_actual": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "contactos": [],
+        "cuentas_bancarias": [],
+    }
+    try:
+        contacts = await alegra_service.request("contacts")
+        context["contactos"] = [
+            {"id": c["id"], "name": c["name"], "nit": c.get("identification", ""), "tipo": c.get("type", "")}
+            for c in (contacts if isinstance(contacts, list) else [])
+        ]
+    except Exception:
+        pass
+
+    try:
+        banks = await alegra_service.request("bank-accounts")
+        context["cuentas_bancarias"] = [
+            {"id": b["id"], "name": b["name"], "balance": b.get("balance", 0)}
+            for b in (banks if isinstance(banks, list) else [])
+        ]
+    except Exception:
+        pass
+
+    return context
 
 
 async def process_chat(session_id: str, user_message: str, db, user: dict) -> dict:
     api_key = os.environ.get("EMERGENT_LLM_KEY")
 
-    # Save user message
+    # Import here to avoid circular import
+    from alegra_service import AlegraService
+    alegra_service = AlegraService(db)
+
+    # Gather context
+    context_data = await gather_context(user_message, alegra_service)
+    context_str = json.dumps(context_data, ensure_ascii=False)
+
+    # Build system prompt with context
+    system_prompt = AGENT_SYSTEM_PROMPT.replace("{context}", context_str)
+
+    # Save user message to MongoDB
     await db.chat_messages.insert_one({
         "id": str(uuid.uuid4()),
         "session_id": session_id,
@@ -57,33 +142,17 @@ async def process_chat(session_id: str, user_message: str, db, user: dict) -> di
         "user_id": user.get("id"),
     })
 
-    # Get chat history for context
-    history_cursor = db.chat_messages.find(
-        {"session_id": session_id}, {"_id": 0}
-    ).sort("timestamp", 1).limit(20)
-    history = await history_cursor.to_list(20)
-
-    # Build context from recent history
-    context_parts = []
-    for msg in history[:-1]:  # exclude the current message
-        role = "Usuario" if msg["role"] == "user" else "Asistente"
-        context_parts.append(f"{role}: {msg['content']}")
-    
-    full_message = user_message
-    if context_parts:
-        context_str = "\n".join(context_parts[-10:])  # last 5 exchanges
-        full_message = f"[Contexto previo de la conversación:\n{context_str}\n]\n\nMensaje actual: {user_message}"
-
+    # Call Claude
     chat = LlmChat(
         api_key=api_key,
         session_id=session_id,
-        system_message=SYSTEM_PROMPT,
+        system_message=system_prompt,
     ).with_model("anthropic", "claude-sonnet-4-5-20250929")
 
-    msg = UserMessage(text=full_message)
+    msg = UserMessage(text=user_message)
     response_text = await chat.send_message(msg)
 
-    # Parse action block if present
+    # Parse action block
     action = None
     clean_response = response_text
     if "<action>" in response_text and "</action>" in response_text:
@@ -92,9 +161,9 @@ async def process_chat(session_id: str, user_message: str, db, user: dict) -> di
             end = response_text.index("</action>")
             action_json = response_text[start:end].strip()
             action = json.loads(action_json)
-            # Clean action tags from displayed response
-            clean_response = response_text.replace(
-                response_text[response_text.index("<action>"):response_text.index("</action>") + 9], ""
+            clean_response = (
+                response_text[:response_text.index("<action>")].strip()
+                + response_text[end + 9:].strip()
             ).strip()
         except Exception:
             pass
@@ -111,6 +180,46 @@ async def process_chat(session_id: str, user_message: str, db, user: dict) -> di
 
     return {
         "message": clean_response,
-        "action": action,
+        "pending_action": action,
         "session_id": session_id,
+    }
+
+
+async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -> dict:
+    """Execute a confirmed action in Alegra."""
+    from alegra_service import AlegraService
+    service = AlegraService(db)
+
+    ACTION_MAP = {
+        "crear_factura_venta": ("invoices", "POST"),
+        "registrar_factura_compra": ("bills", "POST"),
+        "crear_causacion": ("journal-entries", "POST"),
+        "registrar_pago": ("payments", "POST"),
+        "crear_contacto": ("contacts", "POST"),
+    }
+
+    if action_type not in ACTION_MAP:
+        raise ValueError(f"Acción no reconocida: {action_type}")
+
+    endpoint, method = ACTION_MAP[action_type]
+    result = await service.request(endpoint, method, payload)
+
+    # Save execution to audit
+    await db.audit_logs.insert_one({
+        "id": str(uuid.uuid4()),
+        "user_id": user.get("id"),
+        "user_email": user.get("email"),
+        "endpoint": f"/chat/execute/{action_type}",
+        "method": method,
+        "request_body": payload,
+        "response_status": 200,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+
+    doc_id = result.get("id") or result.get("number") or ""
+    return {
+        "success": True,
+        "result": result,
+        "id": doc_id,
+        "message": f"Ejecutado en Alegra exitosamente",
     }
