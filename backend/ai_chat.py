@@ -86,16 +86,23 @@ Ejemplo de <action>:
 }
 </action>
 
+═══════════════════════════════════════════════════
+IVA CUATRIMESTRAL — ESTADO ACTUAL:
+═══════════════════════════════════════════════════
+{iva_context}
+
 IMPORTANTE: Responde siempre en español colombiano. Sé conciso y profesional.
+Cuando el usuario pregunte sobre IVA, SIEMPRE incluye el estado actual del período y 3+ sugerencias concretas para reducirlo.
 """
 
 
-async def gather_context(user_message: str, alegra_service) -> dict:
+async def gather_context(user_message: str, alegra_service, db) -> dict:
     """Gather relevant Alegra data to provide context to Claude."""
     context = {
         "fecha_actual": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         "contactos": [],
         "cuentas_bancarias": [],
+        "iva_status": None,
     }
     try:
         contacts = await alegra_service.request("contacts")
@@ -115,6 +122,67 @@ async def gather_context(user_message: str, alegra_service) -> dict:
     except Exception:
         pass
 
+    # Pull IVA status for cuatrimestral context
+    msg_lower = user_message.lower()
+    if any(w in msg_lower for w in ["iva", "impuesto", "dian", "declaraci", "periodo", "cuatrimest", "cuánto", "cuanto", "pagar"]):
+        try:
+            from server import db as main_db
+        except ImportError:
+            main_db = db
+        try:
+            from datetime import date as _date
+            now = datetime.now(timezone.utc)
+            cfg = await db.iva_config.find_one({}, {"_id": 0})
+            if not cfg:
+                cfg = {"tipo_periodo": "cuatrimestral", "periodos": [
+                    {"nombre": "Ene–Abr", "inicio_mes": 1, "fin_mes": 4, "dia_limite": 30, "mes_limite_offset": 1},
+                    {"nombre": "May–Ago", "inicio_mes": 5, "fin_mes": 8, "dia_limite": 30, "mes_limite_offset": 1},
+                    {"nombre": "Sep–Dic", "inicio_mes": 9, "fin_mes": 12, "dia_limite": 30, "mes_limite_offset": 1},
+                ], "saldo_favor_dian": 0}
+
+            mes = now.month
+            ano = now.year
+            periodos = cfg.get("periodos", [])
+            saldo_favor = float(cfg.get("saldo_favor_dian", 0))
+            periodo = next((p for p in periodos if p["inicio_mes"] <= mes <= p["fin_mes"]), periodos[-1] if periodos else None)
+            if periodo:
+                ds = f"{ano}-{str(periodo['inicio_mes']).zfill(2)}-01"
+                de = f"{ano}-{str(periodo['fin_mes']).zfill(2)}-28"
+                inv = await alegra_service.request("invoices", params={"date_start": ds, "date_end": de})
+                bills = await alegra_service.request("bills", params={"date_start": ds, "date_end": de})
+                inv = inv if isinstance(inv, list) else []
+                bills = bills if isinstance(bills, list) else []
+                tv = sum(float(i.get("total") or 0) for i in inv)
+                tc = sum(float(b.get("total") or 0) for b in bills)
+                iva_cobrado = round(tv / 1.19 * 0.19)
+                iva_desc = round(tc / 1.19 * 0.19)
+                iva_bruto = max(0, iva_cobrado - iva_desc)
+                iva_pagar = max(0, iva_bruto - saldo_favor)
+                meses_trans = max(1, mes - periodo["inicio_mes"] + 1)
+                meses_tot = periodo["fin_mes"] - periodo["inicio_mes"] + 1
+                mes_lim = periodo["fin_mes"] + periodo.get("mes_limite_offset", 1)
+                ano_lim = ano + (1 if mes_lim > 12 else 0)
+                mes_lim = mes_lim if mes_lim <= 12 else mes_lim - 12
+                fecha_lim = f"{ano_lim}-{str(mes_lim).zfill(2)}-{periodo.get('dia_limite', 30)}"
+                dias_rest = (_date.fromisoformat(fecha_lim) - _date.today()).days
+                context["iva_status"] = {
+                    "periodo": periodo["nombre"],
+                    "tipo": cfg.get("tipo_periodo", "cuatrimestral"),
+                    "fecha_limite": fecha_lim,
+                    "dias_restantes": dias_rest,
+                    "meses_transcurridos": meses_trans,
+                    "meses_total": meses_tot,
+                    "iva_cobrado_acumulado": iva_cobrado,
+                    "iva_descontable_acumulado": iva_desc,
+                    "iva_bruto_periodo": iva_bruto,
+                    "saldo_favor_dian": saldo_favor,
+                    "iva_pagar_estimado": iva_pagar,
+                    "facturas_venta": len(inv),
+                    "facturas_compra": len(bills),
+                }
+        except Exception:
+            pass
+
     return context
 
 
@@ -126,11 +194,28 @@ async def process_chat(session_id: str, user_message: str, db, user: dict) -> di
     alegra_service = AlegraService(db)
 
     # Gather context
-    context_data = await gather_context(user_message, alegra_service)
+    context_data = await gather_context(user_message, alegra_service, db)
     context_str = json.dumps(context_data, ensure_ascii=False)
 
+    # Build IVA context string
+    iva_ctx = context_data.get("iva_status")
+    if iva_ctx:
+        iva_context_str = (
+            f"Período: {iva_ctx['periodo']} | Tipo: {iva_ctx['tipo']} | "
+            f"Mes {iva_ctx['meses_transcurridos']} de {iva_ctx['meses_total']}\n"
+            f"Fecha límite: {iva_ctx['fecha_limite']} ({iva_ctx['dias_restantes']} días)\n"
+            f"IVA cobrado acumulado: ${iva_ctx['iva_cobrado_acumulado']:,.0f}\n"
+            f"IVA descontable acumulado: ${iva_ctx['iva_descontable_acumulado']:,.0f}\n"
+            f"IVA bruto del período: ${iva_ctx['iva_bruto_periodo']:,.0f}\n"
+            f"Saldo a favor DIAN: ${iva_ctx['saldo_favor_dian']:,.0f}\n"
+            f"⚠️ IVA ESTIMADO A PAGAR DIAN: ${iva_ctx['iva_pagar_estimado']:,.0f}\n"
+            f"Facturas: {iva_ctx['facturas_venta']} ventas / {iva_ctx['facturas_compra']} compras registradas"
+        )
+    else:
+        iva_context_str = "Pregunta sobre IVA para obtener el estado actualizado del período cuatrimestral."
+
     # Build system prompt with context
-    system_prompt = AGENT_SYSTEM_PROMPT.replace("{context}", context_str)
+    system_prompt = AGENT_SYSTEM_PROMPT.replace("{context}", context_str).replace("{iva_context}", iva_context_str)
 
     # Save user message to MongoDB
     await db.chat_messages.insert_one({

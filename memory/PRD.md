@@ -81,10 +81,14 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
 - KPIs: Total motos, Disponibles, Inversión total
 - CRUD completo en MongoDB (inventory_service.py)
 
-### 10. Impuestos y Alertas (Módulo 6)
-- Calendario fiscal Colombia 2025 con filtros por tipo
-- Calculadora IVA del período (IVA cobrado vs descontable)
-- Tabla de tarifas vigentes (UVT, SMLMV, IPOC, etc.)
+### 10. Impuestos y Alertas (Módulo 6 — actualizado v2.1)
+- **IVA configurable**: periodicidad (bimestral/cuatrimestral/anual) + períodos personalizados + fecha límite ajustable
+- **Saldo a favor DIAN**: campo configurable con fecha y nota — se aplica automáticamente al IVA a pagar
+- **Estado en tiempo real desde Alegra**: IVA cobrado acumulado, IVA descontable, IVA bruto, proyección al cierre del período
+- **Sugerencias inteligentes** para reducir IVA (urgentes si quedan <45 días)
+- **AI Chat actualizado**: incluye estado IVA cuatrimestral en contexto cuando el usuario pregunta por IVA
+- Calendario fiscal dinámico basado en configuración guardada
+- Tabla de tarifas vigentes Colombia 2025
 
 ### 11. Retenciones (Módulo 7)
 - Calculadora ReteFuente según tipo de transacción (tabla DIAN 2025)
