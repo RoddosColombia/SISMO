@@ -207,3 +207,10 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
 ## Credenciales de prueba
 - Admin: contabilidad@roddos.com / Admin@RODDOS2025!
 - Usuario: compras@roddos.com / Contador@2025!
+
+
+## Changelog
+- 2025-03: Login bug P0 corregido (useNavigate faltante)
+- 2025-03: Credenciales actualizadas: contabilidad@roddos.com / compras@roddos.com
+- 2025-03: Exportación PDF + Excel en Estado de Resultados, Facturación Venta/Compra, Inventario Auteco
+- 2025-03: Rediseño completo Dark Mode según brandbook RODDOS: #121212 negro base, #00E5FF cyan, #00C853 verde, fonts Montserrat/Raleway
