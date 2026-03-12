@@ -1,0 +1,162 @@
+{
+  "identity": {
+    "name": "RODDOS Contable IA",
+    "persona": "The Precision Architect",
+    "tone": "Professional, Reliable, Efficient, Intelligent",
+    "description": "An AI-powered accounting assistant for Colombian professionals, integrating seamlessly with Alegra ERP."
+  },
+  "typography": {
+    "primary_font": "Montserrat",
+    "secondary_font": "Source Sans 3",
+    "import_url": "https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Source+Sans+3:wght@400;500;600&display=swap",
+    "usage": {
+      "headings": "font-family: 'Montserrat', sans-serif; font-weight: 700;",
+      "body": "font-family: 'Source Sans 3', sans-serif;",
+      "data_tables": "font-family: 'Source Sans 3', sans-serif; font-feature-settings: 'tnum';",
+      "ui_elements": "font-family: 'Source Sans 3', sans-serif; font-weight: 500;"
+    },
+    "scale": {
+      "h1": "text-4xl font-bold tracking-tight",
+      "h2": "text-3xl font-bold tracking-tight",
+      "h3": "text-2xl font-semibold",
+      "p": "text-base leading-relaxed",
+      "small": "text-sm text-muted-foreground"
+    }
+  },
+  "colors": {
+    "palette": {
+      "primary": {
+        "DEFAULT": "#0F2A5C",
+        "foreground": "#FFFFFF",
+        "hover": "#163A7A",
+        "active": "#0A1D40"
+      },
+      "secondary": {
+        "DEFAULT": "#C9A84C",
+        "foreground": "#0F2A5C",
+        "hover": "#D4B65D",
+        "muted": "#E5D4A1"
+      },
+      "background": {
+        "DEFAULT": "#F8FAFC",
+        "paper": "#FFFFFF",
+        "subtle": "#F1F5F9"
+      },
+      "status": {
+        "success": "#10B981",
+        "error": "#EF4444",
+        "warning": "#F59E0B",
+        "info": "#3B82F6",
+        "alegra": "#00A9E0" 
+      },
+      "text": {
+        "main": "#0F172A",
+        "muted": "#64748B",
+        "inverted": "#FFFFFF"
+      }
+    },
+    "gradients": {
+      "gold_sheen": "linear-gradient(135deg, #C9A84C 0%, #E5D4A1 100%)",
+      "navy_depth": "linear-gradient(180deg, #0F2A5C 0%, #0A1D40 100%)"
+    }
+  },
+  "layout_strategy": {
+    "structure": {
+      "sidebar_width": "280px",
+      "header_height": "64px",
+      "container_padding": "p-6 md:p-8 lg:p-10",
+      "max_width": "max-w-7xl mx-auto"
+    },
+    "grid_system": {
+      "dashboard": "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6",
+      "form_layout": "grid grid-cols-1 md:grid-cols-2 gap-6",
+      "detail_view": "grid grid-cols-12 gap-8"
+    },
+    "z_index": {
+      "toast": 50,
+      "modal": 40,
+      "sidebar": 30,
+      "header": 20,
+      "floating_action": 35
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-[#0F2A5C] text-white hover:bg-[#163A7A] hover:shadow-lg transition-all duration-200 rounded-md font-semibold px-6 py-2.5",
+      "secondary": "bg-[#C9A84C] text-[#0F2A5C] hover:bg-[#D4B65D] font-semibold rounded-md px-6 py-2.5",
+      "outline": "border-2 border-[#0F2A5C] text-[#0F2A5C] hover:bg-[#F0F4FF] font-semibold rounded-md px-6 py-2.5",
+      "ghost": "text-[#64748B] hover:text-[#0F2A5C] hover:bg-[#F1F5F9] rounded-md px-4 py-2"
+    },
+    "cards": {
+      "default": "bg-white rounded-xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow duration-300",
+      "interactive": "bg-white rounded-xl shadow-sm border border-slate-100 hover:border-[#C9A84C]/50 hover:shadow-lg cursor-pointer transition-all duration-300",
+      "metric": "bg-white p-6 rounded-xl border-l-4 border-[#0F2A5C] shadow-sm"
+    },
+    "inputs": {
+      "default": "bg-white border-slate-200 focus:border-[#C9A84C] focus:ring-1 focus:ring-[#C9A84C] rounded-md h-11 text-base",
+      "search": "bg-[#F1F5F9] border-transparent focus:bg-white focus:border-[#C9A84C] rounded-full px-5"
+    },
+    "tables": {
+      "container": "rounded-lg border border-slate-200 overflow-hidden bg-white shadow-sm",
+      "header": "bg-[#F8FAFC] text-[#64748B] font-semibold uppercase text-xs tracking-wider py-4",
+      "row": "border-b border-slate-100 hover:bg-[#F0F4FF]/50 transition-colors",
+      "cell": "py-4 px-6 text-sm text-[#0F172A]"
+    },
+    "sidebar": {
+      "container": "bg-[#0F2A5C] text-white h-screen fixed left-0 top-0 border-r border-[#163A7A]",
+      "link": "text-slate-300 hover:text-white hover:bg-[#FFFFFF]/10 rounded-lg px-3 py-2.5 transition-colors flex items-center gap-3",
+      "active_link": "bg-[#C9A84C] text-[#0F2A5C] font-semibold shadow-md"
+    },
+    "alegra_selector": {
+      "container": "bg-[#F0F4FF] border border-[#00A9E0]/20 rounded-lg p-4 flex items-center gap-3",
+      "badge": "bg-[#00A9E0] text-white text-xs font-bold px-2 py-0.5 rounded-full"
+    }
+  },
+  "assets": {
+    "images": {
+      "login_bg": "https://images.unsplash.com/photo-1748346918817-0b1b6b2f9bab?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBhY2NvdW50YW50JTIwd29ya2luZyUyMG1vZGVybiUyMG9mZmljZXxlbnwwfHx8fDE3NzMzNTA1NzV8MA&ixlib=rb-4.1.0&q=85",
+      "hero_abstract": "https://images.unsplash.com/photo-1688011852608-dff8cdb43f2d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTF8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMGZpbmFuY2lhbCUyMGRhdGElMjB2aXN1YWxpemF0aW9uJTIwdGVjaG5vbG9neSUyMGJsdWUlMjBnb2xkfGVufDB8fHx8MTc3MzM1MDU3Nnww&ixlib=rb-4.1.0&q=85",
+      "office_context": "https://images.unsplash.com/photo-1765366417030-16d9765d920a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Nzd8MHwxfHNlYXJjaHw0fHxwcm9mZXNzaW9uYWwlMjBhY2NvdW50YW50JTIwd29ya2luZyUyMG1vZGVybiUyMG9mZmljZXxlbnwwfHx8fDE3NzMzNTA1NzV8MA&ixlib=rb-4.1.0&q=85"
+    },
+    "icons": {
+      "library": "lucide-react",
+      "style": "stroke-width: 1.5px;"
+    }
+  },
+  "motion": {
+    "transitions": "transition-all duration-200 ease-in-out",
+    "hover_lift": "hover:-translate-y-1 hover:shadow-lg",
+    "page_transition": {
+      "initial": { "opacity": 0, "y": 10 },
+      "animate": { "opacity": 1, "y": 0 },
+      "exit": { "opacity": 0, "y": -10 },
+      "transition": { "duration": 0.3 }
+    }
+  },
+  "universal_guidelines": {
+    "do": [
+      "Use high contrast for text (APCA standards).",
+      "Align numbers to the right in tables.",
+      "Use the 'Gold' accent sparingly for CTAs and focus states.",
+      "Keep the dashboard high-density but legible.",
+      "Ensure the 'Alegra Connected' status is always visible in the header."
+    ],
+    "dont": [
+      "Do not use gradients for main backgrounds.",
+      "Do not use center alignment for long text.",
+      "Avoid 'SaaS Blue' generic colors; stick to the Navy/Gold brand.",
+      "Do not clutter the interface; use progressive disclosure (modals/drawers) for complex forms."
+    ],
+    "accessibility": "Ensure all form inputs have labels. Use ARIA roles for custom components. Support keyboard navigation."
+  },
+  "instructions_to_main_agent": [
+    "1. UPDATE index.html/index.css to import Montserrat and Source Sans 3 from Google Fonts.",
+    "2. CONFIGURE tailwind.config.js to use the RODDOS color palette (primary: #0F2A5C, secondary: #C9A84C, etc.).",
+    "3. IMPLEMENT the 'Layout' component with the fixed sidebar and sticky header.",
+    "4. BUILD the 'AlegraAccountSelector' component specifically as requested.",
+    "5. USE Shadcn UI for all interactive elements but OVERRIDE default styles with the classes defined in 'components' section.",
+    "6. ENSURE the AI Chat widget is a floating component in the bottom-right corner.",
+    "7. START with the Login page using the 'login_bg' image.",
+    "8. CREATE the Dashboard with the 'Bento' grid layout."
+  ]
+}
