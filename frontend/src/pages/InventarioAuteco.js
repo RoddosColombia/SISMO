@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Upload, RefreshCw, CheckCircle2, XCircle, Loader2, Bike,
-  TrendingUp, Package, Tag, AlertCircle, Edit2, Trash2, Link, ShoppingBag
+  TrendingUp, Package, Tag, AlertCircle, Edit2, Trash2, Link, ShoppingBag, FileDown
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
 import { formatCOP, formatDate } from "../utils/formatters";
+import { exportExcel } from "../utils/exportUtils";
 
 const ESTADO_COLORS = {
   Disponible: "bg-emerald-100 text-emerald-700 border-emerald-200",
@@ -158,6 +159,45 @@ export default function InventarioAuteco() {
     setEditData({ placa: moto.placa || "", estado: moto.estado, ubicacion: moto.ubicacion || "" });
   };
 
+  const handleExportExcel = () => {
+    exportExcel({
+      filename: `inventario-auteco-${new Date().toISOString().slice(0, 10)}`,
+      sheets: [{
+        name: "Inventario Motos",
+        columns: [
+          { key: "placa", label: "Placa", width: 14 },
+          { key: "marca", label: "Marca", width: 16 },
+          { key: "version", label: "Versión", width: 22 },
+          { key: "color", label: "Color", width: 14 },
+          { key: "ano_modelo", label: "Año", width: 10 },
+          { key: "motor", label: "Motor", width: 16 },
+          { key: "chasis", label: "Chasis", width: 18 },
+          { key: "costo", label: "Costo", width: 16 },
+          { key: "iva_compra", label: "IVA Compra", width: 16 },
+          { key: "ipoconsumo", label: "IPOC", width: 14 },
+          { key: "total", label: "Total", width: 16 },
+          { key: "estado", label: "Estado", width: 14 },
+          { key: "ubicacion", label: "Ubicación", width: 20 },
+        ],
+        rows: motos.map(m => ({
+          placa: m.placa || "—",
+          marca: m.marca || "—",
+          version: m.version || "—",
+          color: m.color || "—",
+          ano_modelo: m.ano_modelo || "—",
+          motor: m.motor || "—",
+          chasis: m.chasis || "—",
+          costo: parseFloat(m.costo || 0),
+          iva_compra: parseFloat(m.iva_compra || 0),
+          ipoconsumo: parseFloat(m.ipoconsumo || 0),
+          total: parseFloat(m.total || 0),
+          estado: m.estado || "—",
+          ubicacion: m.ubicacion || "—",
+        })),
+      }],
+    });
+  };
+
   return (
     <div className="space-y-6 max-w-full">
       {/* Header */}
@@ -174,6 +214,12 @@ export default function InventarioAuteco() {
           >
             <RefreshCw size={13} className={loading ? "animate-spin" : ""} /> Actualizar
           </button>
+          {!loading && motos.length > 0 && (
+            <button onClick={handleExportExcel} data-testid="export-excel-inventory-btn"
+              className="flex items-center gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg transition">
+              <FileDown size={13} /> Excel
+            </button>
+          )}
           <label className="flex items-center gap-2 bg-[#0F2A5C] hover:bg-[#163A7A] text-white text-sm font-medium px-4 py-2 rounded-lg cursor-pointer transition" data-testid="upload-pdf-btn">
             {uploading ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
             {uploading ? "Procesando PDF..." : "Importar Factura PDF"}

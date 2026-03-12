@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Plus, Search, Send, Ban, RefreshCw, Loader2 } from "lucide-react";
+import { Plus, Search, Send, Ban, RefreshCw, Loader2, FileDown } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../components/ui/sheet";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -10,6 +10,7 @@ import JournalEntryPreview from "../components/JournalEntryPreview";
 import { useAuth } from "../contexts/AuthContext";
 import { useAlegra } from "../contexts/AlegraContext";
 import { formatCOP, formatDate, todayStr, addDays, getStatusInfo, calcIVA } from "../utils/formatters";
+import { exportExcel } from "../utils/exportUtils";
 import { toast } from "sonner";
 
 const EMPTY_ITEM = { description: "", quantity: 1, price: 0, ivaRate: 19, account: null };
@@ -126,6 +127,34 @@ export default function FacturacionVenta() {
     inv.client?.name?.toLowerCase().includes(search.toLowerCase())
   );
 
+  const handleExportExcel = () => {
+    const STATUS_ES = { open: "Pendiente", paid: "Pagada", overdue: "Vencida", voided: "Anulada", draft: "Borrador" };
+    exportExcel({
+      filename: `facturas-venta-${new Date().toISOString().slice(0, 10)}`,
+      sheets: [{
+        name: "Facturas Venta",
+        columns: [
+          { key: "numero", label: "Número", width: 18 },
+          { key: "cliente", label: "Cliente", width: 30 },
+          { key: "fecha", label: "Fecha", width: 14 },
+          { key: "vencimiento", label: "Vencimiento", width: 14 },
+          { key: "subtotal", label: "Subtotal", width: 16 },
+          { key: "total", label: "Total", width: 16 },
+          { key: "estado", label: "Estado", width: 14 },
+        ],
+        rows: filtered.map(inv => ({
+          numero: inv.number || inv.id,
+          cliente: inv.client?.name || "—",
+          fecha: inv.date || "—",
+          vencimiento: inv.dueDate || "—",
+          subtotal: parseFloat(inv.subtotal || 0),
+          total: parseFloat(inv.total || 0),
+          estado: STATUS_ES[inv.status] || inv.status || "—",
+        })),
+      }],
+    });
+  };
+
   return (
     <div className="space-y-5" data-testid="facturacion-venta-page">
       {/* Header */}
@@ -138,6 +167,12 @@ export default function FacturacionVenta() {
           <button onClick={loadInvoices} className="p-2.5 border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-500">
             <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
           </button>
+          {!loading && filtered.length > 0 && (
+            <button onClick={handleExportExcel} data-testid="export-excel-invoices-btn"
+              className="flex items-center gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg transition">
+              <FileDown size={13} /> Excel
+            </button>
+          )}
           <Button onClick={openNewInvoice} className="bg-[#0F2A5C] hover:bg-[#163A7A] text-white" data-testid="new-invoice-btn">
             <Plus size={16} className="mr-1.5" /> Nueva Factura
           </Button>

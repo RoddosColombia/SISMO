@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Plus, Search, RefreshCw, Loader2, Send } from "lucide-react";
+import { Plus, Search, RefreshCw, Loader2, Send, FileDown } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../components/ui/sheet";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -10,6 +10,7 @@ import JournalEntryPreview from "../components/JournalEntryPreview";
 import { useAuth } from "../contexts/AuthContext";
 import { useAlegra } from "../contexts/AlegraContext";
 import { formatCOP, formatDate, todayStr, addDays, getStatusInfo, calcIVA } from "../utils/formatters";
+import { exportExcel } from "../utils/exportUtils";
 import { toast } from "sonner";
 
 const EMPTY_ITEM = { description: "", quantity: 1, price: 0, ivaRate: 19, account: null };
@@ -117,6 +118,32 @@ export default function FacturacionCompra() {
     b.provider?.name?.toLowerCase().includes(search.toLowerCase())
   );
 
+  const handleExportExcel = () => {
+    const STATUS_ES = { open: "Pendiente", paid: "Pagada", overdue: "Vencida", voided: "Anulada", draft: "Borrador" };
+    exportExcel({
+      filename: `facturas-compra-${new Date().toISOString().slice(0, 10)}`,
+      sheets: [{
+        name: "Facturas Compra",
+        columns: [
+          { key: "numero", label: "Número", width: 18 },
+          { key: "proveedor", label: "Proveedor", width: 30 },
+          { key: "fecha", label: "Fecha", width: 14 },
+          { key: "vencimiento", label: "Vencimiento", width: 14 },
+          { key: "total", label: "Total", width: 16 },
+          { key: "estado", label: "Estado", width: 14 },
+        ],
+        rows: filtered.map(b => ({
+          numero: b.number || b.id,
+          proveedor: b.provider?.name || "—",
+          fecha: b.date || "—",
+          vencimiento: b.dueDate || "—",
+          total: parseFloat(b.total || 0),
+          estado: STATUS_ES[b.status] || b.status || "—",
+        })),
+      }],
+    });
+  };
+
   return (
     <div className="space-y-5" data-testid="facturacion-compra-page">
       <div className="flex items-center justify-between">
@@ -128,6 +155,12 @@ export default function FacturacionCompra() {
           <button onClick={loadBills} className="p-2.5 border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-500">
             <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
           </button>
+          {!loading && filtered.length > 0 && (
+            <button onClick={handleExportExcel} data-testid="export-excel-bills-btn"
+              className="flex items-center gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg transition">
+              <FileDown size={13} /> Excel
+            </button>
+          )}
           <Button onClick={openNew} className="bg-[#0F2A5C] hover:bg-[#163A7A] text-white" data-testid="new-bill-btn">
             <Plus size={16} className="mr-1.5" /> Registrar Compra
           </Button>
