@@ -191,7 +191,7 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
 - Ninguno pendiente
 
 ### P1 — Alta prioridad
-- Exportar facturas/causaciones a PDF/Excel
+- ~~Exportar facturas/causaciones a PDF/Excel~~ ✅ COMPLETADO
 - Notificaciones de facturas próximas a vencer
 - Módulo de ventas de motos Auteco (vinculado al inventario)
 
