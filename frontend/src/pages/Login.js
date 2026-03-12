@@ -107,13 +107,13 @@ export default function Login() {
               <div className="mt-5 pt-5 border-t border-white/10">
                 <p className="text-[11px] text-white/40 text-center mb-2">Acceso demo</p>
                 <div className="grid grid-cols-2 gap-2">
-                  <button onClick={() => setForm({ email: "admin@roddos.com", password: "Admin@RODDOS2025!" })}
+                  <button onClick={() => setForm({ email: "contabilidad@roddos.com", password: "Admin@RODDOS2025!" })}
                     className="text-xs bg-white/10 hover:bg-white/20 text-white/70 py-2 px-3 rounded-lg transition" data-testid="demo-admin-btn">
-                    Admin
+                    Contabilidad
                   </button>
-                  <button onClick={() => setForm({ email: "contador@roddos.com", password: "Contador@2025!" })}
+                  <button onClick={() => setForm({ email: "compras@roddos.com", password: "Contador@2025!" })}
                     className="text-xs bg-white/10 hover:bg-white/20 text-white/70 py-2 px-3 rounded-lg transition" data-testid="demo-user-btn">
-                    Contador
+                    Compras
                   </button>
                 </div>
               </div>

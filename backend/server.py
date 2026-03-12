@@ -75,11 +75,11 @@ async def startup():
     count = await db.users.count_documents({})
     if count == 0:
         users = [
-            {"id": str(uuid.uuid4()), "email": "admin@roddos.com", "password_hash": hash_password("Admin@RODDOS2025!"),
-             "name": "Administrador RODDOS", "role": "admin", "is_active": True,
+            {"id": str(uuid.uuid4()), "email": "contabilidad@roddos.com", "password_hash": hash_password("Admin@RODDOS2025!"),
+             "name": "Contabilidad RODDOS", "role": "admin", "is_active": True,
              "created_at": datetime.now(timezone.utc).isoformat()},
-            {"id": str(uuid.uuid4()), "email": "contador@roddos.com", "password_hash": hash_password("Contador@2025!"),
-             "name": "Contador Principal", "role": "user", "is_active": True,
+            {"id": str(uuid.uuid4()), "email": "compras@roddos.com", "password_hash": hash_password("Contador@2025!"),
+             "name": "Compras RODDOS", "role": "user", "is_active": True,
              "created_at": datetime.now(timezone.utc).isoformat()},
         ]
         await db.users.insert_many(users)
