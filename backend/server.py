@@ -184,11 +184,6 @@ async def get_2fa_status(current_user=Depends(get_current_user)):
     return {"totp_enabled": user.get("totp_enabled", False)}
 
 
-@api_router.get("/auth/me")
-async def me(current_user=Depends(get_current_user)):
-    return {"id": current_user["id"], "email": current_user["email"], "name": current_user["name"], "role": current_user["role"]}
-
-
 # ─── SETTINGS ─────────────────────────────────────────────────────────────────
 
 @api_router.get("/settings/credentials")

@@ -205,5 +205,5 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
 ---
 
 ## Credenciales de prueba
-- Admin: admin@roddos.com / Admin@RODDOS2025!
-- Usuario: contador@roddos.com / Contador@2025!
+- Admin: contabilidad@roddos.com / Admin@RODDOS2025!
+- Usuario: compras@roddos.com / Contador@2025!

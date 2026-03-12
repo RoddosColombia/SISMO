@@ -145,7 +145,7 @@ export default function Settings() {
         <TabsList className="bg-slate-100">
           <TabsTrigger value="alegra" data-testid="tab-alegra">Integración Alegra</TabsTrigger>
           <TabsTrigger value="accounts" data-testid="tab-accounts">Cuentas Predeterminadas</TabsTrigger>
-          <TabsTrigger value="security" data-testid="tab-security">Seguridad</TabsTrigger>
+          {user?.role === "admin" && <TabsTrigger value="security" data-testid="tab-security">Seguridad</TabsTrigger>}
           <TabsTrigger value="audit" data-testid="tab-audit">Auditoría</TabsTrigger>
           <TabsTrigger value="webhooks" data-testid="tab-webhooks">Webhooks</TabsTrigger>
         </TabsList>
