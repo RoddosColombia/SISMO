@@ -16,22 +16,32 @@ const CHART_DATA = [
   { month: "Oct", ingresos: 23865000, gastos: 17258000 },
 ];
 
-function KpiCard({ title, value, subtitle, icon: Icon, iconColor, borderColor, delta, testId }) {
+function KpiCard({ title, value, subtitle, icon: Icon, accentColor, delta, testId }) {
   return (
-    <div className={`bg-white rounded-xl p-5 border-l-4 ${borderColor} shadow-sm hover:shadow-md transition-shadow`} data-testid={testId}>
+    <div
+      className="rounded-xl p-5 transition-all hover:scale-[1.01]"
+      style={{
+        background: "#1A1A1A",
+        border: `1px solid #1E1E1E`,
+        borderLeft: `3px solid ${accentColor}`,
+      }}
+      data-testid={testId}
+    >
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{title}</p>
-          <p className="text-2xl font-bold text-[#0F172A] font-montserrat mt-1">{value}</p>
-          {subtitle && <p className="text-xs text-slate-500 mt-1">{subtitle}</p>}
+          <p className="text-[10px] font-bold uppercase tracking-widest mb-1.5" style={{ color: "#555" }}>{title}</p>
+          <p className="text-2xl font-black font-montserrat" style={{ color: "#E8E8E8" }}>{value}</p>
+          {subtitle && <p className="text-xs mt-1" style={{ color: "#555" }}>{subtitle}</p>}
         </div>
-        <div className={`w-11 h-11 rounded-xl ${iconColor} flex items-center justify-center flex-shrink-0`}>
-          <Icon size={20} />
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+          style={{ background: `${accentColor}15` }}>
+          <Icon size={18} style={{ color: accentColor }} />
         </div>
       </div>
       {delta !== undefined && (
-        <div className={`flex items-center gap-1 mt-3 text-xs font-medium ${delta >= 0 ? "text-green-600" : "text-red-600"}`}>
-          {delta >= 0 ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
+        <div className="flex items-center gap-1 mt-3 text-xs font-semibold"
+          style={{ color: delta >= 0 ? "#00C853" : "#FF4444" }}>
+          {delta >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
           {Math.abs(delta)}% vs mes anterior
         </div>
       )}
@@ -77,8 +87,8 @@ export default function Dashboard() {
   const CustomTooltip = ({ active, payload, label }) => {
     if (!active || !payload?.length) return null;
     return (
-      <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-lg text-sm">
-        <p className="font-semibold text-slate-700 mb-2">{label}</p>
+      <div className="rounded-xl p-3 shadow-xl text-sm" style={{ background: "#1A1A1A", border: "1px solid #2A2A2A" }}>
+        <p className="font-bold text-white mb-2">{label}</p>
         {payload.map(p => (
           <p key={p.name} style={{ color: p.color }} className="font-medium">{p.name}: {formatCOP(p.value)}</p>
         ))}
@@ -91,11 +101,15 @@ export default function Dashboard() {
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-[#0F172A] font-montserrat">Dashboard Financiero</h2>
-          <p className="text-sm text-slate-500">Octubre 2025 — Datos en tiempo real de Alegra</p>
+          <h2 className="text-xl font-black text-white font-montserrat">Dashboard Financiero</h2>
+          <p className="text-xs mt-1" style={{ color: "#555" }}>Octubre 2025 — Datos en tiempo real de Alegra</p>
         </div>
-        <button onClick={loadData} className="flex items-center gap-2 text-sm text-slate-500 hover:text-[#0F2A5C] border border-slate-200 px-3 py-2 rounded-lg hover:border-[#0F2A5C] transition-colors" data-testid="refresh-dashboard-btn">
-          <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Actualizar
+        <button onClick={loadData}
+          className="flex items-center gap-2 text-xs font-semibold px-3 py-2 rounded-lg transition"
+          style={{ background: "#1A1A1A", border: "1px solid #2A2A2A", color: "#888" }}
+          data-testid="refresh-dashboard-btn">
+          <RefreshCw size={13} className={loading ? "animate-spin" : ""} style={{ color: "#00E5FF" }} />
+          Actualizar
         </button>
       </div>
 
@@ -104,34 +118,34 @@ export default function Dashboard() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" data-testid="kpi-cards">
-        <KpiCard title="Ventas del Mes" value={formatCOP(totalVentas)} subtitle="5 facturas emitidas" icon={TrendingUp} iconColor="bg-blue-50 text-blue-600" borderColor="border-[#0F2A5C]" delta={12} testId="kpi-ventas" />
-        <KpiCard title="Gastos del Mes" value={formatCOP(totalGastos)} subtitle="5 facturas de compra" icon={TrendingDown} iconColor="bg-red-50 text-red-500" borderColor="border-red-400" delta={-3} testId="kpi-gastos" />
-        <KpiCard title="Flujo de Caja" value={formatCOP(flujoCaja)} subtitle={flujoCaja >= 0 ? "Positivo" : "Negativo"} icon={DollarSign} iconColor="bg-green-50 text-green-600" borderColor="border-green-500" testId="kpi-flujo" />
-        <KpiCard title="Por Cobrar" value={formatCOP(pendientes)} subtitle="Facturas pendientes y vencidas" icon={Clock} iconColor="bg-amber-50 text-amber-600" borderColor="border-[#C9A84C]" testId="kpi-por-cobrar" />
+        <KpiCard title="Ventas del Mes"  value={formatCOP(totalVentas)} subtitle="5 facturas emitidas"         icon={TrendingUp}   accentColor="#00E5FF" delta={12}  testId="kpi-ventas" />
+        <KpiCard title="Gastos del Mes"  value={formatCOP(totalGastos)} subtitle="5 facturas de compra"        icon={TrendingDown}  accentColor="#FF4444" delta={-3}  testId="kpi-gastos" />
+        <KpiCard title="Flujo de Caja"   value={formatCOP(flujoCaja)}   subtitle={flujoCaja >= 0 ? "Positivo" : "Negativo"} icon={DollarSign} accentColor="#00C853" testId="kpi-flujo" />
+        <KpiCard title="Por Cobrar"      value={formatCOP(pendientes)}  subtitle="Facturas pendientes y vencidas" icon={Clock}       accentColor="#FFB300" testId="kpi-por-cobrar" />
       </div>
 
       {/* Chart */}
-      <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5" data-testid="revenue-chart">
-        <h3 className="text-sm font-bold text-[#0F2A5C] font-montserrat mb-4">Ingresos vs Gastos — Últimos 6 meses</h3>
+      <div className="rounded-xl p-5" style={{ background: "#1A1A1A", border: "1px solid #1E1E1E" }} data-testid="revenue-chart">
+        <h3 className="text-sm font-bold text-white font-montserrat mb-4">Ingresos vs Gastos — Últimos 6 meses</h3>
         <ResponsiveContainer width="100%" height={220}>
           <AreaChart data={CHART_DATA} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
             <defs>
               <linearGradient id="colorIngresos" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#0F2A5C" stopOpacity={0.15} />
-                <stop offset="95%" stopColor="#0F2A5C" stopOpacity={0} />
+                <stop offset="5%"  stopColor="#00E5FF" stopOpacity={0.25} />
+                <stop offset="95%" stopColor="#00E5FF" stopOpacity={0} />
               </linearGradient>
               <linearGradient id="colorGastos" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#C9A84C" stopOpacity={0.15} />
-                <stop offset="95%" stopColor="#C9A84C" stopOpacity={0} />
+                <stop offset="5%"  stopColor="#FF4444" stopOpacity={0.2} />
+                <stop offset="95%" stopColor="#FF4444" stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
-            <XAxis dataKey="month" tick={{ fontSize: 12, fill: "#64748B" }} />
-            <YAxis tickFormatter={(v) => `$${(v / 1000000).toFixed(1)}M`} tick={{ fontSize: 11, fill: "#64748B" }} />
+            <CartesianGrid strokeDasharray="3 3" stroke="#1E1E1E" />
+            <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#555" }} />
+            <YAxis tickFormatter={(v) => `$${(v / 1000000).toFixed(1)}M`} tick={{ fontSize: 10, fill: "#555" }} />
             <Tooltip content={<CustomTooltip />} />
-            <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "12px" }} />
-            <Area type="monotone" dataKey="ingresos" name="Ingresos" stroke="#0F2A5C" strokeWidth={2} fill="url(#colorIngresos)" />
-            <Area type="monotone" dataKey="gastos" name="Gastos" stroke="#C9A84C" strokeWidth={2} fill="url(#colorGastos)" />
+            <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: "12px", color: "#888" }} />
+            <Area type="monotone" dataKey="ingresos" name="Ingresos" stroke="#00E5FF" strokeWidth={2} fill="url(#colorIngresos)" />
+            <Area type="monotone" dataKey="gastos"   name="Gastos"   stroke="#FF4444"  strokeWidth={2} fill="url(#colorGastos)" />
           </AreaChart>
         </ResponsiveContainer>
       </div>
@@ -139,16 +153,16 @@ export default function Dashboard() {
       {/* Tables */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {/* Invoices */}
-        <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden" data-testid="recent-invoices">
-          <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
-            <h3 className="text-sm font-bold text-[#0F2A5C] font-montserrat">Últimas Facturas de Venta</h3>
-            <button onClick={() => navigate("/facturacion-venta")} className="text-xs text-[#0F2A5C] hover:text-[#C9A84C] flex items-center gap-1 font-medium">
+        <div className="rounded-xl overflow-hidden" style={{ background: "#1A1A1A", border: "1px solid #1E1E1E" }} data-testid="recent-invoices">
+          <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: "1px solid #1E1E1E" }}>
+            <h3 className="text-sm font-bold text-white font-montserrat">Últimas Facturas de Venta</h3>
+            <button onClick={() => navigate("/facturacion-venta")} className="text-xs flex items-center gap-1 font-medium" style={{ color: "#00E5FF" }}>
               Ver todas <ChevronRight size={13} />
             </button>
           </div>
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+              <tr className="text-[10px] font-bold uppercase tracking-wider" style={{ background: "#161616", color: "#555" }}>
                 <th className="text-left px-4 py-2.5">Número</th>
                 <th className="text-left px-4 py-2.5">Cliente</th>
                 <th className="text-right px-4 py-2.5">Total</th>
@@ -157,12 +171,14 @@ export default function Dashboard() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={4} className="px-4 py-8 text-center text-sm text-slate-400">Cargando...</td></tr>
+                <tr><td colSpan={4} className="px-4 py-8 text-center text-sm" style={{ color: "#444" }}>Cargando...</td></tr>
               ) : invoices.map((inv) => (
-                <tr key={inv.id} className="border-t border-slate-50 hover:bg-[#F0F4FF]/30 transition-colors">
-                  <td className="px-4 py-2.5 font-mono text-xs text-slate-600">{inv.number}</td>
-                  <td className="px-4 py-2.5 text-slate-700 max-w-[120px] truncate">{inv.client?.name}</td>
-                  <td className="px-4 py-2.5 text-right font-semibold text-[#0F172A] num-right">{formatCOP(inv.total)}</td>
+                <tr key={inv.id} className="transition-colors" style={{ borderTop: "1px solid #161616" }}
+                  onMouseEnter={e => e.currentTarget.style.background = "#1E1E1E"}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                  <td className="px-4 py-2.5 font-mono text-xs" style={{ color: "#888" }}>{inv.number}</td>
+                  <td className="px-4 py-2.5 max-w-[120px] truncate" style={{ color: "#E8E8E8" }}>{inv.client?.name}</td>
+                  <td className="px-4 py-2.5 text-right font-bold num-right" style={{ color: "#00E5FF" }}>{formatCOP(inv.total)}</td>
                   <td className="px-4 py-2.5 text-center"><StatusBadge status={inv.status} /></td>
                 </tr>
               ))}
@@ -171,16 +187,16 @@ export default function Dashboard() {
         </div>
 
         {/* Bills */}
-        <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden" data-testid="recent-bills">
-          <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
-            <h3 className="text-sm font-bold text-[#0F2A5C] font-montserrat">Últimas Facturas de Compra</h3>
-            <button onClick={() => navigate("/facturacion-compra")} className="text-xs text-[#0F2A5C] hover:text-[#C9A84C] flex items-center gap-1 font-medium">
+        <div className="rounded-xl overflow-hidden" style={{ background: "#1A1A1A", border: "1px solid #1E1E1E" }} data-testid="recent-bills">
+          <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: "1px solid #1E1E1E" }}>
+            <h3 className="text-sm font-bold text-white font-montserrat">Últimas Facturas de Compra</h3>
+            <button onClick={() => navigate("/facturacion-compra")} className="text-xs flex items-center gap-1 font-medium" style={{ color: "#00E5FF" }}>
               Ver todas <ChevronRight size={13} />
             </button>
           </div>
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+              <tr className="text-[10px] font-bold uppercase tracking-wider" style={{ background: "#161616", color: "#555" }}>
                 <th className="text-left px-4 py-2.5">Número</th>
                 <th className="text-left px-4 py-2.5">Proveedor</th>
                 <th className="text-right px-4 py-2.5">Total</th>
@@ -189,12 +205,14 @@ export default function Dashboard() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={4} className="px-4 py-8 text-center text-sm text-slate-400">Cargando...</td></tr>
+                <tr><td colSpan={4} className="px-4 py-8 text-center text-sm" style={{ color: "#444" }}>Cargando...</td></tr>
               ) : bills.map((bill) => (
-                <tr key={bill.id} className="border-t border-slate-50 hover:bg-[#F0F4FF]/30 transition-colors">
-                  <td className="px-4 py-2.5 font-mono text-xs text-slate-600">{bill.number}</td>
-                  <td className="px-4 py-2.5 text-slate-700 max-w-[120px] truncate">{bill.provider?.name}</td>
-                  <td className="px-4 py-2.5 text-right font-semibold text-[#0F172A] num-right">{formatCOP(bill.total)}</td>
+                <tr key={bill.id} className="transition-colors" style={{ borderTop: "1px solid #161616" }}
+                  onMouseEnter={e => e.currentTarget.style.background = "#1E1E1E"}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                  <td className="px-4 py-2.5 font-mono text-xs" style={{ color: "#888" }}>{bill.number}</td>
+                  <td className="px-4 py-2.5 max-w-[120px] truncate" style={{ color: "#E8E8E8" }}>{bill.provider?.name}</td>
+                  <td className="px-4 py-2.5 text-right font-bold num-right" style={{ color: "#FF4444" }}>{formatCOP(bill.total)}</td>
                   <td className="px-4 py-2.5 text-center"><StatusBadge status={bill.status} /></td>
                 </tr>
               ))}
@@ -204,8 +222,8 @@ export default function Dashboard() {
       </div>
 
       {/* Quick Actions */}
-      <div className="bg-gradient-to-r from-[#0F2A5C] to-[#163A7A] rounded-xl p-5 text-white" data-testid="quick-actions">
-        <h3 className="text-sm font-bold mb-3 font-montserrat">Acciones Rápidas</h3>
+      <div className="rounded-xl p-5" style={{ background: "linear-gradient(135deg, #121212, #1A1A1A)", border: "1px solid #00E5FF20" }} data-testid="quick-actions">
+        <h3 className="text-sm font-bold text-white mb-3 font-montserrat">Acciones Rápidas</h3>
         <div className="flex flex-wrap gap-2">
           {[
             { label: "Nueva Factura Venta", path: "/facturacion-venta" },
@@ -216,7 +234,20 @@ export default function Dashboard() {
             <button
               key={a.path}
               onClick={() => navigate(a.path)}
-              className="text-xs font-semibold bg-white/10 hover:bg-[#C9A84C] hover:text-[#0F2A5C] px-4 py-2 rounded-lg transition-colors border border-white/20"
+              className="text-xs font-semibold px-4 py-2 rounded-lg transition-all hover:scale-[1.03]"
+              style={{
+                background: "#1A1A1A",
+                border: "1px solid #00E5FF30",
+                color: "#00E5FF",
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = "#00E5FF15";
+                e.currentTarget.style.borderColor = "#00E5FF";
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = "#1A1A1A";
+                e.currentTarget.style.borderColor = "#00E5FF30";
+              }}
               data-testid={`quick-action-${a.path.replace("/", "")}`}
             >
               {a.label}

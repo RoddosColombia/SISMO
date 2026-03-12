@@ -12,21 +12,22 @@ function MessageBubble({ msg }) {
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"} mb-3`}>
       {!isUser && (
-        <div className="w-7 h-7 rounded-full bg-[#0F2A5C] flex items-center justify-center mr-2 flex-shrink-0 mt-0.5">
-          <Bot size={13} className="text-white" />
+        <div className="w-7 h-7 rounded-xl flex items-center justify-center mr-2 flex-shrink-0 mt-0.5"
+          style={{ background: "#1A1A1A", border: "1px solid #00E5FF30" }}>
+          <Bot size={13} style={{ color: "#00E5FF" }} />
         </div>
       )}
       <div
-        className={`max-w-[82%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed
-          ${isUser
-            ? "bg-[#0F2A5C] text-white rounded-br-sm"
-            : msg.isResult
-              ? "bg-green-50 border border-green-200 text-green-800 rounded-bl-sm"
-              : "bg-white border border-slate-200 text-slate-700 rounded-bl-sm shadow-sm"
-          }`}
+        className="max-w-[82%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed"
+        style={isUser
+          ? { background: "linear-gradient(135deg, #00E5FF, #00C853)", color: "#0D0D0D", borderBottomRightRadius: "4px" }
+          : msg.isResult
+            ? { background: "#00C85310", border: "1px solid #00C85330", color: "#00C853", borderBottomLeftRadius: "4px" }
+            : { background: "#1A1A1A", border: "1px solid #1E1E1E", color: "#E8E8E8", borderBottomLeftRadius: "4px" }
+        }
       >
         <div className="whitespace-pre-wrap">{msg.content}</div>
-        <div className={`text-[10px] mt-1 ${isUser ? "text-slate-300" : "text-slate-400"}`}>
+        <div className="text-[10px] mt-1" style={{ color: isUser ? "rgba(13,13,13,0.6)" : "#444" }}>
           {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" }) : ""}
         </div>
       </div>
@@ -36,49 +37,41 @@ function MessageBubble({ msg }) {
 
 function ExecutionCard({ action, onConfirm, onCancel, executing }) {
   if (!action) return null;
-
   return (
-    <div className="mx-3 mb-3 bg-white border-2 border-[#C9A84C] rounded-xl shadow-md overflow-hidden" data-testid="execution-card">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-[#0F2A5C] to-[#163A7A] px-4 py-2.5 flex items-center gap-2">
-        <Play size={13} className="text-[#C9A84C]" />
+    <div className="mx-0 mb-3 rounded-xl overflow-hidden" style={{ border: "1px solid #00E5FF40" }} data-testid="execution-card">
+      <div className="px-4 py-2.5 flex items-center gap-2" style={{ background: "#0A0A0A", borderBottom: "1px solid #1E1E1E" }}>
+        <Play size={13} style={{ color: "#00E5FF" }} />
         <span className="text-xs font-bold text-white uppercase tracking-wide">Listo para ejecutar en Alegra</span>
-        <span className="ml-auto text-[10px] text-slate-300">{action.title}</span>
+        <span className="ml-auto text-[10px]" style={{ color: "#555" }}>{action.title}</span>
       </div>
 
-      {/* Summary table */}
       {action.summary?.length > 0 && (
-        <table className="w-full text-xs border-b border-slate-100">
+        <table className="w-full text-xs" style={{ borderBottom: "1px solid #1E1E1E" }}>
           <tbody>
             {action.summary.map((item, i) => (
-              <tr key={i} className={i % 2 === 0 ? "bg-slate-50" : "bg-white"}>
-                <td className="px-3 py-1.5 font-semibold text-slate-500 w-1/3">{item.label}</td>
-                <td className="px-3 py-1.5 text-slate-800 font-medium">{item.value}</td>
+              <tr key={i} style={{ background: i % 2 === 0 ? "#141414" : "#1A1A1A", borderTop: i > 0 ? "1px solid #1E1E1E" : "none" }}>
+                <td className="px-3 py-1.5 font-semibold w-1/3" style={{ color: "#555" }}>{item.label}</td>
+                <td className="px-3 py-1.5 font-medium" style={{ color: "#E8E8E8" }}>{item.value}</td>
               </tr>
             ))}
           </tbody>
         </table>
       )}
 
-      {/* Actions */}
-      <div className="p-3 flex gap-2">
+      <div className="p-3 flex gap-2" style={{ background: "#141414" }}>
         <Button
-          onClick={() => onConfirm(action)}
-          disabled={executing}
-          className="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs h-9 font-semibold"
-          data-testid="confirm-execute-btn"
-        >
-          {executing ? (
-            <><Loader2 size={13} className="mr-1.5 animate-spin" />Ejecutando en Alegra...</>
-          ) : (
-            <><CheckCircle2 size={13} className="mr-1.5" />Confirmar y ejecutar en Alegra</>
-          )}
+          onClick={() => onConfirm(action)} disabled={executing}
+          className="flex-1 text-xs h-9 font-bold disabled:opacity-40"
+          style={{ background: "linear-gradient(135deg, #00E5FF, #00C853)", color: "#0D0D0D" }}
+          data-testid="confirm-execute-btn">
+          {executing ? <><Loader2 size={13} className="mr-1.5 animate-spin" />Ejecutando...</> : <><CheckCircle2 size={13} className="mr-1.5" />Confirmar y ejecutar</>}
         </Button>
         <Button
           onClick={onCancel}
           disabled={executing}
           variant="outline"
-          className="text-xs h-9 text-red-500 border-red-200 hover:bg-red-50"
+          className="text-xs h-9 font-medium px-3"
+          style={{ background: "#1A1A1A", border: "1px solid #FF444430", color: "#FF4444" }}
           data-testid="cancel-execute-btn"
         >
           <X size={12} className="mr-1" />Cancelar
@@ -223,29 +216,35 @@ export default function AIChatWidget() {
         data-testid="chat-toggle-btn"
         aria-label="Abrir asistente IA"
       >
-        {isOpen ? <X size={22} className="text-[#0F2A5C]" /> : <MessageSquare size={22} className="text-[#0F2A5C]" />}
+        {isOpen ? <X size={22} style={{ color: "#0D0D0D" }} /> : <MessageSquare size={22} style={{ color: "#0D0D0D" }} />}
       </button>
 
       {isOpen && (
         <div
-          className="fixed bottom-24 right-6 w-[400px] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col z-40 animate-fadeInUp"
-          style={{ height: "560px" }}
+          className="fixed bottom-24 right-6 w-[400px] rounded-2xl shadow-2xl flex flex-col z-40 animate-fadeInUp"
+          style={{ height: "560px", background: "#121212", border: "1px solid #1E1E1E", boxShadow: "0 0 40px rgba(0,229,255,0.08)" }}
           data-testid="chat-panel"
         >
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 bg-[#0F2A5C] rounded-t-2xl">
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-full bg-[#C9A84C] flex items-center justify-center">
-                <Bot size={14} className="text-[#0F2A5C]" />
+          <div className="flex items-center justify-between px-4 py-3 rounded-t-2xl" style={{ background: "#0A0A0A", borderBottom: "1px solid #1E1E1E" }}>
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl flex items-center justify-center"
+                style={{ background: "linear-gradient(135deg, #00E5FF22, #00C85322)", border: "1px solid #00E5FF44" }}>
+                <Bot size={15} style={{ color: "#00E5FF" }} />
               </div>
               <div>
-                <div className="text-sm font-semibold text-white">Agente Contable IA</div>
-                <div className="text-[10px] text-[#C9A84C]">Ejecuta en Alegra · Claude Sonnet 4.5</div>
+                <div className="text-sm font-bold text-white">Agente Contable IA</div>
+                <div className="text-[10px]" style={{ color: "#00C853" }}>Ejecuta en Alegra · Claude Sonnet 4.5</div>
               </div>
             </div>
             <div className="flex items-center gap-1">
-              <button onClick={clearChat} className="text-slate-400 hover:text-white p-1.5 rounded" title="Borrar historial"><Trash2 size={14} /></button>
-              <button onClick={() => setIsOpen(false)} className="text-slate-400 hover:text-white p-1.5 rounded"><X size={14} /></button>
+              <button onClick={clearChat} className="p-1.5 rounded-lg transition" style={{ color: "#444" }}
+                onMouseEnter={e => e.currentTarget.style.color = "#888"} onMouseLeave={e => e.currentTarget.style.color = "#444"}
+                title="Borrar historial"><Trash2 size={14} /></button>
+              <button onClick={() => setIsOpen(false)} className="p-1.5 rounded-lg transition" style={{ color: "#444" }}
+                onMouseEnter={e => e.currentTarget.style.color = "#888"} onMouseLeave={e => e.currentTarget.style.color = "#444"}>
+                <X size={14} />
+              </button>
             </div>
           </div>
 
@@ -255,16 +254,17 @@ export default function AIChatWidget() {
 
             {/* Memory suggestions */}
             {memorySuggestions.length > 0 && messages.length <= 1 && (
-              <div className="mb-3 bg-[#F0F4FF] border border-[#C7D7FF] rounded-xl p-3">
-                <p className="text-[11px] font-bold text-[#0F2A5C] mb-2">Acciones recurrentes del mes pasado:</p>
+              <div className="mb-3 rounded-xl p-3" style={{ background: "#1A1A1A", border: "1px solid #00E5FF20" }}>
+                <p className="text-[11px] font-bold mb-2" style={{ color: "#00E5FF" }}>Acciones recurrentes del mes pasado:</p>
                 <div className="space-y-1.5">
                   {memorySuggestions.slice(0, 3).map((m, i) => (
-                    <button
-                      key={i}
+                    <button key={i}
                       onClick={() => setInput(`Ejecuta igual que el mes pasado: ${m.descripcion}${m.monto ? ` por $${m.monto.toLocaleString("es-CO")}` : ""}`)}
-                      className="w-full text-left text-xs bg-white border border-[#C7D7FF] rounded-lg px-3 py-2 hover:bg-[#0F2A5C] hover:text-white hover:border-[#0F2A5C] transition"
-                      data-testid={`memory-suggestion-${i}`}
-                    >
+                      className="w-full text-left text-xs rounded-lg px-3 py-2 transition"
+                      style={{ background: "#141414", border: "1px solid #2A2A2A", color: "#E8E8E8" }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = "#00E5FF50"; e.currentTarget.style.color = "#00E5FF"; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = "#2A2A2A"; e.currentTarget.style.color = "#E8E8E8"; }}
+                      data-testid={`memory-suggestion-${i}`}>
                       <span className="font-semibold">{m.tipo === "crear_causacion" ? "Causación" : m.tipo === "crear_factura_venta" ? "Factura" : "Registro"}</span>
                       {" — "}{m.descripcion}{m.monto ? ` ($${m.monto.toLocaleString("es-CO")})` : ""}
                     </button>
@@ -275,22 +275,19 @@ export default function AIChatWidget() {
 
             {loading && (
               <div className="flex justify-start mb-3">
-                <div className="w-7 h-7 rounded-full bg-[#0F2A5C] flex items-center justify-center mr-2 flex-shrink-0">
-                  <Bot size={13} className="text-white" />
+                <div className="w-7 h-7 rounded-xl flex items-center justify-center mr-2 flex-shrink-0"
+                  style={{ background: "#1A1A1A", border: "1px solid #00E5FF30" }}>
+                  <Bot size={13} style={{ color: "#00E5FF" }} />
                 </div>
-                <div className="bg-white border border-slate-200 rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm flex items-center gap-2">
-                  <Loader2 size={14} className="animate-spin text-[#0F2A5C]" />
-                  <span className="text-xs text-slate-500">Analizando en Alegra...</span>
+                <div className="rounded-2xl rounded-bl-sm px-4 py-3 flex items-center gap-2"
+                  style={{ background: "#1A1A1A", border: "1px solid #1E1E1E" }}>
+                  <Loader2 size={14} className="animate-spin" style={{ color: "#00E5FF" }} />
+                  <span className="text-xs" style={{ color: "#555" }}>Analizando en Alegra...</span>
                 </div>
               </div>
             )}
             {pendingAction && !loading && (
-              <ExecutionCard
-                action={pendingAction}
-                onConfirm={handleExecute}
-                onCancel={handleCancelAction}
-                executing={executing}
-              />
+              <ExecutionCard action={pendingAction} onConfirm={handleExecute} onCancel={handleCancelAction} executing={executing} />
             )}
           </div>
 
@@ -299,14 +296,20 @@ export default function AIChatWidget() {
             <div className="px-3 pb-2">
               <div className="flex flex-wrap gap-1.5">
                 {QUICK_PROMPTS.map((p, i) => (
-                  <button key={i} onClick={() => setInput(p)} className="text-[10px] bg-[#F0F4FF] text-[#0F2A5C] border border-[#C7D7FF] px-2 py-1 rounded-full hover:bg-[#C9A84C]/20 transition-colors">{p}</button>
+                  <button key={i} onClick={() => setInput(p)}
+                    className="text-[10px] px-2.5 py-1 rounded-full transition font-medium"
+                    style={{ background: "#1A1A1A", border: "1px solid #00E5FF25", color: "#888" }}
+                    onMouseEnter={e => { e.currentTarget.style.color = "#00E5FF"; e.currentTarget.style.borderColor = "#00E5FF60"; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = "#888"; e.currentTarget.style.borderColor = "#00E5FF25"; }}>
+                    {p}
+                  </button>
                 ))}
               </div>
             </div>
           )}
 
           {/* Input */}
-          <div className="p-3 border-t border-slate-100">
+          <div className="p-3" style={{ borderTop: "1px solid #1E1E1E" }}>
             <div className="flex gap-2">
               <Textarea
                 ref={inputRef}
@@ -314,14 +317,16 @@ export default function AIChatWidget() {
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Crea factura, causar gasto, calcular retención..."
-                className="flex-1 min-h-[44px] max-h-[88px] text-sm resize-none border-slate-200 focus:border-[#C9A84C]"
+                className="flex-1 min-h-[44px] max-h-[88px] text-sm resize-none"
+                style={{ background: "#1A1A1A", border: "1px solid #2A2A2A", color: "#E8E8E8" }}
                 rows={1}
                 data-testid="chat-input"
               />
               <Button
                 onClick={handleSend}
                 disabled={!input.trim() || loading}
-                className="bg-[#0F2A5C] hover:bg-[#163A7A] text-white px-3 self-end h-11"
+                className="px-3 self-end h-11 disabled:opacity-40"
+                style={{ background: "linear-gradient(135deg, #00E5FF, #00C853)", color: "#0D0D0D", fontWeight: 700 }}
                 data-testid="chat-send-btn"
               >
                 <Send size={16} />
