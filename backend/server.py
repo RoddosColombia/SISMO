@@ -1,89 +1,315 @@
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, Query
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pydantic import BaseModel
+from typing import Optional, List, Any
 import os
 import logging
-from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
 import uuid
+from pathlib import Path
 from datetime import datetime, timezone
 
+from models import (
+    LoginRequest, SaveCredentialsRequest, DemoModeRequest,
+    SaveDefaultAccountsRequest, ChatMessageRequest
+)
+from auth import create_token, verify_token, hash_password, verify_password
+from alegra_service import AlegraService
+from ai_chat import process_chat
 
 ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+load_dotenv(ROOT_DIR / ".env")
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
+mongo_url = os.environ["MONGO_URL"]
+db_name = os.environ["DB_NAME"]
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+db = client[db_name]
 
-# Create the main app without a prefix
-app = FastAPI()
-
-# Create a router with the /api prefix
+app = FastAPI(title="RODDOS Contable IA")
 api_router = APIRouter(prefix="/api")
+security = HTTPBearer(auto_error=False)
 
-
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
-    
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-class StatusCheckCreate(BaseModel):
-    client_name: str
-
-# Add your routes to the router instead of directly to app
-@api_router.get("/")
-async def root():
-    return {"message": "Hello World"}
-
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
-
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
-    
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-    
-    return status_checks
-
-# Include the router in the main app
-app.include_router(api_router)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+
+# ─── Dependencies ────────────────────────────────────────────────────────────
+
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    if not credentials:
+        raise HTTPException(status_code=401, detail="No autenticado")
+    payload = verify_token(credentials.credentials)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Token inválido o expirado")
+    user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=401, detail="Usuario no encontrado")
+    return user
+
+
+async def require_admin(current_user=Depends(get_current_user)):
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Se requiere rol de administrador")
+    return current_user
+
+
+# ─── Startup ─────────────────────────────────────────────────────────────────
+
+@app.on_event("startup")
+async def startup():
+    count = await db.users.count_documents({})
+    if count == 0:
+        users = [
+            {"id": str(uuid.uuid4()), "email": "admin@roddos.com", "password_hash": hash_password("Admin@RODDOS2025!"),
+             "name": "Administrador RODDOS", "role": "admin", "is_active": True,
+             "created_at": datetime.now(timezone.utc).isoformat()},
+            {"id": str(uuid.uuid4()), "email": "contador@roddos.com", "password_hash": hash_password("Contador@2025!"),
+             "name": "Contador Principal", "role": "user", "is_active": True,
+             "created_at": datetime.now(timezone.utc).isoformat()},
+        ]
+        await db.users.insert_many(users)
+        logger.info("Demo users created")
+
+    creds = await db.alegra_credentials.find_one({})
+    if not creds:
+        await db.alegra_credentials.insert_one({
+            "id": str(uuid.uuid4()), "email": "", "token": "",
+            "is_demo_mode": True, "updated_at": datetime.now(timezone.utc).isoformat()
+        })
+
 
 @app.on_event("shutdown")
-async def shutdown_db_client():
+async def shutdown():
     client.close()
+
+
+# ─── Audit Log ────────────────────────────────────────────────────────────────
+
+async def log_action(user: dict, endpoint: str, method: str, body: Any = None, status_code: int = 200):
+    await db.audit_logs.insert_one({
+        "id": str(uuid.uuid4()), "user_id": user.get("id"), "user_email": user.get("email"),
+        "endpoint": endpoint, "method": method, "request_body": body,
+        "response_status": status_code, "timestamp": datetime.now(timezone.utc).isoformat()
+    })
+
+
+# ─── AUTH ─────────────────────────────────────────────────────────────────────
+
+@api_router.post("/auth/login")
+async def login(req: LoginRequest):
+    user = await db.users.find_one({"email": req.email}, {"_id": 0})
+    if not user or not verify_password(req.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Email o contraseña incorrectos")
+    token = create_token(user["id"], user["email"], user["role"])
+    return {"token": token, "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"]}}
+
+
+@api_router.get("/auth/me")
+async def me(current_user=Depends(get_current_user)):
+    return {"id": current_user["id"], "email": current_user["email"], "name": current_user["name"], "role": current_user["role"]}
+
+
+# ─── SETTINGS ─────────────────────────────────────────────────────────────────
+
+@api_router.get("/settings/credentials")
+async def get_credentials(current_user=Depends(require_admin)):
+    creds = await db.alegra_credentials.find_one({}, {"_id": 0})
+    if not creds:
+        return {"email": "", "token": "", "is_demo_mode": True}
+    return {"email": creds.get("email", ""), "token_masked": ("*" * 8 + creds.get("token", "")[-4:]) if creds.get("token") else "", "is_demo_mode": creds.get("is_demo_mode", True)}
+
+
+@api_router.post("/settings/credentials")
+async def save_credentials(req: SaveCredentialsRequest, current_user=Depends(require_admin)):
+    await db.alegra_credentials.update_one({}, {"$set": {"email": req.email, "token": req.token, "updated_at": datetime.now(timezone.utc).isoformat()}}, upsert=True)
+    return {"message": "Credenciales guardadas correctamente"}
+
+
+@api_router.get("/settings/demo-mode")
+async def get_demo_mode(current_user=Depends(get_current_user)):
+    creds = await db.alegra_credentials.find_one({}, {"_id": 0})
+    return {"is_demo_mode": creds.get("is_demo_mode", True) if creds else True}
+
+
+@api_router.put("/settings/demo-mode")
+async def set_demo_mode(req: DemoModeRequest, current_user=Depends(require_admin)):
+    await db.alegra_credentials.update_one({}, {"$set": {"is_demo_mode": req.is_demo_mode}}, upsert=True)
+    return {"is_demo_mode": req.is_demo_mode}
+
+
+@api_router.get("/settings/default-accounts")
+async def get_default_accounts(current_user=Depends(get_current_user)):
+    accounts = await db.default_accounts.find({}, {"_id": 0}).to_list(100)
+    return accounts
+
+
+@api_router.post("/settings/default-accounts")
+async def save_default_accounts(req: SaveDefaultAccountsRequest, current_user=Depends(require_admin)):
+    for item in req.accounts:
+        await db.default_accounts.update_one(
+            {"operation_type": item.operation_type},
+            {"$set": item.model_dump()},
+            upsert=True
+        )
+    return {"message": f"{len(req.accounts)} cuentas predeterminadas guardadas"}
+
+
+# ─── ALEGRA PROXY ─────────────────────────────────────────────────────────────
+
+@api_router.post("/alegra/test-connection")
+async def test_connection(current_user=Depends(get_current_user)):
+    service = AlegraService(db)
+    return await service.test_connection()
+
+
+@api_router.get("/alegra/company")
+async def get_company(current_user=Depends(get_current_user)):
+    return await AlegraService(db).request("company")
+
+
+@api_router.get("/alegra/accounts")
+async def get_accounts(current_user=Depends(get_current_user)):
+    return await AlegraService(db).request("accounts")
+
+
+@api_router.get("/alegra/contacts")
+async def get_contacts(name: Optional[str] = Query(None), current_user=Depends(get_current_user)):
+    return await AlegraService(db).request("contacts", params={"name": name} if name else None)
+
+
+@api_router.get("/alegra/items")
+async def get_items(current_user=Depends(get_current_user)):
+    return await AlegraService(db).request("items")
+
+
+@api_router.get("/alegra/taxes")
+async def get_taxes(current_user=Depends(get_current_user)):
+    return await AlegraService(db).request("taxes")
+
+
+@api_router.get("/alegra/retentions")
+async def get_retentions(current_user=Depends(get_current_user)):
+    return await AlegraService(db).request("retentions")
+
+
+@api_router.get("/alegra/cost-centers")
+async def get_cost_centers(current_user=Depends(get_current_user)):
+    return await AlegraService(db).request("cost-centers")
+
+
+@api_router.get("/alegra/bank-accounts")
+async def get_bank_accounts(current_user=Depends(get_current_user)):
+    return await AlegraService(db).request("bank-accounts")
+
+
+@api_router.get("/alegra/invoices")
+async def get_invoices(
+    date_start: Optional[str] = None, date_end: Optional[str] = None,
+    status: Optional[str] = None, current_user=Depends(get_current_user)
+):
+    return await AlegraService(db).request("invoices", params={"date_start": date_start, "date_end": date_end, "status": status})
+
+
+@api_router.post("/alegra/invoices")
+async def create_invoice(body: dict, current_user=Depends(get_current_user)):
+    service = AlegraService(db)
+    result = await service.request("invoices", "POST", body)
+    await log_action(current_user, "/alegra/invoices", "POST", body)
+    return result
+
+
+@api_router.post("/alegra/invoices/{invoice_id}/void")
+async def void_invoice(invoice_id: str, current_user=Depends(get_current_user)):
+    return await AlegraService(db).request(f"invoices/{invoice_id}/void", "POST")
+
+
+@api_router.get("/alegra/bills")
+async def get_bills(date_start: Optional[str] = None, date_end: Optional[str] = None, current_user=Depends(get_current_user)):
+    return await AlegraService(db).request("bills", params={"date_start": date_start, "date_end": date_end})
+
+
+@api_router.post("/alegra/bills")
+async def create_bill(body: dict, current_user=Depends(get_current_user)):
+    service = AlegraService(db)
+    result = await service.request("bills", "POST", body)
+    await log_action(current_user, "/alegra/bills", "POST", body)
+    return result
+
+
+@api_router.get("/alegra/payments")
+async def get_payments(current_user=Depends(get_current_user)):
+    return await AlegraService(db).request("payments")
+
+
+@api_router.post("/alegra/payments")
+async def create_payment(body: dict, current_user=Depends(get_current_user)):
+    service = AlegraService(db)
+    result = await service.request("payments", "POST", body)
+    await log_action(current_user, "/alegra/payments", "POST", body)
+    return result
+
+
+@api_router.get("/alegra/journal-entries")
+async def get_journal_entries(date_start: Optional[str] = None, date_end: Optional[str] = None, current_user=Depends(get_current_user)):
+    return await AlegraService(db).request("journal-entries", params={"date_start": date_start, "date_end": date_end})
+
+
+@api_router.post("/alegra/journal-entries")
+async def create_journal_entry(body: dict, current_user=Depends(get_current_user)):
+    service = AlegraService(db)
+    result = await service.request("journal-entries", "POST", body)
+    await log_action(current_user, "/alegra/journal-entries", "POST", body)
+    return result
+
+
+@api_router.get("/alegra/bank-accounts/{account_id}/reconciliations")
+async def get_reconciliations(account_id: str, current_user=Depends(get_current_user)):
+    return await AlegraService(db).request(f"bank-accounts/{account_id}/reconciliations")
+
+
+@api_router.post("/alegra/bank-accounts/{account_id}/reconciliations")
+async def create_reconciliation(account_id: str, body: dict, current_user=Depends(get_current_user)):
+    service = AlegraService(db)
+    result = await service.request(f"bank-accounts/{account_id}/reconciliations", "POST", body)
+    await log_action(current_user, f"/alegra/bank-accounts/{account_id}/reconciliations", "POST", body)
+    return result
+
+
+# ─── CHAT ─────────────────────────────────────────────────────────────────────
+
+@api_router.post("/chat/message")
+async def chat_message(req: ChatMessageRequest, current_user=Depends(get_current_user)):
+    return await process_chat(req.session_id, req.message, db, current_user)
+
+
+@api_router.get("/chat/history/{session_id}")
+async def chat_history(session_id: str, current_user=Depends(get_current_user)):
+    msgs = await db.chat_messages.find({"session_id": session_id}, {"_id": 0}).sort("timestamp", 1).to_list(100)
+    return msgs
+
+
+@api_router.delete("/chat/history/{session_id}")
+async def clear_chat(session_id: str, current_user=Depends(get_current_user)):
+    await db.chat_messages.delete_many({"session_id": session_id})
+    return {"message": "Historial eliminado"}
+
+
+# ─── AUDIT LOGS ───────────────────────────────────────────────────────────────
+
+@api_router.get("/audit-logs")
+async def get_audit_logs(current_user=Depends(require_admin)):
+    logs = await db.audit_logs.find({}, {"_id": 0}).sort("timestamp", -1).limit(100).to_list(100)
+    return logs
+
+
+app.include_router(api_router)
