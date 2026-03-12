@@ -216,10 +216,15 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
         "timestamp": datetime.now(timezone.utc).isoformat(),
     })
 
-    doc_id = result.get("id") or result.get("number") or ""
+    if isinstance(result, dict):
+        doc_id = result.get("id") or result.get("number") or ""
+    elif isinstance(result, list) and result:
+        doc_id = result[0].get("id") if isinstance(result[0], dict) else ""
+    else:
+        doc_id = ""
     return {
         "success": True,
         "result": result,
         "id": doc_id,
-        "message": f"Ejecutado en Alegra exitosamente",
+        "message": "Ejecutado en Alegra exitosamente",
     }

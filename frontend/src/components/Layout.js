@@ -2,20 +2,30 @@ import React, { useState } from "react";
 import { Outlet, NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, FileText, ShoppingCart, TrendingUp, TrendingDown,
-  Building2, Settings, LogOut, ChevronLeft, Menu, Bell, User
+  Building2, Settings, LogOut, ChevronLeft, Menu, Bell, User,
+  CreditCard, Receipt, Calculator, Users, Gift, BarChart2, Tag, Target, Bike
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useAlegra } from "../contexts/AlegraContext";
 import AIChatWidget from "./AIChatWidget";
 
 const MODULES = [
-  { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { path: "/facturacion-venta", label: "Facturación Venta", icon: FileText },
-  { path: "/facturacion-compra", label: "Facturación Compra", icon: ShoppingCart },
-  { path: "/causacion-ingresos", label: "Causación Ingresos", icon: TrendingUp },
-  { path: "/causacion-egresos", label: "Causación Egresos", icon: TrendingDown },
-  { path: "/conciliacion-bancaria", label: "Conciliación Bancaria", icon: Building2 },
-  { path: "/configuracion", label: "Configuración", icon: Settings },
+  { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard, group: null },
+  { path: "/facturacion-venta", label: "Facturación Venta", icon: FileText, group: "Facturación" },
+  { path: "/facturacion-compra", label: "Facturación Compra", icon: ShoppingCart, group: "Facturación" },
+  { path: "/registro-cuotas", label: "Registro de Cuotas", icon: CreditCard, group: "Facturación" },
+  { path: "/causacion-ingresos", label: "Causación Ingresos", icon: TrendingUp, group: "Causaciones" },
+  { path: "/causacion-egresos", label: "Causación Egresos", icon: TrendingDown, group: "Causaciones" },
+  { path: "/conciliacion-bancaria", label: "Conciliación Bancaria", icon: Building2, group: "Causaciones" },
+  { path: "/inventario-auteco", label: "Inventario Auteco", icon: Bike, group: "Inventario" },
+  { path: "/impuestos", label: "Impuestos y Alertas", icon: Receipt, group: "Fiscal" },
+  { path: "/retenciones", label: "Retenciones", icon: Calculator, group: "Fiscal" },
+  { path: "/nomina", label: "Nómina", icon: Users, group: "RRHH" },
+  { path: "/prestaciones", label: "Prestaciones Sociales", icon: Gift, group: "RRHH" },
+  { path: "/estado-resultados", label: "Estado de Resultados", icon: BarChart2, group: "Reportes" },
+  { path: "/egresos-clasificados", label: "Egresos Clasificados", icon: Tag, group: "Reportes" },
+  { path: "/presupuesto", label: "Presupuesto", icon: Target, group: "Reportes" },
+  { path: "/configuracion", label: "Configuración", icon: Settings, group: null },
 ];
 
 function AlegraStatusBadge({ status }) {
@@ -87,25 +97,38 @@ export default function Layout() {
         </button>
 
         {/* Navigation */}
-        <nav className="flex-1 py-4 px-2 space-y-0.5 overflow-y-auto">
-          {MODULES.map((mod) => (
-            <NavLink
-              key={mod.path}
-              to={mod.path}
-              data-testid={`nav-${mod.path.replace("/", "")}`}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 text-sm
-                ${isActive
-                  ? "bg-[#C9A84C] text-[#0F2A5C] font-semibold shadow-md"
-                  : "text-slate-300 hover:text-white hover:bg-white/10"
+        <nav className="flex-1 py-2 px-2 space-y-0 overflow-y-auto">
+          {(() => {
+            const groups = [];
+            let lastGroup = undefined;
+            MODULES.forEach((mod, idx) => {
+              if (mod.group !== lastGroup) {
+                if (mod.group && !collapsed) {
+                  groups.push(<div key={`grp-${mod.group}`} className="px-3 pt-3 pb-1"><span className="text-[9px] uppercase tracking-widest text-slate-500 font-semibold">{mod.group}</span></div>);
                 }
-                ${collapsed ? "justify-center" : ""}`
+                lastGroup = mod.group;
               }
-            >
-              <mod.icon size={18} className="flex-shrink-0" />
-              {!collapsed && <span>{mod.label}</span>}
-            </NavLink>
-          ))}
+              groups.push(
+                <NavLink
+                  key={mod.path}
+                  to={mod.path}
+                  data-testid={`nav-${mod.path.replace("/", "")}`}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-150 text-sm
+                    ${isActive
+                      ? "bg-[#C9A84C] text-[#0F2A5C] font-semibold shadow-md"
+                      : "text-slate-300 hover:text-white hover:bg-white/10"
+                    }
+                    ${collapsed ? "justify-center" : ""}`
+                  }
+                >
+                  <mod.icon size={17} className="flex-shrink-0" />
+                  {!collapsed && <span className="text-[13px]">{mod.label}</span>}
+                </NavLink>
+              );
+            });
+            return groups;
+          })()}
         </nav>
 
         {/* User */}

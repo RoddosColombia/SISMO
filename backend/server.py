@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, Depends, HTTPException, Query
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -17,7 +17,8 @@ from models import (
 )
 from auth import create_token, verify_token, hash_password, verify_password
 from alegra_service import AlegraService
-from ai_chat import process_chat
+from ai_chat import process_chat, execute_chat_action
+from inventory_service import extract_motos_from_pdf, register_moto_in_alegra
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -292,6 +293,20 @@ async def chat_message(req: ChatMessageRequest, current_user=Depends(get_current
     return await process_chat(req.session_id, req.message, db, current_user)
 
 
+class ExecuteActionRequest(BaseModel):
+    action: str
+    payload: dict
+
+
+@api_router.post("/chat/execute-action")
+async def chat_execute_action(req: ExecuteActionRequest, current_user=Depends(get_current_user)):
+    try:
+        result = await execute_chat_action(req.action, req.payload, db, current_user)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @api_router.get("/chat/history/{session_id}")
 async def chat_history(session_id: str, current_user=Depends(get_current_user)):
     msgs = await db.chat_messages.find({"session_id": session_id}, {"_id": 0}).sort("timestamp", 1).to_list(100)
@@ -310,6 +325,146 @@ async def clear_chat(session_id: str, current_user=Depends(get_current_user)):
 async def get_audit_logs(current_user=Depends(require_admin)):
     logs = await db.audit_logs.find({}, {"_id": 0}).sort("timestamp", -1).limit(100).to_list(100)
     return logs
+
+
+# ─── INVENTARIO AUTECO ────────────────────────────────────────────────────────
+
+@api_router.post("/inventario/upload-pdf")
+async def upload_pdf(file: UploadFile = File(...), current_user=Depends(get_current_user)):
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Solo se admiten archivos PDF")
+    content = await file.read()
+    if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="El archivo no puede superar 20MB")
+    try:
+        motos = await extract_motos_from_pdf(content, file.filename)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    if not motos:
+        raise HTTPException(status_code=422, detail="No se encontraron motos en el PDF")
+
+    # Insert into MongoDB (avoid duplicates by chasis)
+    inserted = []
+    for m in motos:
+        chasis = m.get("chasis")
+        if chasis:
+            existing = await db.inventario_motos.find_one({"chasis": chasis}, {"_id": 0})
+            if existing:
+                continue
+        await db.inventario_motos.insert_one({k: v for k, v in m.items()})
+        inserted.append(m)
+
+    await log_action(current_user, "/inventario/upload-pdf", "POST", {"filename": file.filename, "motos_found": len(motos)})
+    return {"inserted": len(inserted), "total_found": len(motos), "motos": inserted}
+
+
+@api_router.get("/inventario/motos")
+async def get_inventario(
+    estado: Optional[str] = None,
+    marca: Optional[str] = None,
+    current_user=Depends(get_current_user)
+):
+    query = {}
+    if estado:
+        query["estado"] = estado
+    if marca:
+        query["marca"] = {"$regex": marca, "$options": "i"}
+    motos = await db.inventario_motos.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return motos
+
+
+@api_router.get("/inventario/stats")
+async def get_inventario_stats(current_user=Depends(get_current_user)):
+    total = await db.inventario_motos.count_documents({})
+    disponibles = await db.inventario_motos.count_documents({"estado": "Disponible"})
+    vendidas = await db.inventario_motos.count_documents({"estado": "Vendida"})
+    entregadas = await db.inventario_motos.count_documents({"estado": "Entregada"})
+    # Total investment
+    pipeline = [{"$group": {"_id": None, "total_inversion": {"$sum": "$total"}, "total_costo": {"$sum": "$costo"}}}]
+    agg = await db.inventario_motos.aggregate(pipeline).to_list(1)
+    totals = agg[0] if agg else {"total_inversion": 0, "total_costo": 0}
+    return {
+        "total": total,
+        "disponibles": disponibles,
+        "vendidas": vendidas,
+        "entregadas": entregadas,
+        "total_inversion": totals.get("total_inversion", 0),
+        "total_costo": totals.get("total_costo", 0),
+    }
+
+
+@api_router.put("/inventario/motos/{moto_id}")
+async def update_moto(moto_id: str, body: dict, current_user=Depends(get_current_user)):
+    body.pop("_id", None)
+    body.pop("id", None)
+    result = await db.inventario_motos.update_one({"id": moto_id}, {"$set": body})
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Moto no encontrada")
+    updated = await db.inventario_motos.find_one({"id": moto_id}, {"_id": 0})
+    return updated
+
+
+@api_router.delete("/inventario/motos/{moto_id}")
+async def delete_moto(moto_id: str, current_user=Depends(require_admin)):
+    result = await db.inventario_motos.delete_one({"id": moto_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Moto no encontrada")
+    return {"message": "Moto eliminada"}
+
+
+@api_router.post("/inventario/motos/{moto_id}/register-alegra")
+async def register_in_alegra(moto_id: str, current_user=Depends(get_current_user)):
+    moto = await db.inventario_motos.find_one({"id": moto_id}, {"_id": 0})
+    if not moto:
+        raise HTTPException(status_code=404, detail="Moto no encontrada")
+    if moto.get("alegra_item_id"):
+        raise HTTPException(status_code=400, detail="Esta moto ya está registrada en Alegra")
+    service = AlegraService(db)
+    result = await register_moto_in_alegra(moto, service)
+    alegra_id = result.get("id")
+    await db.inventario_motos.update_one({"id": moto_id}, {"$set": {"alegra_item_id": alegra_id}})
+    await log_action(current_user, f"/inventario/motos/{moto_id}/register-alegra", "POST", {"alegra_id": alegra_id})
+    return {"alegra_item_id": alegra_id, "result": result}
+
+
+# ─── PRESUPUESTO ──────────────────────────────────────────────────────────────
+
+class PresupuestoItem(BaseModel):
+    mes: str
+    ano: int
+    categoria: str
+    concepto: str
+    valor_presupuestado: float
+    cuenta_alegra_id: Optional[str] = None
+    cuenta_alegra_nombre: Optional[str] = None
+
+
+@api_router.get("/presupuesto")
+async def get_presupuesto(ano: int = 2025, current_user=Depends(get_current_user)):
+    items = await db.presupuesto.find({"ano": ano}, {"_id": 0}).sort("mes", 1).to_list(500)
+    return items
+
+
+@api_router.post("/presupuesto")
+async def save_presupuesto(items: List[PresupuestoItem], current_user=Depends(get_current_user)):
+    for item in items:
+        d = item.model_dump()
+        d["id"] = str(uuid.uuid4())
+        d["updated_at"] = datetime.now(timezone.utc).isoformat()
+        d["updated_by"] = current_user.get("email")
+        await db.presupuesto.update_one(
+            {"mes": item.mes, "ano": item.ano, "concepto": item.concepto},
+            {"$set": d},
+            upsert=True
+        )
+    return {"message": f"{len(items)} ítems guardados"}
+
+
+@api_router.delete("/presupuesto/{item_id}")
+async def delete_presupuesto_item(item_id: str, current_user=Depends(require_admin)):
+    await db.presupuesto.delete_one({"id": item_id})
+    return {"message": "Ítem eliminado"}
 
 
 app.include_router(api_router)
