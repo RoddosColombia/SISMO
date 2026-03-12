@@ -450,9 +450,14 @@ async def get_presupuesto(ano: int = 2025, current_user=Depends(get_current_user
 async def save_presupuesto(items: List[PresupuestoItem], current_user=Depends(get_current_user)):
     for item in items:
         d = item.model_dump()
-        d["id"] = str(uuid.uuid4())
         d["updated_at"] = datetime.now(timezone.utc).isoformat()
         d["updated_by"] = current_user.get("email")
+        # Only set id on insert, not on update
+        existing = await db.presupuesto.find_one(
+            {"mes": item.mes, "ano": item.ano, "concepto": item.concepto}, {"_id": 0, "id": 1}
+        )
+        if not existing:
+            d["id"] = str(uuid.uuid4())
         await db.presupuesto.update_one(
             {"mes": item.mes, "ano": item.ano, "concepto": item.concepto},
             {"$set": d},

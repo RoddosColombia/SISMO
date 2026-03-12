@@ -1,7 +1,7 @@
 # RODDOS Contable IA — PRD
 
-**Fecha:** 2025-10-20
-**Versión:** 1.0 (MVP)
+**Fecha:** 2026-03-12
+**Versión:** 2.0
 
 ---
 
@@ -24,83 +24,117 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
 - **Backend:** FastAPI (Python) + MongoDB · Puerto 8001
 - **IA:** Claude Sonnet 4.5 via emergentintegrations (EMERGENT_LLM_KEY)
 - **Integración:** Alegra REST API (Basic Auth) — modo Demo con mock data NIIF Colombia
+- **PDF Parsing:** pdfplumber + Claude AI para extracción de facturas Auteco
 
 ---
 
-## Módulos Implementados (MVP v1.0)
+## Módulos Implementados (v2.0)
 
 ### 1. Autenticación
 - Login con JWT (bcrypt + PyJWT)
 - Roles admin/user
 - Botones demo en login
+- **Sitio completamente privado** — todas las rutas requieren autenticación
 
 ### 2. Dashboard Financiero
 - 4 KPIs: Ventas, Gastos, Flujo de caja, Por cobrar
 - Gráfico de área (AreaChart recharts) — Ingresos vs Gastos 6 meses
 - Tablas: Últimas facturas de venta y compra
-- Acciones rápidas
 
 ### 3. Facturación de Venta (Módulo 1)
 - Lista de facturas con estados (Pendiente/Pagada/Vencida)
-- Nueva factura con: autocomplete cliente, items con IVA, AlegraAccountSelector (cuenta ingreso + cuenta recaudo)
+- Nueva factura con: autocomplete cliente, items con IVA, AlegraAccountSelector
 - Preview asiento contable en tiempo real (JournalEntryPreview)
 - POST /invoices → Alegra
 
 ### 4. Facturación de Compra (Módulo 2)
 - Lista de facturas de proveedor
 - Nueva factura de compra con: múltiples líneas, selector de cuenta por ítem
-- AlegraAccountSelector por línea (gastos 5xxx/6xxx)
 - POST /bills → Alegra
 
-### 5. Causación de Ingresos (Módulo 4)
+### 5. Registro de Cuotas (Módulo 3)
+- Lista facturas abiertas desde Alegra
+- Formulario de pago con selección de cuenta bancaria
+- POST /payments → Alegra
+
+### 6. Causación de Ingresos (Módulo 4)
 - Causación con tipo de ingreso (operacional, no operacional, etc.)
 - Auto-carga cuenta de ingreso según tipo
-- Manejo de IVA y retención en la fuente
 - Preview asiento completo con validación débitos = créditos
 - POST /journal-entries → Alegra
 
-### 6. Causación de Egresos (Módulo 5)
+### 7. Causación de Egresos (Módulo 5)
 - Causación con tipo de egreso (arrendamiento, honorarios, personal, etc.)
-- Validación: alerta si cuenta seleccionada no corresponde al tipo
-- Manejo IVA descontable y retención practicada
+- Validación de cuentas NIIF
 - POST /journal-entries → Alegra
 
-### 7. Conciliación Bancaria (Módulo 8)
+### 8. Conciliación Bancaria (Módulo 8)
 - Selector de cuenta bancaria
-- Input de saldo extracto
-- Tabla de movimientos con checkbox para marcar como conciliados
-- Resumen: saldo extracto vs conciliado, diferencia
+- Tabla de movimientos con checkbox
 - POST /bank-accounts/{id}/reconciliations → Alegra
 
-### 8. Configuración (Settings)
+### 9. Inventario Auteco (NUEVO - Módulo 9)
+- **Upload de factura PDF de Auteco** → Claude AI extrae datos de motos
+- Tabla de inventario: Placa, Marca, Versión, Color, Año, Motor, Chasis, Costo, IVA, IPOC, Total, Estado, Ubicación
+- **Registro automático de cada moto como ítem en Alegra** (POST /items)
+- Estados: Disponible, Vendida, Entregada
+- KPIs: Total motos, Disponibles, Inversión total
+- CRUD completo en MongoDB (inventory_service.py)
+
+### 10. Impuestos y Alertas (Módulo 6)
+- Calendario fiscal Colombia 2025 con filtros por tipo
+- Calculadora IVA del período (IVA cobrado vs descontable)
+- Tabla de tarifas vigentes (UVT, SMLMV, IPOC, etc.)
+
+### 11. Retenciones (Módulo 7)
+- Calculadora ReteFuente según tipo de transacción (tabla DIAN 2025)
+- Cálculo ReteIVA y ReteICA por ciudad
+- Tabla de tarifas ReteFuente y ReteICA
+
+### 12. Nómina (Módulo 9)
+- Liquidación de nómina para múltiples empleados
+- SMLMV 2025: $1,423,500 | Aux. Transporte: $200,000
+- Deducciones empleado + aportes patronales
+- Causación automática → POST /journal-entries Alegra
+
+### 13. Prestaciones Sociales (Módulo 10)
+- Calculadora cesantías, intereses cesantías, prima, vacaciones
+- Provisión mensual recomendada
+- Fórmulas según CST Colombia
+
+### 14. Estado de Resultados (Módulo 11)
+- Ingresos vs egresos del período
+- Gráfico BarChart por mes
+- KPIs: Ingresos, Egresos, Utilidad Bruta, Margen Bruto
+
+### 15. Egresos Clasificados (Módulo 12)
+- Clasificación automática fijos vs variables
+- PieChart de distribución
+- Top proveedores con barra de progreso
+
+### 16. Presupuesto (Módulo 13)
+- Plan presupuestal mensual almacenado en MongoDB
+- Comparación vs ingresos reales de Alegra
+- Variación presupuesto vs ejecución
+
+### 17. Configuración (Settings)
 - Tab "Integración Alegra": email + token + botón probar conexión
 - Toggle modo demo (activo por defecto)
-- Sincronizar cuentas (GET /accounts fresco)
-- Tab "Cuentas Predeterminadas": AlegraAccountSelector para ~15 tipos de operaciones
+- Sincronizar cuentas
+- Tab "Cuentas Predeterminadas": AlegraAccountSelector para 15 tipos
 
-### 9. Asistente IA Chat
-- Botón flotante dorado en todas las páginas
-- Panel slide-in con historial de conversación
-- Claude Sonnet 4.5 con system prompt de contabilidad colombiana NIIF 2025
-- Detecta acciones (<action> JSON) y las presenta como botones de navegación
-- Eliminar historial de sesión
-
-### 10. AlegraAccountSelector (Componente Central)
-- Popover con búsqueda por código o nombre
-- Árbol NIIF agrupado por clase (1xxx, 2xxx, ...)
-- Filtro contextual por tipo (income/expense/asset/liability)
-- allowedCodes para restricción por prefijo
-- Badge "CUENTA ALEGRA", fondo #F0F4FF
-- Indicadores de tipo con colores (verde=ingreso, rojo=gasto, azul=activo, etc.)
+### 18. Asistente IA Chat (Ejecutor Real)
+- Botón flotante en todas las páginas
+- **Function calling real**: Claude detecta intención → genera payload JSON → muestra tarjeta de confirmación
+- Flujo: mensaje → resumen en tarjeta → "Confirmar y ejecutar en Alegra" → resultado en Alegra
+- Acciones soportadas: crear_factura_venta, registrar_factura_compra, crear_causacion, registrar_pago, crear_contacto
+- Log de auditoría de acciones ejecutadas
 
 ---
 
 ## Plan de Cuentas NIIF Colombia (Mock Data)
-- 60+ cuentas: Activos (1), Pasivos (2), Patrimonio (3), Ingresos (4), Gastos admin (5), Gastos ventas (52), Gastos no operacionales (53), Impuestos (54), Costos (6)
-- 10 contactos (5 clientes + 5 proveedores)
-- 5 facturas de venta + 5 de compra
-- 2 cuentas bancarias (Bancolombia, Davivienda)
-- 2 comprobantes de diario
+- 60+ cuentas: Activos (1), Pasivos (2), Patrimonio (3), Ingresos (4), Gastos (5/52/53/54), Costos (6)
+- 10 contactos, 5 facturas venta/compra, 2 cuentas bancarias
 
 ---
 
@@ -112,46 +146,60 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
 
 ---
 
-## Lo que funciona (v1.0)
-- [x] Auth JWT con roles admin/usuario
+## Colecciones MongoDB
+- **users**: id, email, password_hash, name, role, is_active, created_at
+- **alegra_credentials**: id, email, token, is_demo_mode
+- **default_accounts**: operation_type, account_id, account_code, account_name
+- **chat_messages**: id, session_id, role, content, timestamp, user_id
+- **audit_logs**: id, user_id, user_email, endpoint, method, request_body, response_status, timestamp
+- **inventario_motos**: id, marca, version, color, ano_modelo, motor, chasis, costo, iva_compra, ipoconsumo, total, estado, placa, ubicacion, alegra_item_id, archivo_origen, created_at
+- **presupuesto**: id, mes, ano, categoria, concepto, valor_presupuestado, cuenta_alegra_id, updated_at
+
+---
+
+## Lo que funciona (v2.0)
+- [x] Auth JWT con roles admin/usuario + sitio completamente privado
 - [x] Dashboard con KPIs + gráfica + tablas
 - [x] Facturación de Venta (crear + listar + anular)
 - [x] Facturación de Compra (crear + listar)
+- [x] Registro de Cuotas (listar facturas + pagar)
 - [x] Causación de Ingresos (con preview asiento)
 - [x] Causación de Egresos (con preview asiento + validaciones)
 - [x] Conciliación Bancaria (marcar movimientos)
+- [x] Inventario Auteco (PDF upload + AI parse + tabla + registro Alegra)
+- [x] Impuestos y Alertas (calendario + calculadora IVA)
+- [x] Retenciones (calculadora DIAN 2025)
+- [x] Nómina (liquidación + causación Alegra)
+- [x] Prestaciones Sociales (cesantías + prima + vacaciones)
+- [x] Estado de Resultados (P&L desde Alegra)
+- [x] Egresos Clasificados (fijos vs variables + análisis)
+- [x] Presupuesto (MongoDB + comparación real Alegra)
 - [x] Settings (credenciales Alegra + cuentas predeterminadas + demo mode)
-- [x] AI Chat (Claude Sonnet 4.5 + acciones sugeridas)
-- [x] AlegraAccountSelector en todos los módulos
+- [x] AI Chat Ejecutor (Claude Sonnet 4.5 + function calling + confirmación + ejecución Alegra)
+- [x] AlegraAccountSelector en todos los módulos relevantes
 - [x] Modo Demo (datos mock NIIF Colombia)
-- [x] Proxy Alegra (funciona con API real o mock)
 
 ---
 
 ## Backlog Priorizado
 
-### P0 — Funcionalidad bloqueante (próxima iteración)
-- Registro de pagos a facturas existentes (POST /payments vinculado a facturas)
-- Módulo de Impuestos (cálculo IVA período, pagos DIAN)
+### P0 — Crítico
+- Ninguno pendiente
 
-### P1 — Mejoras de alto valor
-- Exportar facturas/causaciones a Excel o PDF
-- Autocomplete de items en facturas (carga de items desde Alegra)
-- Retenciones: calculadora DIAN con UVT 2025 y selección de cuenta
+### P1 — Alta prioridad
+- Exportar facturas/causaciones a PDF/Excel
 - Notificaciones de facturas próximas a vencer
-- Módulo de Estado de Resultados (GET /reports)
+- Módulo de ventas de motos Auteco (vinculado al inventario)
 
-### P2 — Features adicionales
-- Módulos 9-14 del prompt original (Nómina, Prestaciones, Presupuesto)
-- Módulo de gestión por Admin (activar/desactivar módulos)
+### P2 — Mejoras
 - Webhooks de Alegra (invoice.created, payment.created)
-- Log de auditoría en UI (tabla de acciones)
 - 2FA para administradores
+- Log de auditoría visible en UI
+- Autocomplete items en facturas desde Alegra
+- Módulo de gestión de usuarios desde UI admin
 
 ---
 
-## Next Steps Recomendados
-1. Conectar credenciales reales de Alegra en Configuración → Integración
-2. Configurar las cuentas predeterminadas en Settings → Cuentas Predeterminadas
-3. Probar creación real de facturas con la API de Alegra
-4. Considerar activar módulo de Impuestos para liquidación IVA bimestral
+## Credenciales de prueba
+- Admin: admin@roddos.com / Admin@RODDOS2025!
+- Usuario: contador@roddos.com / Contador@2025!
