@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Upload, RefreshCw, CheckCircle2, XCircle, Loader2, Bike,
-  TrendingUp, Package, Tag, AlertCircle, Edit2, Trash2, Link
+  TrendingUp, Package, Tag, AlertCircle, Edit2, Trash2, Link, ShoppingBag
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
@@ -41,6 +41,10 @@ export default function InventarioAuteco() {
   const [filterEstado, setFilterEstado] = useState("");
   const [editId, setEditId] = useState(null);
   const [editData, setEditData] = useState({});
+  const [selling, setSelling] = useState(null);
+  const [contacts, setContacts] = useState([]);
+  const [sellForm, setSellForm] = useState({ cliente_id: "", cliente_nombre: "", precio_venta: "", tipo_pago: "contado", cuotas: 12, valor_cuota: "", include_iva: true, ipoc_pct: 8 });
+  const [sellLoading, setSellLoading] = useState(false);
   const fileRef = useRef();
 
   const loadData = useCallback(async () => {
@@ -113,6 +117,39 @@ export default function InventarioAuteco() {
       loadData();
     } catch (err) {
       toast.error(err.response?.data?.detail || "Error eliminando");
+    }
+  };
+
+  const openSellModal = async (moto) => {
+    setSelling(moto);
+    setSellForm({ cliente_id: "", cliente_nombre: "", precio_venta: moto.total || "", tipo_pago: "contado", cuotas: 12, valor_cuota: "", include_iva: true, ipoc_pct: 8 });
+    try {
+      const res = await api.get("/alegra/contacts");
+      setContacts(Array.isArray(res.data) ? res.data : []);
+    } catch {}
+  };
+
+  const handleSell = async () => {
+    if (!sellForm.cliente_id || !sellForm.precio_venta) { toast.error("Selecciona cliente y precio"); return; }
+    setSellLoading(true);
+    try {
+      const res = await api.post(`/inventario/motos/${selling.id}/vender`, {
+        cliente_id: sellForm.cliente_id,
+        cliente_nombre: sellForm.cliente_nombre || contacts.find(c => String(c.id) === String(sellForm.cliente_id))?.name || "",
+        precio_venta: parseFloat(sellForm.precio_venta),
+        tipo_pago: sellForm.tipo_pago,
+        cuotas: parseInt(sellForm.cuotas) || 1,
+        valor_cuota: sellForm.valor_cuota ? parseFloat(sellForm.valor_cuota) : null,
+        include_iva: sellForm.include_iva,
+        ipoc_pct: parseFloat(sellForm.ipoc_pct) || 0,
+      });
+      toast.success(res.data.message);
+      setSelling(null);
+      loadData();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Error procesando venta");
+    } finally {
+      setSellLoading(false);
     }
   };
 
@@ -277,6 +314,15 @@ export default function InventarioAuteco() {
                     </td>
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-1">
+                        {moto.estado === "Disponible" && (
+                          <button
+                            onClick={() => openSellModal(moto)}
+                            className="flex items-center gap-1 text-[10px] bg-[#C9A84C] text-[#0F2A5C] font-bold px-2 py-1 rounded hover:bg-[#b8903e] transition"
+                            data-testid={`sell-moto-${moto.id}`}
+                          >
+                            <ShoppingBag size={10} /> Vender
+                          </button>
+                        )}
                         {editId === moto.id ? (
                           <>
                             <button onClick={() => handleEditSave(moto.id)} className="text-[10px] bg-emerald-600 text-white px-2 py-1 rounded hover:bg-emerald-700">Guardar</button>
@@ -302,6 +348,98 @@ export default function InventarioAuteco() {
             <span>Costo total: <strong className="text-[#0F2A5C]">{formatCOP(motos.reduce((s, m) => s + (m.costo || 0), 0))}</strong></span>
             <span>IVA total: <strong className="text-amber-700">{formatCOP(motos.reduce((s, m) => s + (m.iva_compra || 0), 0))}</strong></span>
             <span>Inversión total: <strong className="text-[#C9A84C]">{formatCOP(motos.reduce((s, m) => s + (m.total || 0), 0))}</strong></span>
+          </div>
+        </div>
+      )}
+
+      {/* Sell Modal */}
+      {selling && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl w-[500px] p-6 max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-bold text-[#0F2A5C] mb-1">Registrar Venta de Moto</h3>
+            <p className="text-sm text-slate-500 mb-4">
+              {selling.marca} {selling.version} — Chasis: {selling.chasis}
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-slate-700 mb-1 block">Cliente *</label>
+                <select value={sellForm.cliente_id}
+                  onChange={(e) => {
+                    const c = contacts.find(c => String(c.id) === e.target.value);
+                    setSellForm({ ...sellForm, cliente_id: e.target.value, cliente_nombre: c?.name || "" });
+                  }}
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:border-[#C9A84C] outline-none"
+                  data-testid="sell-client-select">
+                  <option value="">Seleccionar cliente...</option>
+                  {contacts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-700 mb-1 block">Precio de venta *</label>
+                <input type="number" value={sellForm.precio_venta}
+                  onChange={(e) => setSellForm({ ...sellForm, precio_venta: e.target.value })}
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:border-[#C9A84C] outline-none"
+                  placeholder="Precio final al cliente" data-testid="sell-price-input" />
+                <p className="text-[10px] text-slate-400 mt-0.5">Costo + impuestos: {formatCOP(selling.total)}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-slate-700 mb-1 block">Tipo de pago</label>
+                  <select value={sellForm.tipo_pago} onChange={(e) => setSellForm({ ...sellForm, tipo_pago: e.target.value })}
+                    className="w-full border rounded-lg px-3 py-2 text-sm focus:border-[#C9A84C] outline-none">
+                    <option value="contado">Contado</option>
+                    <option value="credito">Crédito</option>
+                    <option value="leasing">Leasing</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-700 mb-1 block">IPOC %</label>
+                  <select value={sellForm.ipoc_pct} onChange={(e) => setSellForm({ ...sellForm, ipoc_pct: e.target.value })}
+                    className="w-full border rounded-lg px-3 py-2 text-sm focus:border-[#C9A84C] outline-none">
+                    <option value={0}>0% (No aplica)</option>
+                    <option value={8}>8% (≤125cc)</option>
+                    <option value={16}>16% (&gt;125cc)</option>
+                  </select>
+                </div>
+              </div>
+              {sellForm.tipo_pago === "credito" && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-medium text-slate-700 mb-1 block">N° cuotas</label>
+                    <input type="number" value={sellForm.cuotas} onChange={(e) => setSellForm({ ...sellForm, cuotas: e.target.value })}
+                      className="w-full border rounded-lg px-3 py-2 text-sm focus:border-[#C9A84C] outline-none" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-slate-700 mb-1 block">Valor cuota</label>
+                    <input type="number" value={sellForm.valor_cuota} onChange={(e) => setSellForm({ ...sellForm, valor_cuota: e.target.value })}
+                      className="w-full border rounded-lg px-3 py-2 text-sm focus:border-[#C9A84C] outline-none" placeholder="$" />
+                  </div>
+                </div>
+              )}
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" checked={sellForm.include_iva}
+                  onChange={(e) => setSellForm({ ...sellForm, include_iva: e.target.checked })} className="rounded" />
+                <span className="text-slate-700">Incluir IVA 19% en la factura Alegra</span>
+              </label>
+              {sellForm.precio_venta && (
+                <div className="bg-[#F0F4FF] rounded-xl p-3 text-xs space-y-1">
+                  <div className="flex justify-between"><span>Precio base</span><span className="font-semibold">{formatCOP(sellForm.precio_venta)}</span></div>
+                  {sellForm.include_iva && <div className="flex justify-between text-amber-700"><span>IVA 19%</span><span>{formatCOP(parseFloat(sellForm.precio_venta || 0) * 0.19)}</span></div>}
+                  <div className="flex justify-between font-bold text-[#0F2A5C] pt-1 border-t border-[#C7D7FF]">
+                    <span>Total factura</span><span>{formatCOP(parseFloat(sellForm.precio_venta || 0) * (sellForm.include_iva ? 1.19 : 1))}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2 mt-5">
+              <button onClick={handleSell} disabled={sellLoading}
+                className="flex-1 bg-[#C9A84C] text-[#0F2A5C] font-bold py-3 rounded-xl text-sm hover:bg-[#b8903e] disabled:opacity-50 flex items-center justify-center gap-2"
+                data-testid="confirm-sell-btn">
+                {sellLoading ? <Loader2 size={16} className="animate-spin" /> : <ShoppingBag size={16} />}
+                Crear Factura en Alegra
+              </button>
+              <button onClick={() => setSelling(null)} className="px-4 py-3 border rounded-xl text-sm text-slate-600 hover:bg-slate-50">Cancelar</button>
+            </div>
           </div>
         </div>
       )}

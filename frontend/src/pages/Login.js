@@ -1,144 +1,151 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
-import { Eye, EyeOff, Loader2 } from "lucide-react";
-import { Button } from "../components/ui/button";
-import { Input } from "../components/ui/input";
-import { Label } from "../components/ui/label";
+import { Eye, EyeOff, Shield } from "lucide-react";
 
 export default function Login() {
-  const { login } = useAuth();
+  const { login, setAuth, token } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPass, setShowPass] = useState(false);
+  const [step, setStep] = useState(1);
+  const [form, setForm] = useState({ email: "", password: "" });
+  const [totp, setTotp] = useState("");
+  const [tempToken, setTempToken] = useState("");
+  const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e) => {
+  const API = process.env.REACT_APP_BACKEND_URL;
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (token) navigate("/dashboard", { replace: true });
+  }, [token, navigate]);
+
+  const handleCredentials = async (e) => {
     e.preventDefault();
-    if (!email || !password) { toast.error("Ingresa tu email y contraseña"); return; }
+    if (!form.email || !form.password) { toast.error("Completa todos los campos"); return; }
     setLoading(true);
     try {
-      await login(email, password);
-      toast.success("Bienvenido a RODDOS Contable IA");
-      navigate("/dashboard");
+      const result = await login(form.email, form.password);
+      if (result.requires_2fa) {
+        setTempToken(result.temp_token);
+        setStep(2);
+        toast.info("Ingresa el código de tu app autenticadora");
+      } else {
+        navigate("/dashboard", { replace: true });
+      }
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Credenciales incorrectas");
+      toast.error(err.response?.data?.detail || err.message || "Error de autenticación");
     } finally {
       setLoading(false);
     }
   };
 
-  const fillDemo = (role) => {
-    if (role === "admin") { setEmail("admin@roddos.com"); setPassword("Admin@RODDOS2025!"); }
-    else { setEmail("contador@roddos.com"); setPassword("Contador@2025!"); }
+  const handleTwoFA = async (e) => {
+    e.preventDefault();
+    if (totp.length !== 6) { toast.error("El código debe tener 6 dígitos"); return; }
+    setLoading(true);
+    try {
+      const res = await fetch(`${API}/api/auth/2fa/login`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ temp_token: tempToken, code: totp }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Código incorrecto");
+      setAuth(data.token, data.user);
+      navigate("/dashboard", { replace: true });
+    } catch (err) {
+      toast.error(err.message);
+      setTotp("");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div className="min-h-screen flex">
-      {/* Left panel — image */}
-      <div
-        className="hidden lg:flex lg:w-1/2 relative flex-col justify-end p-12"
-        style={{
-          background: `linear-gradient(135deg, rgba(15,42,92,0.92) 0%, rgba(10,29,64,0.85) 100%), url('https://images.unsplash.com/photo-1688011852608-dff8cdb43f2d?crop=entropy&cs=srgb&fm=jpg&q=85&w=1200') center/cover no-repeat`,
-        }}
-      >
-        <div className="text-white">
-          <div className="text-3xl font-bold font-montserrat mb-3">RODDOS Contable IA</div>
-          <div className="text-slate-300 text-base leading-relaxed max-w-sm">
-            Asistente de inteligencia artificial especializado en contabilidad colombiana. Integrado directamente con Alegra ERP.
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#0F2A5C] via-[#163A7A] to-[#0a1f44]">
+      <div className="w-full max-w-md px-6">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-[#C9A84C] rounded-2xl mb-4 shadow-lg">
+            <span className="text-[#0F2A5C] font-black text-2xl">R</span>
           </div>
-          <div className="mt-8 flex flex-wrap gap-3">
-            {["NIIF Colombia", "Alegra API", "IA Contable", "DIAN 2025"].map(tag => (
-              <span key={tag} className="bg-white/10 text-white text-xs px-3 py-1.5 rounded-full border border-white/20 font-medium">{tag}</span>
-            ))}
-          </div>
+          <h1 className="text-3xl font-black text-white font-montserrat tracking-tight">RODDOS</h1>
+          <p className="text-[#C9A84C] text-sm font-medium mt-1">Contable IA — Powered by Alegra</p>
         </div>
-        <div className="absolute top-8 left-12">
-          <div className="text-xl font-bold text-white font-montserrat">RODDOS</div>
-          <div className="text-xs text-slate-400">Plataforma Contable Inteligente</div>
-        </div>
-      </div>
 
-      {/* Right panel — form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center bg-[#F8FAFC] p-8">
-        <div className="w-full max-w-md animate-fadeInUp">
-          <div className="lg:hidden text-center mb-8">
-            <div className="text-2xl font-bold text-[#0F2A5C] font-montserrat">RODDOS Contable IA</div>
-          </div>
-
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-8">
-            <h2 className="text-2xl font-bold text-[#0F2A5C] font-montserrat mb-1">Iniciar sesión</h2>
-            <p className="text-sm text-slate-500 mb-8">Accede a tu plataforma contable inteligente</p>
-
-            <form onSubmit={handleSubmit} className="space-y-5">
-              <div>
-                <Label htmlFor="email" className="text-sm font-medium text-slate-700">Correo electrónico</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="usuario@empresa.com"
-                  className="mt-1.5 h-11"
-                  required
-                  data-testid="email-input"
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="password" className="text-sm font-medium text-slate-700">Contraseña</Label>
-                <div className="relative mt-1.5">
-                  <Input
-                    id="password"
-                    type={showPass ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="h-11 pr-10"
-                    required
-                    data-testid="password-input"
-                  />
-                  <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" onClick={() => setShowPass(!showPass)}>
-                    {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
+        <div className="bg-white/10 backdrop-blur-xl rounded-3xl border border-white/20 p-8 shadow-2xl">
+          {step === 1 ? (
+            <>
+              <h2 className="text-xl font-bold text-white mb-6">Iniciar Sesión</h2>
+              <form onSubmit={handleCredentials} className="space-y-4">
+                <div>
+                  <label className="text-xs font-medium text-white/70 mb-1.5 block">Email</label>
+                  <input type="email" value={form.email}
+                    onChange={(e) => setForm({ ...form, email: e.target.value })}
+                    className="w-full bg-white/10 border border-white/20 text-white rounded-xl px-4 py-3 text-sm placeholder-white/40 focus:outline-none focus:border-[#C9A84C] transition"
+                    placeholder="tu@email.com" data-testid="login-email-input" autoComplete="email" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-white/70 mb-1.5 block">Contraseña</label>
+                  <div className="relative">
+                    <input type={showPwd ? "text" : "password"} value={form.password}
+                      onChange={(e) => setForm({ ...form, password: e.target.value })}
+                      className="w-full bg-white/10 border border-white/20 text-white rounded-xl px-4 py-3 text-sm placeholder-white/40 focus:outline-none focus:border-[#C9A84C] transition pr-10"
+                      placeholder="••••••••" data-testid="login-password-input" autoComplete="current-password" />
+                    <button type="button" onClick={() => setShowPwd(!showPwd)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/80">
+                      {showPwd ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+                <button type="submit" disabled={loading}
+                  className="w-full bg-[#C9A84C] hover:bg-[#b8903e] text-[#0F2A5C] font-bold py-3 rounded-xl text-sm transition disabled:opacity-50"
+                  data-testid="login-submit-btn">
+                  {loading ? "Verificando..." : "Ingresar"}
+                </button>
+              </form>
+              <div className="mt-5 pt-5 border-t border-white/10">
+                <p className="text-[11px] text-white/40 text-center mb-2">Acceso demo</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={() => setForm({ email: "admin@roddos.com", password: "Admin@RODDOS2025!" })}
+                    className="text-xs bg-white/10 hover:bg-white/20 text-white/70 py-2 px-3 rounded-lg transition" data-testid="demo-admin-btn">
+                    Admin
+                  </button>
+                  <button onClick={() => setForm({ email: "contador@roddos.com", password: "Contador@2025!" })}
+                    className="text-xs bg-white/10 hover:bg-white/20 text-white/70 py-2 px-3 rounded-lg transition" data-testid="demo-user-btn">
+                    Contador
                   </button>
                 </div>
               </div>
-
-              <Button
-                type="submit"
-                disabled={loading}
-                className="w-full h-11 bg-[#0F2A5C] hover:bg-[#163A7A] text-white font-semibold"
-                data-testid="login-submit-btn"
-              >
-                {loading ? <><Loader2 size={16} className="mr-2 animate-spin" /> Ingresando...</> : "Ingresar"}
-              </Button>
-            </form>
-
-            {/* Demo credentials */}
-            <div className="mt-6 pt-5 border-t border-slate-100">
-              <p className="text-xs text-center text-slate-500 mb-3 font-medium">ACCESOS DEMO</p>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => fillDemo("admin")}
-                  className="text-xs py-2 px-3 border border-[#0F2A5C]/30 text-[#0F2A5C] rounded-lg hover:bg-[#F0F4FF] transition-colors font-medium"
-                  data-testid="demo-admin-btn"
-                >
-                  Admin
-                </button>
-                <button
-                  onClick={() => fillDemo("user")}
-                  className="text-xs py-2 px-3 border border-[#C9A84C]/50 text-[#8B6F2A] rounded-lg hover:bg-amber-50 transition-colors font-medium"
-                  data-testid="demo-user-btn"
-                >
-                  Contador
-                </button>
+            </>
+          ) : (
+            <>
+              <div className="text-center mb-6">
+                <div className="inline-flex items-center justify-center w-14 h-14 bg-[#C9A84C]/20 rounded-2xl mb-3">
+                  <Shield size={28} className="text-[#C9A84C]" />
+                </div>
+                <h2 className="text-xl font-bold text-white">Verificación 2FA</h2>
+                <p className="text-white/60 text-sm mt-1">Código de Google Authenticator</p>
               </div>
-              <p className="text-[10px] text-center text-slate-400 mt-2">Haz clic para pre-rellenar las credenciales demo</p>
-            </div>
-          </div>
+              <form onSubmit={handleTwoFA} className="space-y-4">
+                <input type="text" inputMode="numeric" maxLength={6} value={totp}
+                  onChange={(e) => setTotp(e.target.value.replace(/\D/g, ""))}
+                  className="w-full bg-white/10 border border-white/20 text-white rounded-xl px-4 py-4 text-center text-3xl font-mono tracking-[0.5em] placeholder-white/30 focus:outline-none focus:border-[#C9A84C] transition"
+                  placeholder="000000" autoFocus data-testid="totp-input" />
+                <button type="submit" disabled={loading || totp.length !== 6}
+                  className="w-full bg-[#C9A84C] hover:bg-[#b8903e] text-[#0F2A5C] font-bold py-3 rounded-xl text-sm transition disabled:opacity-50"
+                  data-testid="totp-submit-btn">
+                  {loading ? "Verificando..." : "Confirmar"}
+                </button>
+                <button type="button" onClick={() => { setStep(1); setTotp(""); }}
+                  className="w-full text-xs text-white/50 hover:text-white/80 py-2 transition">
+                  Volver
+                </button>
+              </form>
+            </>
+          )}
         </div>
+        <p className="text-center text-white/30 text-xs mt-6">RODDOS Contable IA © 2025 — Sitio privado</p>
       </div>
     </div>
   );

@@ -33,12 +33,22 @@ export function AuthProvider({ children }) {
 
   const login = useCallback(async (email, password) => {
     const resp = await api.post("/auth/login", { email, password });
+    if (resp.data.requires_2fa) {
+      // Return 2FA pending — don't set token yet
+      return { requires_2fa: true, temp_token: resp.data.temp_token };
+    }
     const { token: t, user: u } = resp.data;
     localStorage.setItem("roddos_token", t);
     setToken(t);
     setUser(u);
-    return u;
+    return { requires_2fa: false, user: u };
   }, []); // eslint-disable-line
+
+  const setAuth = useCallback((t, u) => {
+    localStorage.setItem("roddos_token", t);
+    setToken(t);
+    setUser(u);
+  }, []);
 
   const logout = useCallback(() => {
     localStorage.removeItem("roddos_token");
@@ -63,7 +73,7 @@ export function AuthProvider({ children }) {
   }, []); // eslint-disable-line
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, api, loading }}>
+    <AuthContext.Provider value={{ user, token, login, logout, setAuth, api, loading }}>
       {children}
     </AuthContext.Provider>
   );

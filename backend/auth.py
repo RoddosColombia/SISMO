@@ -29,8 +29,29 @@ def create_token(user_id: str, email: str, role: str) -> str:
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
+def create_temp_token(user_id: str, email: str) -> str:
+    """Short-lived token for 2FA pending verification."""
+    payload = {
+        "sub": user_id,
+        "email": email,
+        "scope": "2fa_pending",
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
 def verify_token(token: str) -> dict | None:
     try:
         return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except Exception:
+        return None
+
+
+def verify_temp_token(token: str) -> dict | None:
+    try:
+        decoded = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        if decoded.get("scope") != "2fa_pending":
+            return None
+        return decoded
     except Exception:
         return None

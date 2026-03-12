@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { Save, TestTube2, RefreshCw, Loader2, ToggleLeft, ToggleRight } from "lucide-react";
+import React, { useState, useEffect, useCallback } from "react";
+import { Save, TestTube2, RefreshCw, Loader2, ToggleLeft, ToggleRight, Shield, Activity, Globe, QrCode, Download, Check } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -33,7 +33,7 @@ const DEFAULT_ACCOUNT_TYPES = [
 ];
 
 export default function Settings() {
-  const { api } = useAuth();
+  const { api, user } = useAuth();
   const { connectionStatus, checkConnection, loadAccounts, setIsDemoMode, setConnectionStatus } = useAlegra();
   const [email, setEmail] = useState("");
   const [token, setToken] = useState("");
@@ -145,6 +145,9 @@ export default function Settings() {
         <TabsList className="bg-slate-100">
           <TabsTrigger value="alegra" data-testid="tab-alegra">Integración Alegra</TabsTrigger>
           <TabsTrigger value="accounts" data-testid="tab-accounts">Cuentas Predeterminadas</TabsTrigger>
+          <TabsTrigger value="security" data-testid="tab-security">Seguridad</TabsTrigger>
+          <TabsTrigger value="audit" data-testid="tab-audit">Auditoría</TabsTrigger>
+          <TabsTrigger value="webhooks" data-testid="tab-webhooks">Webhooks</TabsTrigger>
         </TabsList>
 
         {/* Alegra Connection Tab */}
@@ -265,7 +268,309 @@ export default function Settings() {
             </div>
           </div>
         </TabsContent>
+
+        {/* SECURITY TAB */}
+        <SecurityTab api={api} user={user} />
+
+        {/* AUDIT TAB */}
+        <AuditTab api={api} />
+
+        {/* WEBHOOKS TAB */}
+        <WebhooksTab api={api} />
       </Tabs>
     </div>
+  );
+}
+
+
+// ─── SECURITY TAB ─────────────────────────────────────────────────────────────
+
+function SecurityTab({ api, user }) {
+  const [status2fa, setStatus2fa] = useState(null);
+  const [qr, setQr] = useState(null);
+  const [secret, setSecret] = useState("");
+  const [code, setCode] = useState("");
+  const [loadingSetup, setLoadingSetup] = useState(false);
+  const [loadingEnable, setLoadingEnable] = useState(false);
+
+  useEffect(() => {
+    api.get("/auth/2fa/status").then(res => setStatus2fa(res.data.totp_enabled)).catch(() => {});
+  }, [api]);
+
+  const handleSetup = async () => {
+    setLoadingSetup(true);
+    try {
+      const res = await api.post("/auth/2fa/setup");
+      setQr(res.data.qr_code);
+      setSecret(res.data.secret);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Error generando QR");
+    } finally { setLoadingSetup(false); }
+  };
+
+  const handleEnable = async () => {
+    setLoadingEnable(true);
+    try {
+      await api.post("/auth/2fa/enable", { code, secret });
+      toast.success("2FA activado — Tu cuenta está protegida");
+      setStatus2fa(true);
+      setQr(null); setCode(""); setSecret("");
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Código incorrecto");
+      setCode("");
+    } finally { setLoadingEnable(false); }
+  };
+
+  const handleDisable = async () => {
+    if (!window.confirm("¿Desactivar 2FA? Tu cuenta quedará menos protegida.")) return;
+    try {
+      await api.post("/auth/2fa/disable");
+      toast.success("2FA desactivado");
+      setStatus2fa(false);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Error");
+    }
+  };
+
+  return (
+    <TabsContent value="security" className="mt-5">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 max-w-lg">
+        <h3 className="text-base font-bold text-[#0F2A5C] mb-1 flex items-center gap-2">
+          <Shield size={16} className="text-[#C9A84C]" /> Autenticación de Dos Factores (2FA)
+        </h3>
+        <p className="text-sm text-slate-500 mb-4">Compatible con Google Authenticator y Authy</p>
+
+        {status2fa === true && (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Check size={16} className="text-emerald-600" />
+              <span className="text-sm font-semibold text-emerald-700">2FA activo</span>
+            </div>
+            <button onClick={handleDisable} className="text-xs text-red-500 hover:text-red-700 border border-red-200 px-3 py-1 rounded-lg hover:bg-red-50">
+              Desactivar
+            </button>
+          </div>
+        )}
+
+        {status2fa === false && !qr && (
+          <button onClick={handleSetup} disabled={loadingSetup}
+            className="flex items-center gap-2 bg-[#0F2A5C] text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#163A7A] disabled:opacity-50"
+            data-testid="setup-2fa-btn">
+            {loadingSetup ? <Loader2 size={14} className="animate-spin" /> : <QrCode size={14} />}
+            Activar 2FA — Mostrar QR
+          </button>
+        )}
+
+        {qr && (
+          <div className="space-y-4">
+            <div className="bg-[#F0F4FF] rounded-xl p-4 text-center">
+              <p className="text-xs text-slate-600 mb-3">Escanea este código con Google Authenticator:</p>
+              <img src={qr} alt="QR 2FA" className="w-44 h-44 mx-auto rounded-lg border-4 border-white shadow" />
+              <p className="text-[10px] text-slate-400 mt-2 font-mono break-all">{secret}</p>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-700 mb-1 block">Ingresa el código de 6 dígitos para confirmar</label>
+              <input type="text" inputMode="numeric" maxLength={6} value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+                className="w-full border rounded-lg px-3 py-2 text-center text-xl font-mono tracking-widest focus:border-[#C9A84C] outline-none"
+                placeholder="000000" data-testid="setup-2fa-code-input" />
+            </div>
+            <button onClick={handleEnable} disabled={loadingEnable || code.length !== 6}
+              className="w-full bg-[#C9A84C] text-[#0F2A5C] font-bold py-2.5 rounded-xl text-sm hover:bg-[#b8903e] disabled:opacity-50"
+              data-testid="enable-2fa-btn">
+              {loadingEnable ? "Activando..." : "Confirmar y Activar 2FA"}
+            </button>
+          </div>
+        )}
+      </div>
+    </TabsContent>
+  );
+}
+
+
+// ─── AUDIT TAB ────────────────────────────────────────────────────────────────
+
+function AuditTab({ api }) {
+  const [logs, setLogs] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [filters, setFilters] = useState({ user_email: "", date_start: "", date_end: "", only_errors: false, page: 1 });
+
+  const loadLogs = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api.get("/audit-logs", { params: { ...filters, limit: 50 } });
+      setLogs(res.data.logs || []);
+      setTotal(res.data.total || 0);
+    } catch { toast.error("Error cargando auditoría"); }
+    finally { setLoading(false); }
+  }, [api, filters]);
+
+  useEffect(() => { loadLogs(); }, [loadLogs]);
+
+  const exportCSV = () => {
+    const cols = ["Fecha", "Usuario", "Método", "Endpoint", "Estado"];
+    const rows = logs.map(l => [l.timestamp?.slice(0, 19), l.user_email, l.method, l.endpoint, l.response_status]);
+    const csv = [cols, ...rows].map(r => r.join(",")).join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = `audit_log_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+  };
+
+  return (
+    <TabsContent value="audit" className="mt-5">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+          <span className="text-sm font-bold text-[#0F2A5C] flex items-center gap-2">
+            <Activity size={15} className="text-[#C9A84C]" /> Registro de Auditoría ({total} entradas)
+          </span>
+          <button onClick={exportCSV} className="flex items-center gap-1 text-xs border border-slate-200 text-slate-600 px-3 py-1.5 rounded-lg hover:bg-slate-50">
+            <Download size={12} /> Exportar CSV
+          </button>
+        </div>
+
+        {/* Filters */}
+        <div className="px-4 py-3 border-b border-slate-100 flex flex-wrap gap-3 items-end bg-slate-50">
+          <div>
+            <label className="text-[10px] text-slate-500 block mb-1">Usuario</label>
+            <input className="border rounded px-2 py-1 text-xs focus:border-[#C9A84C] outline-none w-40"
+              value={filters.user_email} onChange={e => setFilters(f => ({ ...f, user_email: e.target.value, page: 1 }))} placeholder="email..." />
+          </div>
+          <div>
+            <label className="text-[10px] text-slate-500 block mb-1">Desde</label>
+            <input type="date" className="border rounded px-2 py-1 text-xs focus:border-[#C9A84C] outline-none"
+              value={filters.date_start} onChange={e => setFilters(f => ({ ...f, date_start: e.target.value, page: 1 }))} />
+          </div>
+          <div>
+            <label className="text-[10px] text-slate-500 block mb-1">Hasta</label>
+            <input type="date" className="border rounded px-2 py-1 text-xs focus:border-[#C9A84C] outline-none"
+              value={filters.date_end} onChange={e => setFilters(f => ({ ...f, date_end: e.target.value, page: 1 }))} />
+          </div>
+          <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+            <input type="checkbox" checked={filters.only_errors}
+              onChange={e => setFilters(f => ({ ...f, only_errors: e.target.checked, page: 1 }))} />
+            Solo errores
+          </label>
+          <button onClick={loadLogs} disabled={loading}
+            className="flex items-center gap-1 text-xs bg-[#0F2A5C] text-white px-3 py-1.5 rounded-lg hover:bg-[#163A7A] disabled:opacity-50">
+            <RefreshCw size={11} className={loading ? "animate-spin" : ""} /> Filtrar
+          </button>
+        </div>
+
+        <div className="overflow-x-auto max-h-96">
+          <table className="w-full text-xs">
+            <thead><tr className="bg-[#0F2A5C] text-white text-[10px] uppercase sticky top-0">
+              <th className="px-3 py-2.5 text-left">Fecha / Hora</th>
+              <th className="px-3 py-2.5 text-left">Usuario</th>
+              <th className="px-3 py-2.5 text-left">Método</th>
+              <th className="px-3 py-2.5 text-left">Endpoint</th>
+              <th className="px-3 py-2.5 text-center">Estado</th>
+            </tr></thead>
+            <tbody>
+              {logs.map((log, i) => (
+                <tr key={i} className={`border-b border-slate-50 ${i % 2 === 0 ? "bg-white" : "bg-slate-50/40"} ${(log.response_status || 0) >= 400 ? "bg-red-50" : ""}`}>
+                  <td className="px-3 py-2 font-mono text-[11px]">{log.timestamp?.slice(0, 19).replace("T", " ")}</td>
+                  <td className="px-3 py-2">{log.user_email}</td>
+                  <td className="px-3 py-2">
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${log.method === "GET" ? "bg-blue-100 text-blue-700" : log.method === "POST" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+                      {log.method}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-slate-600 max-w-[200px] truncate">{log.endpoint}</td>
+                  <td className="px-3 py-2 text-center">
+                    <span className={`text-[10px] font-bold ${(log.response_status || 200) < 400 ? "text-emerald-600" : "text-red-600"}`}>
+                      {log.response_status || 200}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+              {logs.length === 0 && !loading && (
+                <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400">Sin registros con los filtros actuales</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination */}
+        <div className="px-4 py-3 flex items-center justify-between border-t border-slate-100 bg-slate-50">
+          <span className="text-xs text-slate-500">Página {filters.page} — {logs.length} de {total}</span>
+          <div className="flex gap-2">
+            <button disabled={filters.page <= 1} onClick={() => setFilters(f => ({ ...f, page: f.page - 1 }))}
+              className="text-xs px-3 py-1 border rounded hover:bg-white disabled:opacity-40">Anterior</button>
+            <button disabled={logs.length < 50} onClick={() => setFilters(f => ({ ...f, page: f.page + 1 }))}
+              className="text-xs px-3 py-1 border rounded hover:bg-white disabled:opacity-40">Siguiente</button>
+          </div>
+        </div>
+      </div>
+    </TabsContent>
+  );
+}
+
+
+// ─── WEBHOOKS TAB ─────────────────────────────────────────────────────────────
+
+function WebhooksTab({ api }) {
+  const [webhookStatus, setWebhookStatus] = useState(null);
+  const [registering, setRegistering] = useState(false);
+
+  useEffect(() => {
+    api.get("/settings/webhooks/status").then(res => setWebhookStatus(res.data)).catch(() => {});
+  }, [api]);
+
+  const handleRegister = async () => {
+    setRegistering(true);
+    try {
+      const res = await api.post("/settings/webhooks/register");
+      toast.success("Webhook registrado en Alegra");
+      setWebhookStatus({ webhook_id: res.data.webhook_id, url: res.data.url, registered_at: new Date().toISOString() });
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Error registrando webhook");
+    } finally { setRegistering(false); }
+  };
+
+  return (
+    <TabsContent value="webhooks" className="mt-5">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 max-w-lg space-y-4">
+        <h3 className="text-base font-bold text-[#0F2A5C] flex items-center gap-2">
+          <Globe size={16} className="text-[#C9A84C]" /> Webhooks de Alegra
+        </h3>
+        <p className="text-sm text-slate-500">
+          Registra RODDOS como receptor de eventos en Alegra para recibir notificaciones en tiempo real cuando se creen facturas o pagos.
+        </p>
+
+        <div className="bg-[#F0F4FF] rounded-xl p-4 space-y-2 text-xs">
+          <p className="font-semibold text-[#0F2A5C]">Eventos suscritos:</p>
+          {["invoice.created", "invoice.voided", "bill.created", "payment.created"].map(e => (
+            <div key={e} className="flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#C9A84C]" />
+              <span className="text-slate-600">{e}</span>
+            </div>
+          ))}
+        </div>
+
+        {webhookStatus?.webhook_id ? (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-1">
+            <div className="flex items-center gap-2">
+              <Check size={14} className="text-emerald-600" />
+              <span className="text-sm font-semibold text-emerald-700">Webhook registrado</span>
+            </div>
+            <p className="text-[11px] text-slate-500 font-mono break-all">{webhookStatus.url}</p>
+            <p className="text-[10px] text-slate-400">ID: {webhookStatus.webhook_id} — {webhookStatus.registered_at?.slice(0, 10)}</p>
+          </div>
+        ) : (
+          <button onClick={handleRegister} disabled={registering}
+            className="flex items-center gap-2 bg-[#0F2A5C] text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#163A7A] disabled:opacity-50"
+            data-testid="register-webhook-btn">
+            {registering ? <Loader2 size={14} className="animate-spin" /> : <Globe size={14} />}
+            Registrar Webhook en Alegra
+          </button>
+        )}
+
+        <p className="text-[10px] text-slate-400">
+          * Requiere que las credenciales de Alegra estén configuradas y el modo demo esté desactivado.
+        </p>
+      </div>
+    </TabsContent>
   );
 }

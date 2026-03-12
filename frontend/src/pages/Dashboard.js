@@ -5,6 +5,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { formatCOP, formatShortDate, getStatusInfo, getMonthName } from "../utils/formatters";
 import { toast } from "sonner";
+import ProactiveAlerts from "../components/ProactiveAlerts";
 
 const CHART_DATA = [
   { month: "May", ingresos: 12500000, gastos: 9200000 },
@@ -97,6 +98,9 @@ export default function Dashboard() {
           <RefreshCw size={14} className={loading ? "animate-spin" : ""} /> Actualizar
         </button>
       </div>
+
+      {/* Proactive Alerts */}
+      <ProactiveAlerts />
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" data-testid="kpi-cards">

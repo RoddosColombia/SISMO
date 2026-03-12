@@ -1,9 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Outlet, NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, FileText, ShoppingCart, TrendingUp, TrendingDown,
   Building2, Settings, LogOut, ChevronLeft, Menu, Bell, User,
-  CreditCard, Receipt, Calculator, Users, Gift, BarChart2, Tag, Target, Bike
+  CreditCard, Receipt, Calculator, Users, Gift, BarChart2, Tag, Target, Bike, X
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useAlegra } from "../contexts/AlegraContext";
@@ -50,14 +50,34 @@ function AlegraStatusBadge({ status }) {
 }
 
 export default function Layout() {
-  const { user, logout } = useAuth();
+  const { user, logout, api } = useAuth();
   const { connectionStatus } = useAlegra();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifs, setShowNotifs] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
 
   const currentModule = MODULES.find(m => location.pathname.startsWith(m.path));
+
+  // Poll for unread notifications every 15s
+  const fetchNotifications = useCallback(async () => {
+    try {
+      const res = await api.get("/notifications", { params: { unread_only: true } });
+      setNotifications(res.data || []);
+    } catch {}
+  }, [api]);
+
+  useEffect(() => {
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 15000);
+    return () => clearInterval(interval);
+  }, [fetchNotifications]);
+
+  const markAllRead = async () => {
+    try { await api.put("/notifications/read-all"); setNotifications([]); } catch {}
+  };
 
   return (
     <div className="flex h-screen bg-[#F8FAFC] overflow-hidden">
@@ -170,9 +190,46 @@ export default function Layout() {
           </div>
           <div className="flex items-center gap-3">
             <AlegraStatusBadge status={connectionStatus} />
-            <button className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-50">
-              <Bell size={18} />
-            </button>
+            {/* Notifications Bell */}
+            <div className="relative">
+              <button
+                onClick={() => setShowNotifs(!showNotifs)}
+                className="relative text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-50"
+                data-testid="notifications-bell"
+              >
+                <Bell size={18} />
+                {notifications.length > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                    {notifications.length > 9 ? "9+" : notifications.length}
+                  </span>
+                )}
+              </button>
+              {showNotifs && (
+                <div className="absolute right-0 top-10 w-80 bg-white rounded-xl border border-slate-200 shadow-xl z-50 overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-[#F0F4FF]">
+                    <span className="text-sm font-bold text-[#0F2A5C]">Notificaciones</span>
+                    <div className="flex gap-2">
+                      {notifications.length > 0 && (
+                        <button onClick={markAllRead} className="text-[11px] text-[#0F2A5C] hover:underline">Marcar leídas</button>
+                      )}
+                      <button onClick={() => setShowNotifs(false)}><X size={14} className="text-slate-400" /></button>
+                    </div>
+                  </div>
+                  {notifications.length === 0 ? (
+                    <div className="px-4 py-8 text-center text-slate-400 text-sm">Sin notificaciones nuevas</div>
+                  ) : (
+                    <div className="max-h-64 overflow-y-auto">
+                      {notifications.map((n, i) => (
+                        <div key={i} className="px-4 py-3 border-b border-slate-50 hover:bg-slate-50">
+                          <p className="text-xs font-semibold text-[#0F2A5C]">{n.event_type}</p>
+                          <p className="text-[11px] text-slate-500 mt-0.5">{n.created_at?.slice(0, 16).replace("T", " ")}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             <div className="w-8 h-8 rounded-full bg-[#0F2A5C] flex items-center justify-center cursor-pointer" data-testid="user-avatar">
               <span className="text-xs font-bold text-white">{user?.name?.[0]?.toUpperCase()}</span>
             </div>

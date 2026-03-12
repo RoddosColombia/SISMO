@@ -104,6 +104,7 @@ export default function AIChatWidget() {
   const [executing, setExecuting] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
   const [sessionId] = useState(() => `chat-${user?.id || "guest"}-${Date.now()}`);
+  const [memorySuggestions, setMemorySuggestions] = useState([]);
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -113,13 +114,21 @@ export default function AIChatWidget() {
 
   useEffect(() => { scrollToBottom(); }, [messages, pendingAction, scrollToBottom]);
 
+  // Load memory suggestions on open
   useEffect(() => {
-    if (isOpen && messages.length === 0) {
-      setMessages([{
-        role: "assistant",
-        content: `Hola ${user?.name?.split(" ")[0] || ""}! Soy tu Agente Contable IA.\n\nEjecuto acciones REALES en Alegra desde la conversación. No necesitas ir a formularios.\n\nEjemplos:\n• "Crea una factura para Colpatria por consultoría $5M"\n• "Causar arrendamiento $3M con ReteFuente a Arrendamientos Premium"\n• "Registrar pago de factura FV-2025-001 de Colpatria"\n• "¿Cuánto es ReteFuente de $8.500.000 en honorarios?"`,
-        timestamp: new Date().toISOString(),
-      }]);
+    if (!isOpen) return;
+    const today = new Date();
+    const isFirstOfMonth = today.getDate() <= 5;
+    if (isFirstOfMonth || messages.length === 0) {
+      api.get("/agent/memory/suggestions").then(res => {
+        if (res.data?.length > 0) setMemorySuggestions(res.data);
+      }).catch(() => {});
+    }
+    if (messages.length === 0) {
+      const greeting = memorySuggestions.length > 0
+        ? `Hola ${user?.name?.split(" ")[0] || ""}! Soy tu Agente Contable IA.\n\nDetecté ${memorySuggestions.length} acción(es) recurrente(s) del mes pasado. ¿Las ejecuto este mes?\n\nTambién puedes pedirme cualquier cosa:\n• "Crea factura para [cliente] por $X"\n• "Causar arrendamiento $3M"\n• "¿Cuánto IVA debo este período?"`
+        : `Hola ${user?.name?.split(" ")[0] || ""}! Soy tu Agente Contable IA.\n\nEjecuto acciones REALES en Alegra desde la conversación:\n• "Crea una factura para Colpatria por $5M"\n• "Causar arrendamiento $3M con ReteFuente"\n• "¿Cuánto IVA debo este período cuatrimestral?"`;
+      setMessages([{ role: "assistant", content: greeting, timestamp: new Date().toISOString() }]);
     }
     if (isOpen && inputRef.current) setTimeout(() => inputRef.current?.focus(), 200);
   }, [isOpen]); // eslint-disable-line
@@ -243,6 +252,27 @@ export default function AIChatWidget() {
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-3" ref={scrollRef}>
             {messages.map((msg, i) => <MessageBubble key={i} msg={msg} />)}
+
+            {/* Memory suggestions */}
+            {memorySuggestions.length > 0 && messages.length <= 1 && (
+              <div className="mb-3 bg-[#F0F4FF] border border-[#C7D7FF] rounded-xl p-3">
+                <p className="text-[11px] font-bold text-[#0F2A5C] mb-2">Acciones recurrentes del mes pasado:</p>
+                <div className="space-y-1.5">
+                  {memorySuggestions.slice(0, 3).map((m, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setInput(`Ejecuta igual que el mes pasado: ${m.descripcion}${m.monto ? ` por $${m.monto.toLocaleString("es-CO")}` : ""}`)}
+                      className="w-full text-left text-xs bg-white border border-[#C7D7FF] rounded-lg px-3 py-2 hover:bg-[#0F2A5C] hover:text-white hover:border-[#0F2A5C] transition"
+                      data-testid={`memory-suggestion-${i}`}
+                    >
+                      <span className="font-semibold">{m.tipo === "crear_causacion" ? "Causación" : m.tipo === "crear_factura_venta" ? "Factura" : "Registro"}</span>
+                      {" — "}{m.descripcion}{m.monto ? ` ($${m.monto.toLocaleString("es-CO")})` : ""}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {loading && (
               <div className="flex justify-start mb-3">
                 <div className="w-7 h-7 rounded-full bg-[#0F2A5C] flex items-center justify-center mr-2 flex-shrink-0">

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, Query, UploadFile, File, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -15,10 +15,14 @@ from models import (
     LoginRequest, SaveCredentialsRequest, DemoModeRequest,
     SaveDefaultAccountsRequest, ChatMessageRequest
 )
-from auth import create_token, verify_token, hash_password, verify_password
+from auth import create_token, verify_token, hash_password, verify_password, create_temp_token, verify_temp_token
 from alegra_service import AlegraService
 from ai_chat import process_chat, execute_chat_action
 from inventory_service import extract_motos_from_pdf, register_moto_in_alegra
+from security_service import (
+    generate_totp_secret, encrypt_secret, decrypt_secret,
+    verify_totp, generate_qr_base64
+)
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -111,8 +115,73 @@ async def login(req: LoginRequest):
     user = await db.users.find_one({"email": req.email}, {"_id": 0})
     if not user or not verify_password(req.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Email o contraseña incorrectos")
+    # Check 2FA
+    if user.get("totp_enabled") and user.get("totp_secret_enc"):
+        temp_token = create_temp_token(user["id"], user["email"])
+        return {"requires_2fa": True, "temp_token": temp_token}
     token = create_token(user["id"], user["email"], user["role"])
     return {"token": token, "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"]}}
+
+
+@api_router.get("/auth/me")
+async def get_me(current_user=Depends(get_current_user)):
+    user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return {"id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"]}
+
+
+class TwoFALoginRequest(BaseModel):
+    temp_token: str
+    code: str
+
+
+@api_router.post("/auth/2fa/login")
+async def two_fa_login(req: TwoFALoginRequest):
+    decoded = verify_temp_token(req.temp_token)
+    if not decoded:
+        raise HTTPException(status_code=401, detail="Token temporal inválido o expirado")
+    user = await db.users.find_one({"id": decoded["sub"]}, {"_id": 0})
+    if not user:
+        raise HTTPException(status_code=401, detail="Usuario no encontrado")
+    if not verify_totp(user.get("totp_secret_enc", ""), req.code):
+        raise HTTPException(status_code=401, detail="Código 2FA incorrecto")
+    token = create_token(user["id"], user["email"], user["role"])
+    return {"token": token, "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"]}}
+
+
+class TwoFASetupVerify(BaseModel):
+    code: str
+    secret: str
+
+
+@api_router.post("/auth/2fa/setup")
+async def setup_2fa(current_user=Depends(require_admin)):
+    secret = generate_totp_secret()
+    qr_b64 = generate_qr_base64(secret, current_user["email"])
+    return {"secret": secret, "qr_code": f"data:image/png;base64,{qr_b64}"}
+
+
+@api_router.post("/auth/2fa/enable")
+async def enable_2fa(req: TwoFASetupVerify, current_user=Depends(require_admin)):
+    totp = __import__("pyotp").TOTP(req.secret)
+    if not totp.verify(req.code, valid_window=1):
+        raise HTTPException(status_code=400, detail="Código incorrecto. Escanea el QR de nuevo.")
+    encrypted = encrypt_secret(req.secret)
+    await db.users.update_one({"id": current_user["id"]}, {"$set": {"totp_secret_enc": encrypted, "totp_enabled": True}})
+    return {"message": "2FA activado correctamente"}
+
+
+@api_router.post("/auth/2fa/disable")
+async def disable_2fa(current_user=Depends(require_admin)):
+    await db.users.update_one({"id": current_user["id"]}, {"$unset": {"totp_secret_enc": "", "totp_enabled": ""}})
+    return {"message": "2FA desactivado"}
+
+
+@api_router.get("/auth/2fa/status")
+async def get_2fa_status(current_user=Depends(get_current_user)):
+    user = await db.users.find_one({"id": current_user["id"]}, {"_id": 0})
+    return {"totp_enabled": user.get("totp_enabled", False)}
 
 
 @api_router.get("/auth/me")
@@ -634,6 +703,333 @@ async def save_presupuesto(items: List[PresupuestoItem], current_user=Depends(ge
 async def delete_presupuesto_item(item_id: str, current_user=Depends(require_admin)):
     await db.presupuesto.delete_one({"id": item_id})
     return {"message": "Ítem eliminado"}
+
+
+# ─── DASHBOARD ALERTS (Agente Proactivo) ──────────────────────────────────────
+
+@api_router.get("/dashboard/alerts")
+async def get_dashboard_alerts(current_user=Depends(get_current_user)):
+    service = AlegraService(db)
+    alerts = []
+
+    try:
+        # 1. Facturas de venta vencidas
+        overdue = await service.request("invoices", params={"status": "overdue"})
+        overdue = overdue if isinstance(overdue, list) else []
+        if overdue:
+            total_overdue = sum(float(inv.get("balance") or inv.get("total") or 0) for inv in overdue)
+            alerts.append({
+                "id": "overdue_invoices",
+                "type": "overdue_invoices",
+                "severity": "high",
+                "icon": "warning",
+                "title": f"Tienes {len(overdue)} factura(s) vencida(s)",
+                "message": f"Total por cobrar: {total_overdue:,.0f}",
+                "action_label": "Registrar cobros",
+                "action_type": "navigate",
+                "action_payload": {"route": "/registro-cuotas"},
+                "data": {"count": len(overdue), "total": total_overdue, "invoices": [
+                    {"id": i["id"], "client": i.get("client", {}).get("name", ""), "total": i.get("balance") or i.get("total")}
+                    for i in overdue[:3]
+                ]},
+            })
+    except Exception:
+        pass
+
+    try:
+        # 2. Facturas de proveedor próximas a vencer (7 días)
+        from datetime import date, timedelta
+        today = date.today()
+        week_later = today + timedelta(days=7)
+        all_bills = await service.request("bills", params={"status": "open"})
+        all_bills = all_bills if isinstance(all_bills, list) else []
+        due_soon = []
+        for b in all_bills:
+            due = b.get("dueDate") or b.get("due_date")
+            if due:
+                try:
+                    d = date.fromisoformat(due[:10])
+                    if today <= d <= week_later:
+                        due_soon.append(b)
+                except Exception:
+                    pass
+        if due_soon:
+            total_due = sum(float(b.get("balance") or b.get("total") or 0) for b in due_soon)
+            alerts.append({
+                "id": "bills_due_soon",
+                "type": "bills_due_soon",
+                "severity": "medium",
+                "icon": "calendar",
+                "title": f"{len(due_soon)} factura(s) de proveedor vencen esta semana",
+                "message": f"Total: {total_due:,.0f}",
+                "action_label": "Ver facturas",
+                "action_type": "navigate",
+                "action_payload": {"route": "/facturacion-compra"},
+                "data": {"count": len(due_soon), "total": total_due},
+            })
+    except Exception:
+        pass
+
+    try:
+        # 3. Impuesto venciendo en <7 días
+        from datetime import date as _date
+        cfg = await db.iva_config.find_one({}, {"_id": 0})
+        if cfg:
+            periodos = cfg.get("periodos", [])
+            hoy = _date.today()
+            mes_actual = hoy.month
+            ano_actual = hoy.year
+            for p in periodos:
+                if p["inicio_mes"] <= mes_actual <= p["fin_mes"]:
+                    mes_lim = p["fin_mes"] + p.get("mes_limite_offset", 1)
+                    ano_lim = ano_actual + (1 if mes_lim > 12 else 0)
+                    mes_lim_f = mes_lim if mes_lim <= 12 else mes_lim - 12
+                    try:
+                        limite = _date(ano_lim, mes_lim_f, min(p.get("dia_limite", 30), 28))
+                        dias = (limite - hoy).days
+                        if 0 <= dias <= 7:
+                            alerts.append({
+                                "id": "iva_due",
+                                "type": "iva_due",
+                                "severity": "critical",
+                                "icon": "tax",
+                                "title": f"IVA {cfg.get('tipo_periodo', 'cuatrimestral')} vence en {dias} día(s)",
+                                "message": f"Período {p['nombre']} — Fecha límite: {limite}",
+                                "action_label": "Ver estado IVA",
+                                "action_type": "navigate",
+                                "action_payload": {"route": "/impuestos"},
+                                "data": {"dias_restantes": dias, "fecha_limite": str(limite)},
+                            })
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
+    return alerts
+
+
+class AlertExecuteRequest(BaseModel):
+    alert_type: str
+    payload: Optional[dict] = None
+
+
+@api_router.post("/dashboard/alerts/execute")
+async def execute_alert_action(req: AlertExecuteRequest, current_user=Depends(get_current_user)):
+    service = AlegraService(db)
+    if req.alert_type == "send_collection_reminder":
+        # Get overdue invoices and mark as reminder sent (in demo, just return OK)
+        overdue = await service.request("invoices", params={"status": "overdue"})
+        overdue = overdue if isinstance(overdue, list) else []
+        return {"success": True, "message": f"Recordatorio enviado a {len(overdue)} clientes", "count": len(overdue)}
+    return {"success": True, "message": "Acción ejecutada"}
+
+
+# ─── AGENT MEMORY ──────────────────────────────────────────────────────────────
+
+@api_router.get("/agent/memory")
+async def get_agent_memory(current_user=Depends(get_current_user)):
+    items = await db.agent_memory.find(
+        {"user_id": current_user["id"]}, {"_id": 0}
+    ).sort("ultima_ejecucion", -1).limit(50).to_list(50)
+    return items
+
+
+@api_router.get("/agent/memory/suggestions")
+async def get_memory_suggestions(current_user=Depends(get_current_user)):
+    """Return entries executed last month for re-execution suggestions."""
+    from datetime import date
+    today = date.today()
+    last_month = today.month - 1 if today.month > 1 else 12
+    last_month_year = today.year if today.month > 1 else today.year - 1
+    prefix = f"{last_month_year}-{str(last_month).zfill(2)}"
+    items = await db.agent_memory.find(
+        {"user_id": current_user["id"], "ultima_ejecucion": {"$regex": f"^{prefix}"}},
+        {"_id": 0}
+    ).to_list(10)
+    return items
+
+
+@api_router.delete("/agent/memory/{memory_id}")
+async def delete_memory_item(memory_id: str, current_user=Depends(get_current_user)):
+    await db.agent_memory.delete_one({"id": memory_id, "user_id": current_user["id"]})
+    return {"message": "Memoria eliminada"}
+
+
+# ─── INVENTARIO — VENTA DE MOTO ────────────────────────────────────────────────
+
+class VentaMotoRequest(BaseModel):
+    cliente_id: str
+    cliente_nombre: str
+    precio_venta: float
+    tipo_pago: str = "contado"
+    cuotas: int = 1
+    valor_cuota: Optional[float] = None
+    include_iva: bool = True
+    ipoc_pct: float = 8.0
+
+
+@api_router.post("/inventario/motos/{moto_id}/vender")
+async def vender_moto(moto_id: str, req: VentaMotoRequest, current_user=Depends(get_current_user)):
+    moto = await db.inventario_motos.find_one({"id": moto_id}, {"_id": 0})
+    if not moto:
+        raise HTTPException(status_code=404, detail="Moto no encontrada")
+    if moto.get("estado") != "Disponible":
+        raise HTTPException(status_code=400, detail=f"Moto no disponible (estado: {moto.get('estado')})")
+
+    service = AlegraService(db)
+
+    # Build invoice items
+    price_base = req.precio_venta
+    items = [{"description": f"{moto.get('marca')} {moto.get('version')} — Chasis: {moto.get('chasis')} Motor: {moto.get('motor')}", "quantity": 1, "price": price_base, "account": {"id": "4105"}}]
+    if req.include_iva:
+        items[0]["tax"] = [{"percentage": 19}]
+
+    invoice_payload = {
+        "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "dueDate": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "client": {"id": req.cliente_id},
+        "items": items,
+        "observations": f"Venta moto {moto.get('marca')} {moto.get('version')} — {req.tipo_pago}",
+    }
+
+    result = await service.request("invoices", "POST", invoice_payload)
+    invoice_id = result.get("id")
+    invoice_number = result.get("numberTemplate", {}).get("fullNumber") or result.get("number") or str(invoice_id)
+
+    # Update moto status in MongoDB
+    sale_data = {
+        "estado": "Vendida",
+        "cliente_id": req.cliente_id,
+        "cliente_nombre": req.cliente_nombre,
+        "precio_venta": req.precio_venta,
+        "tipo_pago": req.tipo_pago,
+        "cuotas": req.cuotas,
+        "valor_cuota": req.valor_cuota,
+        "factura_id": invoice_id,
+        "factura_numero": invoice_number,
+        "fecha_venta": datetime.now(timezone.utc).isoformat(),
+        "vendido_por": current_user.get("email"),
+    }
+    await db.inventario_motos.update_one({"id": moto_id}, {"$set": sale_data})
+
+    # Update item in Alegra if registered
+    if moto.get("alegra_item_id"):
+        try:
+            await service.request(f"items/{moto['alegra_item_id']}", "PUT", {"status": "inactive"})
+        except Exception:
+            pass
+
+    await log_action(current_user, f"/inventario/motos/{moto_id}/vender", "POST",
+                     {"invoice_number": invoice_number, "cliente": req.cliente_nombre})
+
+    return {
+        "success": True,
+        "invoice_id": invoice_id,
+        "invoice_number": invoice_number,
+        "message": f"Moto vendida — Factura {invoice_number} creada en Alegra",
+        "moto": {**moto, **sale_data},
+    }
+
+
+# ─── AUDIT LOG ENHANCED ───────────────────────────────────────────────────────
+
+@api_router.get("/audit-logs")
+async def get_audit_logs(
+    user_email: Optional[str] = None,
+    date_start: Optional[str] = None,
+    date_end: Optional[str] = None,
+    only_errors: bool = False,
+    page: int = 1,
+    limit: int = 50,
+    current_user=Depends(require_admin)
+):
+    query = {}
+    if user_email:
+        query["user_email"] = {"$regex": user_email, "$options": "i"}
+    if date_start:
+        query.setdefault("timestamp", {})["$gte"] = date_start
+    if date_end:
+        query.setdefault("timestamp", {})["$lte"] = date_end + "T23:59:59"
+    if only_errors:
+        query["response_status"] = {"$gte": 400}
+
+    total = await db.audit_logs.count_documents(query)
+    skip = (page - 1) * limit
+    logs = await db.audit_logs.find(query, {"_id": 0}).sort("timestamp", -1).skip(skip).limit(limit).to_list(limit)
+    return {"total": total, "page": page, "limit": limit, "logs": logs}
+
+
+# ─── WEBHOOKS ─────────────────────────────────────────────────────────────────
+
+@api_router.post("/settings/webhooks/register")
+async def register_webhook(current_user=Depends(require_admin)):
+    """Register RODDOS as a webhook recipient in Alegra."""
+    service = AlegraService(db)
+    backend_url = os.environ.get("REACT_APP_BACKEND_URL", "")
+    if not backend_url:
+        raise HTTPException(status_code=400, detail="REACT_APP_BACKEND_URL no configurado")
+    webhook_url = f"{backend_url}/api/webhook/alegra"
+    payload = {
+        "url": webhook_url,
+        "events": ["invoice.created", "invoice.voided", "bill.created", "payment.created"],
+        "status": "active",
+    }
+    try:
+        result = await service.request("webhooks", "POST", payload)
+        webhook_id = result.get("id") if isinstance(result, dict) else str(result)
+        await db.webhook_config.update_one({}, {"$set": {"webhook_id": webhook_id, "url": webhook_url, "registered_at": datetime.now(timezone.utc).isoformat()}}, upsert=True)
+        return {"success": True, "webhook_id": webhook_id, "url": webhook_url}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error registrando webhook en Alegra: {str(e)}")
+
+
+@api_router.get("/settings/webhooks/status")
+async def get_webhook_status(current_user=Depends(require_admin)):
+    cfg = await db.webhook_config.find_one({}, {"_id": 0})
+    return cfg or {"webhook_id": None, "url": None, "registered_at": None}
+
+
+# Public endpoint — no auth — receives events from Alegra
+@app.post("/api/webhook/alegra")
+async def receive_webhook(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return {"ok": True}
+    event_type = body.get("event") or body.get("type") or "unknown"
+    data = body.get("data") or body
+    notif_id = str(uuid.uuid4())
+    await db.notifications.insert_one({
+        "id": notif_id,
+        "event_type": event_type,
+        "data": data,
+        "read": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return {"ok": True}
+
+
+# ─── NOTIFICATIONS ─────────────────────────────────────────────────────────────
+
+@api_router.get("/notifications")
+async def get_notifications(unread_only: bool = False, current_user=Depends(get_current_user)):
+    query = {}
+    if unread_only:
+        query["read"] = False
+    notifs = await db.notifications.find(query, {"_id": 0}).sort("created_at", -1).limit(20).to_list(20)
+    return notifs
+
+
+@api_router.put("/notifications/{notif_id}/read")
+async def mark_notification_read(notif_id: str, current_user=Depends(get_current_user)):
+    await db.notifications.update_one({"id": notif_id}, {"$set": {"read": True}})
+    return {"ok": True}
+
+
+@api_router.put("/notifications/read-all")
+async def mark_all_read(current_user=Depends(get_current_user)):
+    await db.notifications.update_many({"read": False}, {"$set": {"read": True}})
+    return {"ok": True}
 
 
 app.include_router(api_router)

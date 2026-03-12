@@ -307,6 +307,31 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
         doc_id = result[0].get("id") if isinstance(result[0], dict) else ""
     else:
         doc_id = ""
+
+    # Save to agent_memory for recurrent suggestion
+    if action_type in ("crear_causacion", "crear_factura_venta", "registrar_factura_compra"):
+        description = payload.get("description") or payload.get("observations") or f"Acción {action_type}"
+        amount = 0
+        if isinstance(payload.get("items"), list) and payload["items"]:
+            amount = sum(float(i.get("price") or i.get("debit") or 0) for i in payload["items"])
+        elif payload.get("total"):
+            amount = float(payload["total"])
+        await db.agent_memory.update_one(
+            {"user_id": user.get("id"), "tipo": action_type, "descripcion": description},
+            {"$set": {
+                "id": str(uuid.uuid4()),
+                "user_id": user.get("id"),
+                "user_email": user.get("email"),
+                "tipo": action_type,
+                "descripcion": description,
+                "payload_alegra": payload,
+                "monto": amount,
+                "ultima_ejecucion": datetime.now(timezone.utc).isoformat(),
+                "frecuencia": "mensual",
+            }},
+            upsert=True,
+        )
+
     return {
         "success": True,
         "result": result,
