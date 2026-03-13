@@ -19,11 +19,11 @@ PLAN_CUOTAS = {"Contado": 0, "P39S": 39, "P52S": 52, "P78S": 78}
 # ─── Models ───────────────────────────────────────────────────────────────────
 
 class LoanCreate(BaseModel):
-    factura_alegra_id: str
-    factura_numero: str
+    factura_alegra_id: Optional[str] = None
+    factura_numero: Optional[str] = None
     moto_id: Optional[str] = None
     moto_descripcion: Optional[str] = ""
-    cliente_id: str
+    cliente_id: Optional[str] = None
     cliente_nombre: str
     cliente_nit: Optional[str] = ""
     cliente_telefono: Optional[str] = ""

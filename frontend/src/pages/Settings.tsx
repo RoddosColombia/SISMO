@@ -363,14 +363,16 @@ function CatalogoTab({ api }: { api: any }) {
   const [showModal, setShowModal] = useState(false);
   const [newMoto, setNewMoto] = useState<Partial<CatalogoMoto>>({ ...EMPTY_MOTO });
 
+  const [showInactive, setShowInactive] = useState(false);
+
   const loadCatalogo = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get("/settings/catalogo");
+      const res = await api.get(`/settings/catalogo?include_inactive=${showInactive}`);
       setItems(res.data);
     } catch { toast.error("Error cargando catálogo de motos"); }
     finally { setLoading(false); }
-  }, [api]);
+  }, [api, showInactive]);
 
   useEffect(() => { loadCatalogo(); }, [loadCatalogo]);
 
@@ -434,13 +436,20 @@ function CatalogoTab({ api }: { api: any }) {
           <div className="flex items-center gap-2">
             <Bike size={16} className="text-[#C9A84C]" />
             <span className="text-sm font-bold text-[#0F2A5C]">Catálogo de Motos Auteco</span>
-            <span className="text-xs text-slate-400 ml-1">({items.length} modelos)</span>
+            <span className="text-xs text-slate-400 ml-1">({items.length} modelo{items.length !== 1 ? "s" : ""}{showInactive ? "" : " activos"})</span>
           </div>
-          <Button onClick={() => setShowModal(true)}
-            className="bg-[#0F2A5C] hover:bg-[#163A7A] text-white h-8 text-xs gap-1.5"
-            data-testid="add-modelo-btn">
-            <Plus size={13} /> Agregar Modelo
-          </Button>
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer select-none">
+              <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)}
+                className="rounded" data-testid="toggle-inactive-filter" />
+              Ver inactivos
+            </label>
+            <Button onClick={() => setShowModal(true)}
+              className="bg-[#0F2A5C] hover:bg-[#163A7A] text-white h-8 text-xs gap-1.5"
+              data-testid="add-modelo-btn">
+              <Plus size={13} /> Agregar Modelo
+            </Button>
+          </div>
         </div>
 
         {/* Warning */}

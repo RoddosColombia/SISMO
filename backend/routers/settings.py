@@ -154,9 +154,14 @@ class CatalogoMotoUpdate(BaseModel):
 
 
 @router.get("/catalogo")
-async def get_catalogo(current_user=Depends(get_current_user)):
-    """List all motorcycle models in the catalog."""
-    items = await db.catalogo_motos.find({}, {"_id": 0}).to_list(100)
+async def get_catalogo(
+    include_inactive: bool = False,
+    current_user=Depends(get_current_user),
+):
+    """List motorcycle models. By default returns only active models.
+    Pass ?include_inactive=true to include inactive ones."""
+    query = {} if include_inactive else {"activo": True}
+    items = await db.catalogo_motos.find(query, {"_id": 0}).to_list(100)
     return items
 
 
