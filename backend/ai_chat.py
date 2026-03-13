@@ -535,20 +535,7 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
     from alegra_service import AlegraService
     service = AlegraService(db)
 
-    ACTION_MAP = {
-        "crear_factura_venta": ("invoices", "POST"),
-        "registrar_factura_compra": ("bills", "POST"),
-        "crear_causacion": ("journal-entries", "POST"),
-        "registrar_pago": ("payments", "POST"),
-        "crear_contacto": ("contacts", "POST"),
-    }
-
-    if action_type not in ACTION_MAP:
-        raise ValueError(f"Acción no reconocida: {action_type}")
-
-    endpoint, method = ACTION_MAP[action_type]
-
-    # ── Extract internal _metadata BEFORE sending payload to Alegra ──────────
+    # ── Extract internal _metadata BEFORE anything else ──────────────────────
     internal_metadata: dict = {}
     if isinstance(payload, dict):
         internal_metadata = payload.pop("_metadata", None) or {}
@@ -584,6 +571,19 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
             "message": result_dict.get("message", "Entrega registrada y Loanbook activado"),
             "sync": sync_result,
         }
+
+    ACTION_MAP = {
+        "crear_factura_venta": ("invoices", "POST"),
+        "registrar_factura_compra": ("bills", "POST"),
+        "crear_causacion": ("journal-entries", "POST"),
+        "registrar_pago": ("payments", "POST"),
+        "crear_contacto": ("contacts", "POST"),
+    }
+
+    if action_type not in ACTION_MAP:
+        raise ValueError(f"Acción no reconocida: {action_type}")
+
+    endpoint, method = ACTION_MAP[action_type]
 
     result = await service.request(endpoint, method, payload)
 

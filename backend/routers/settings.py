@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from alegra_service import AlegraService
 from database import db
 from dependencies import get_current_user, require_admin
-from models import SaveCredentialsRequest, DemoModeRequest, SaveDefaultAccountsRequest
+from models import SaveCredentialsRequest, DemoModeRequest, SaveDefaultAccountsRequest, MercatelyCredentialsRequest
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -92,3 +92,32 @@ async def register_webhook(current_user=Depends(require_admin)):
 async def get_webhook_status(current_user=Depends(require_admin)):
     cfg = await db.webhook_config.find_one({}, {"_id": 0})
     return cfg or {"webhook_id": None, "url": None, "registered_at": None}
+
+
+# ─── Mercately (WhatsApp) Configuration ───────────────────────────────────────
+
+@router.get("/mercately")
+async def get_mercately_credentials(current_user=Depends(require_admin)):
+    cfg = await db.mercately_config.find_one({}, {"_id": 0})
+    if not cfg:
+        return {"has_credentials": False, "api_key_masked": "", "configured_at": ""}
+    ak = cfg.get("api_key", "")
+    return {
+        "has_credentials": bool(ak and cfg.get("api_secret")),
+        "api_key_masked": ("*" * 8 + ak[-4:]) if len(ak) > 4 else ("*" * len(ak)),
+        "configured_at": cfg.get("updated_at", ""),
+    }
+
+
+@router.post("/mercately")
+async def save_mercately_credentials(req: MercatelyCredentialsRequest, current_user=Depends(require_admin)):
+    await db.mercately_config.update_one(
+        {},
+        {"$set": {
+            "api_key": req.api_key,
+            "api_secret": req.api_secret,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }},
+        upsert=True,
+    )
+    return {"message": "Credenciales Mercately guardadas. Lista para integración WhatsApp."}

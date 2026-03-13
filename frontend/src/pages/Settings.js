@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Save, TestTube2, RefreshCw, Loader2, ToggleLeft, ToggleRight, Shield, Activity, Globe, QrCode, Download, Check } from "lucide-react";
+import { Save, TestTube2, RefreshCw, Loader2, ToggleLeft, ToggleRight, Shield, Activity, Globe, QrCode, Download, Check, MessageCircle } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -148,6 +148,7 @@ export default function Settings() {
           {user?.role === "admin" && <TabsTrigger value="security" data-testid="tab-security">Seguridad</TabsTrigger>}
           <TabsTrigger value="audit" data-testid="tab-audit">Auditoría</TabsTrigger>
           <TabsTrigger value="webhooks" data-testid="tab-webhooks">Webhooks</TabsTrigger>
+          {user?.role === "admin" && <TabsTrigger value="mercately" data-testid="tab-mercately">Mercately (WhatsApp)</TabsTrigger>}
         </TabsList>
 
         {/* Alegra Connection Tab */}
@@ -293,6 +294,9 @@ export default function Settings() {
 
         {/* WEBHOOKS TAB */}
         <WebhooksTab api={api} />
+
+        {/* MERCATELY TAB */}
+        {user?.role === "admin" && <MercatelyTab api={api} />}
       </Tabs>
     </div>
   );
@@ -517,6 +521,119 @@ function AuditTab({ api }) {
             <button disabled={logs.length < 50} onClick={() => setFilters(f => ({ ...f, page: f.page + 1 }))}
               className="text-xs px-3 py-1 border rounded hover:bg-white disabled:opacity-40">Siguiente</button>
           </div>
+        </div>
+      </div>
+    </TabsContent>
+  );
+}
+
+
+// ─── MERCATELY TAB ────────────────────────────────────────────────────────────
+
+function MercatelyTab({ api }) {
+  const [apiKey, setApiKey] = useState("");
+  const [apiSecret, setApiSecret] = useState("");
+  const [status, setStatus] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api.get("/settings/mercately")
+      .then(res => setStatus(res.data))
+      .catch(() => {});
+  }, [api]);
+
+  const handleSave = async () => {
+    if (!apiKey.trim() || !apiSecret.trim()) {
+      toast.error("Ingresa la API Key y el API Secret de Mercately");
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.post("/settings/mercately", { api_key: apiKey, api_secret: apiSecret });
+      toast.success("Credenciales Mercately guardadas correctamente");
+      setStatus({ has_credentials: true, api_key_masked: "*".repeat(8) + apiKey.slice(-4), configured_at: new Date().toISOString() });
+      setApiKey("");
+      setApiSecret("");
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Error guardando credenciales");
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <TabsContent value="mercately" className="mt-5">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 max-w-lg space-y-5">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center flex-shrink-0">
+            <MessageCircle size={18} className="text-green-600" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-[#0F2A5C]">Mercately — WhatsApp Business API</h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Conecta con Mercately para enviar notificaciones automáticas de cobro por WhatsApp a los clientes en mora.
+            </p>
+          </div>
+        </div>
+
+        {status?.has_credentials ? (
+          <div className="flex items-center gap-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+            <Check size={15} className="text-emerald-600 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-emerald-700">Credenciales configuradas</p>
+              <p className="text-[11px] text-slate-500 font-mono">API Key: {status.api_key_masked}</p>
+              {status.configured_at && (
+                <p className="text-[10px] text-slate-400">Actualizado: {status.configured_at.slice(0, 10)}</p>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700">
+            No hay credenciales configuradas. Ingresa las credenciales de tu cuenta Mercately para habilitar notificaciones WhatsApp.
+          </div>
+        )}
+
+        <div className="bg-[#F8FAFF] rounded-xl p-4 text-xs space-y-1.5 border border-slate-100">
+          <p className="font-semibold text-[#0F2A5C] mb-2">¿Cómo obtener las credenciales?</p>
+          <p className="text-slate-600">1. Accede a <a href="https://app.mercately.com" target="_blank" rel="noreferrer" className="text-[#0F2A5C] underline font-medium">app.mercately.com</a></p>
+          <p className="text-slate-600">2. Ve a Configuración → API Keys</p>
+          <p className="text-slate-600">3. Copia tu API Key y API Secret</p>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <Label className="text-sm font-semibold text-slate-700">API Key de Mercately</Label>
+            <Input
+              type="password"
+              placeholder="mercately_api_key_..."
+              value={apiKey}
+              onChange={e => setApiKey(e.target.value)}
+              className="mt-1.5"
+              data-testid="mercately-api-key-input"
+            />
+          </div>
+          <div>
+            <Label className="text-sm font-semibold text-slate-700">API Secret de Mercately</Label>
+            <Input
+              type="password"
+              placeholder="mercately_api_secret_..."
+              value={apiSecret}
+              onChange={e => setApiSecret(e.target.value)}
+              className="mt-1.5"
+              data-testid="mercately-api-secret-input"
+            />
+          </div>
+          <Button
+            onClick={handleSave}
+            disabled={saving || !apiKey.trim() || !apiSecret.trim()}
+            className="w-full bg-green-600 hover:bg-green-700 text-white flex items-center justify-center gap-2"
+            data-testid="save-mercately-btn"
+          >
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+            Guardar credenciales Mercately
+          </Button>
+        </div>
+
+        <div className="bg-slate-50 rounded-xl p-3 text-[11px] text-slate-500 border border-slate-100">
+          <strong className="text-slate-600">Estado de integración:</strong> Las notificaciones automáticas de WhatsApp estarán disponibles en el módulo Cartera una vez configuradas las credenciales.
         </div>
       </div>
     </TabsContent>

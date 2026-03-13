@@ -62,3 +62,8 @@ class DefaultAccountItem(BaseModel):
 
 class SaveDefaultAccountsRequest(BaseModel):
     accounts: List[DefaultAccountItem]
+
+
+class MercatelyCredentialsRequest(BaseModel):
+    api_key: str
+    api_secret: str
