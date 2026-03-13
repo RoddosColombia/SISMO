@@ -244,7 +244,8 @@ async def get_company(current_user=Depends(get_current_user)):
 
 @api_router.get("/alegra/accounts")
 async def get_accounts(current_user=Depends(get_current_user)):
-    return await AlegraService(db).request("accounts")
+    """Fetch chart of accounts via /categories endpoint (works on Alegra Contabilidad plan)."""
+    return await AlegraService(db).get_accounts_from_categories()
 
 
 @api_router.get("/alegra/contacts")

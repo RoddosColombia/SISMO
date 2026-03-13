@@ -91,26 +91,37 @@ export function AlegraProvider({ children }) {
   }, [token, api]);
 
   const searchAccounts = useCallback((query, filterType = null, allowedCodes = null) => {
-    // Show all flattened accounts (no filter by subAccounts — Alegra leaves don't have that key)
     let filtered = [...flatAccounts];
 
     if (filterType && filterType !== "all") {
       const typeMap = {
-        income:    ["4"],
-        expense:   ["5", "6", "7"],
-        asset:     ["1"],
-        liability: ["2"],
-        equity:    ["3"],
+        income:    ["income"],
+        expense:   ["expense", "cost"],
+        asset:     ["asset"],
+        liability: ["liability"],
+        equity:    ["equity"],
       };
-      const prefixes = typeMap[filterType] || [];
-      if (prefixes.length > 0) {
-        filtered = filtered.filter(acc => prefixes.some(p => acc.code?.startsWith(p)));
+      const types = typeMap[filterType] || [];
+      if (types.length > 0) {
+        filtered = filtered.filter(acc => {
+          // For accounts with PUC codes (demo/PUC), also match by code prefix
+          if (acc.code) {
+            const codePrefixMap = {
+              income: ["4"], expense: ["5", "6", "7"],
+              asset: ["1"], liability: ["2"], equity: ["3"],
+            };
+            const prefixes = codePrefixMap[filterType] || [];
+            return types.includes(acc.type) || prefixes.some(p => acc.code.startsWith(p));
+          }
+          return types.includes(acc.type);
+        });
       }
     }
 
-    if (allowedCodes?.length > 0) {
+    // allowedCodes only applies when accounts actually have codes (demo mode)
+    if (allowedCodes?.length > 0 && filtered.some(acc => acc.code)) {
       filtered = filtered.filter(acc =>
-        allowedCodes.some(code => acc.code?.startsWith(code))
+        !acc.code || allowedCodes.some(code => acc.code?.startsWith(code))
       );
     }
 

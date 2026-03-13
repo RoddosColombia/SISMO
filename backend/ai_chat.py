@@ -4,10 +4,36 @@ import json
 from datetime import datetime, timezone
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 
-AGENT_SYSTEM_PROMPT = """Eres el Agente Contable IA de RODDOS Colombia. Tienes acceso DIRECTO a Alegra ERP y EJECUTAS acciones reales, no solo sugieres.
+AGENT_SYSTEM_PROMPT = """Eres el Agente Contable IA de RODDOS Colombia — actúas como un contador experto en NIIF Colombia.
+Tienes acceso DIRECTO a Alegra ERP y EJECUTAS acciones reales, no solo sugieres.
 
 DATOS DE CONTEXTO ALEGRA (actualizados al inicio de cada mensaje):
 {context}
+
+═══════════════════════════════════════════════════
+PLAN DE CUENTAS REAL DE ALEGRA — RODDOS:
+═══════════════════════════════════════════════════
+{accounts_context}
+
+═══════════════════════════════════════════════════
+PATRONES APRENDIDOS DE RODDOS (registros anteriores confirmados):
+═══════════════════════════════════════════════════
+{patterns_context}
+
+═══════════════════════════════════════════════════
+ROL: ASESOR CONTABLE INTELIGENTE
+═══════════════════════════════════════════════════
+ANTES de ejecutar CUALQUIER asiento contable o causación, SIEMPRE:
+1. Identifica la naturaleza de la transacción (qué es, para qué sirve)
+2. Sugiere las cuentas específicas del plan de RODDOS en Alegra:
+   • Cuenta DÉBITO: [ID — Nombre de la cuenta] → por qué se debita
+   • Cuenta CRÉDITO: [ID — Nombre de la cuenta] → por qué se acredita
+3. Confirma montos, retenciones e IVA aplicable
+4. Presenta la propuesta completa ANTES de mostrar el bloque <action>
+
+Si existe un PATRÓN APRENDIDO para el mismo tipo de transacción (3+ veces):
+→ Usa el patrón directamente indicando: "Usando patrón aprendido de RODDOS"
+→ Después de 5+ usos, procede automáticamente sin preguntar cuentas
 
 ═══════════════════════════════════════════════════
 COMPORTAMIENTO OBLIGATORIO:
@@ -34,15 +60,6 @@ TARIFAS VIGENTES Colombia 2025 (UVT = $49.799):
 • SMLMV 2025: $1.423.500 | Auxilio transporte: $200.000
 
 ═══════════════════════════════════════════════════
-CUENTAS NIIF COLOMBIA MÁS USADAS:
-═══════════════════════════════════════════════════
-• 1105 Caja | 1110 Bancos | 1305 Clientes | 1355 Anticipo impuestos
-• 2205 Proveedores | 2365 ReteFuente por pagar | 2408 IVA por pagar | 2409 IVA descontable
-• 4105 Ventas productos | 4135 Servicios | 4155 Honorarios | 4175 Comisiones
-• 5105 Gasto personal | 5110 Honorarios admon | 5120 Arrendamiento | 5185 Servicios públicos
-• 6135 Costos de ventas
-
-═══════════════════════════════════════════════════
 TIPOS DE ACCIÓN DISPONIBLES:
 ═══════════════════════════════════════════════════
 • crear_factura_venta → POST /invoices
@@ -56,32 +73,35 @@ TIPOS DE ACCIÓN DISPONIBLES:
 ═══════════════════════════════════════════════════
 FORMATO DE RESPUESTA PARA ACCIONES:
 ═══════════════════════════════════════════════════
-1. Una línea explicando qué vas a hacer
+1. Análisis contable (qué cuentas y por qué — SIEMPRE)
 2. Tabla resumen:
    | Concepto | Valor |
    |----------|-------|
-   | Cliente  | Xxx   |
+   | Débito   | [ID] Nombre cuenta |
+   | Crédito  | [ID] Nombre cuenta |
    ...
 3. Bloque <action> con JSON completo (OBLIGATORIO para acciones ejecutables)
 
 Ejemplo de <action>:
 <action>
 {
-  "type": "crear_factura_venta",
-  "title": "Factura para [cliente]",
+  "type": "crear_causacion",
+  "title": "Causación arrendamiento oct-2025",
   "summary": [
-    {"label": "Cliente", "value": "Nombre S.A.S."},
-    {"label": "Concepto", "value": "Servicio prestado"},
-    {"label": "Valor base", "value": "$5.000.000"},
-    {"label": "IVA 19%", "value": "$950.000"},
-    {"label": "Total", "value": "$5.950.000"},
-    {"label": "Cuenta ingreso", "value": "[4135] Ingresos por servicios"}
+    {"label": "Concepto", "value": "Arrendamiento local comercial"},
+    {"label": "Débito", "value": "[5120] Arrendamiento $3.000.000"},
+    {"label": "Crédito", "value": "[2205] Proveedores $2.895.000"},
+    {"label": "ReteFuente 3.5%", "value": "$105.000"},
+    {"label": "Total neto proveedor", "value": "$2.895.000"}
   ],
   "payload": {
-    "date": "2025-10-20",
-    "dueDate": "2025-11-19",
-    "client": {"id": "ID_DEL_CLIENTE"},
-    "items": [{"description": "...", "quantity": 1, "price": 5000000, "account": {"id": "4135"}, "tax": [{"percentage": 19}]}]
+    "date": "2025-10-31",
+    "description": "Causación arrendamiento octubre",
+    "entries": [
+      {"account": {"id": "ACCOUNT_ID_GASTO"}, "debit": 3000000},
+      {"account": {"id": "ACCOUNT_ID_RETEFUENTE"}, "credit": 105000},
+      {"account": {"id": "ACCOUNT_ID_PROVEEDOR"}, "credit": 2895000}
+    ]
   }
 }
 </action>
@@ -94,6 +114,15 @@ IVA CUATRIMESTRAL — ESTADO ACTUAL:
 IMPORTANTE: Responde siempre en español colombiano. Sé conciso y profesional.
 Cuando el usuario pregunte sobre IVA, SIEMPRE incluye el estado actual del período y 3+ sugerencias concretas para reducirlo.
 """
+
+# Keywords that indicate the user wants to register or ask about accounts
+REGISTER_KEYWORDS = [
+    "causar", "registrar", "crear", "factura", "asiento", "cuenta",
+    "débito", "crédito", "débito", "credito", "pagar", "cobrar",
+    "proveedor", "gasto", "ingreso", "nomina", "nómina", "arrendamiento",
+    "honorario", "servicio", "compra", "venta", "retención", "iva",
+    "que cuenta", "qué cuenta", "cuál cuenta", "cual cuenta",
+]
 
 
 async def gather_context(user_message: str, alegra_service, db) -> dict:
@@ -186,6 +215,76 @@ async def gather_context(user_message: str, alegra_service, db) -> dict:
     return context
 
 
+async def gather_accounts_context(user_message: str, alegra_service, db) -> tuple:
+    """Gather chart of accounts and RODDOS learned patterns for AI context.
+    Returns (accounts_context_str, patterns_context_str)."""
+    msg_lower = user_message.lower()
+    needs_accounts = any(w in msg_lower for w in REGISTER_KEYWORDS)
+
+    accounts_str = "No se requiere plan de cuentas para esta consulta."
+    patterns_str = "Sin patrones aprendidos aún."
+
+    if not needs_accounts:
+        return accounts_str, patterns_str
+
+    # Load leaf accounts from Alegra categories
+    try:
+        accounts_tree = await alegra_service.get_accounts_from_categories()
+        leaves = alegra_service.get_leaf_accounts(accounts_tree)
+        if leaves:
+            # Group by type for compact representation
+            by_type = {}
+            for acc in leaves:
+                t = acc.get('type', 'asset')
+                if t not in by_type:
+                    by_type[t] = []
+                by_type[t].append(f"  [{acc['id']}] {acc['name']}")
+
+            TYPE_LABELS = {
+                "asset": "ACTIVOS", "liability": "PASIVOS", "equity": "PATRIMONIO",
+                "income": "INGRESOS", "expense": "GASTOS", "cost": "COSTOS",
+            }
+            lines = []
+            for t, accs in by_type.items():
+                lines.append(f"{TYPE_LABELS.get(t, t.upper())}:")
+                lines.extend(accs[:20])  # max 20 per type to avoid huge context
+            accounts_str = "\n".join(lines) or "Sin cuentas disponibles."
+    except Exception:
+        accounts_str = "Error cargando plan de cuentas (usar cuentas NIIF estándar Colombia)."
+
+    # Load RODDOS learned patterns
+    try:
+        patterns = await db.agent_memory.find(
+            {"tipo": {"$in": ["crear_causacion", "crear_factura_venta", "registrar_factura_compra"]}},
+            {"_id": 0}
+        ).sort("frecuencia_count", -1).limit(8).to_list(8)
+
+        if patterns:
+            plines = []
+            TIPO_LABELS = {
+                "crear_causacion": "Causación",
+                "crear_factura_venta": "Factura venta",
+                "registrar_factura_compra": "Factura compra",
+            }
+            for p in patterns:
+                freq = p.get("frecuencia_count", 1)
+                cuentas = p.get("cuentas_usadas", [])
+                cuentas_str = " | ".join([f"{c.get('rol','?')}: [{c.get('id','')}] {c.get('name','')}" for c in cuentas[:2]])
+                plines.append(
+                    f"• {TIPO_LABELS.get(p['tipo'], p['tipo'])} — \"{p['descripcion']}\" "
+                    f"({freq}x) {cuentas_str}"
+                )
+            patterns_str = "\n".join(plines)
+            if any(p.get("frecuencia_count", 1) >= 5 for p in patterns):
+                patterns_str += "\n\n[MODO AUTOMÁTICO ACTIVO: patrones con 5+ usos se ejecutan sin preguntar cuentas]"
+        else:
+            patterns_str = "Sin patrones aprendidos aún. Después de registrar 3+ transacciones similares, comenzaré a sugerirlas automáticamente."
+    except Exception:
+        patterns_str = "Sin patrones disponibles."
+
+    return accounts_str, patterns_str
+
+
 async def process_chat(session_id: str, user_message: str, db, user: dict) -> dict:
     api_key = os.environ.get("EMERGENT_LLM_KEY")
 
@@ -193,8 +292,9 @@ async def process_chat(session_id: str, user_message: str, db, user: dict) -> di
     from alegra_service import AlegraService
     alegra_service = AlegraService(db)
 
-    # Gather context
+    # Gather context (parallel where possible)
     context_data = await gather_context(user_message, alegra_service, db)
+    accounts_str, patterns_str = await gather_accounts_context(user_message, alegra_service, db)
     context_str = json.dumps(context_data, ensure_ascii=False)
 
     # Build IVA context string
@@ -214,8 +314,14 @@ async def process_chat(session_id: str, user_message: str, db, user: dict) -> di
     else:
         iva_context_str = "Pregunta sobre IVA para obtener el estado actualizado del período cuatrimestral."
 
-    # Build system prompt with context
-    system_prompt = AGENT_SYSTEM_PROMPT.replace("{context}", context_str).replace("{iva_context}", iva_context_str)
+    # Build system prompt with all context
+    system_prompt = (
+        AGENT_SYSTEM_PROMPT
+        .replace("{context}", context_str)
+        .replace("{iva_context}", iva_context_str)
+        .replace("{accounts_context}", accounts_str)
+        .replace("{patterns_context}", patterns_str)
+    )
 
     # Save user message to MongoDB
     await db.chat_messages.insert_one({
@@ -308,7 +414,7 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
     else:
         doc_id = ""
 
-    # Save to agent_memory for recurrent suggestion
+    # Save to agent_memory for recurrent suggestion + account pattern learning
     if action_type in ("crear_causacion", "crear_factura_venta", "registrar_factura_compra"):
         description = payload.get("description") or payload.get("observations") or f"Acción {action_type}"
         amount = 0
@@ -316,6 +422,17 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
             amount = sum(float(i.get("price") or i.get("debit") or 0) for i in payload["items"])
         elif payload.get("total"):
             amount = float(payload["total"])
+
+        # Extract accounts used in journal entries for pattern learning
+        cuentas_usadas = []
+        if action_type == "crear_causacion":
+            for entry in (payload.get("entries") or []):
+                acc_id = entry.get("account", {}).get("id", "")
+                if entry.get("debit"):
+                    cuentas_usadas.append({"id": acc_id, "rol": "debito", "name": ""})
+                elif entry.get("credit"):
+                    cuentas_usadas.append({"id": acc_id, "rol": "credito", "name": ""})
+
         await db.agent_memory.update_one(
             {"user_id": user.get("id"), "tipo": action_type, "descripcion": description},
             {"$set": {
@@ -326,9 +443,10 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
                 "descripcion": description,
                 "payload_alegra": payload,
                 "monto": amount,
+                "cuentas_usadas": cuentas_usadas,
                 "ultima_ejecucion": datetime.now(timezone.utc).isoformat(),
                 "frecuencia": "mensual",
-            }},
+            }, "$inc": {"frecuencia_count": 1}},
             upsert=True,
         )
 

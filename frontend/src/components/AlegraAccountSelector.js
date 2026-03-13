@@ -24,6 +24,13 @@ const CLASS_LABELS = {
   "52": "52xx — Gastos de Ventas",
   "53": "53xx — Gastos No Operacionales",
   "54": "54xx — Impuestos",
+  // Type-based groups for NIIF accounts without PUC codes
+  "asset": "Activos",
+  "liability": "Pasivos",
+  "equity": "Patrimonio",
+  "income": "Ingresos",
+  "expense": "Gastos",
+  "cost": "Costos de Ventas",
 };
 
 export default function AlegraAccountSelector({
@@ -44,11 +51,11 @@ export default function AlegraAccountSelector({
     return searchAccounts(search, filterType === "all" ? null : filterType, allowedCodes);
   }, [search, filterType, allowedCodes, searchAccounts]);
 
-  // Group by first digit of code for tree display
+  // Group by first digit of code (demo/PUC) or by type (real NIIF without codes)
   const grouped = useMemo(() => {
     const groups = {};
     for (const acc of filteredAccounts) {
-      const key = acc.code?.charAt(0) || "?";
+      const key = acc.code ? acc.code.charAt(0) : (acc.type || "?");
       if (!groups[key]) groups[key] = [];
       groups[key].push(acc);
     }
@@ -90,7 +97,9 @@ export default function AlegraAccountSelector({
                     {typeInfo.icon}
                   </span>
                 )}
-                <span className="font-mono text-xs text-slate-500 flex-shrink-0">[{value.code}]</span>
+                {value.code && (
+                  <span className="font-mono text-xs text-slate-500 flex-shrink-0">[{value.code}]</span>
+                )}
                 <span className="text-slate-700 truncate">{value.name}</span>
               </div>
             ) : (
@@ -168,12 +177,14 @@ export default function AlegraAccountSelector({
                             ${value?.id === acc.id ? "bg-[#F0F4FF] font-medium" : ""}
                           `}
                           style={{ paddingLeft: `${(acc.depth || 0) * 12 + 8}px` }}
-                          data-testid={`account-option-${acc.code}`}
+                          data-testid={`account-option-${acc.id}`}
                         >
                           <span className={`text-[10px] font-bold px-1 py-0.5 rounded ${info.color} flex-shrink-0 w-5 text-center`}>
                             {info.icon}
                           </span>
-                          <span className="font-mono text-xs text-slate-400 flex-shrink-0 w-14">{acc.code}</span>
+                          {acc.code && (
+                            <span className="font-mono text-xs text-slate-400 flex-shrink-0 w-14">{acc.code}</span>
+                          )}
                           <span className="truncate flex-1">{acc.name}</span>
                           {!isLeaf && (
                             <span className="text-[10px] text-slate-400 flex-shrink-0 bg-slate-100 px-1 rounded">grupo</span>

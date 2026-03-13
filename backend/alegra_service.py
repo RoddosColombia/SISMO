@@ -121,6 +121,52 @@ class AlegraService:
             return MOCK_JOURNAL_ENTRIES
         return {}
 
+    async def get_accounts_from_categories(self):
+        """Fetch complete account tree via /categories (available on Alegra Contabilidad plan).
+        Replaces the blocked /accounts endpoint."""
+        if await self.is_demo_mode():
+            return MOCK_ACCOUNTS
+        cats = await self.request("categories")
+        if not cats or not isinstance(cats, list):
+            return []
+        return self._transform_categories(cats)
+
+    def _transform_categories(self, cats):
+        """Recursively map Alegra /categories format → internal account tree (uses subAccounts key)."""
+        result = []
+        for cat in cats:
+            children = cat.get('children', []) or []
+            account = {
+                'id': cat['id'],
+                'name': cat['name'],
+                'type': cat.get('type', 'asset'),
+                'nature': cat.get('nature', 'debit'),
+                'use': cat.get('use', 'movement'),
+                'code': None,  # NIIF accounts have no PUC code
+                'status': cat.get('status', 'active'),
+                'subAccounts': self._transform_categories(children) if children else [],
+            }
+            result.append(account)
+        return result
+
+    def get_leaf_accounts(self, accounts, result=None):
+        """Flatten account tree to only selectable leaf accounts (use=movement)."""
+        if result is None:
+            result = []
+        for acc in accounts:
+            subs = acc.get('subAccounts', []) or []
+            if acc.get('use') == 'movement' or not subs:
+                result.append({
+                    'id': acc['id'],
+                    'name': acc['name'],
+                    'type': acc.get('type', 'asset'),
+                    'nature': acc.get('nature', 'debit'),
+                    'code': acc.get('code'),
+                })
+            if subs:
+                self.get_leaf_accounts(subs, result)
+        return result
+
     async def test_connection(self):
         if await self.is_demo_mode():
             return {"status": "demo", "message": "Modo demo activo", "company": MOCK_COMPANY}
