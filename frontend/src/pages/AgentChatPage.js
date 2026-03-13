@@ -1,8 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import {
-  Bot, Send, Trash2, Paperclip, X, Play,
+import { Bot, Send, Trash2, Paperclip, X, Play,
   CheckCircle2, Loader2, FileText, AlertCircle, Zap,
-  Bike, CreditCard, Receipt, ScanLine
+  Bike, CreditCard, Receipt, ScanLine, UserPlus, ArrowRight
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useAuth } from "../contexts/AuthContext";
@@ -159,13 +158,30 @@ function MessageBubble({ msg }) {
 
 function ExecutionCard({ action, onConfirm, onCancel, executing }) {
   if (!action) return null;
+
+  /* ── helpers ── */
+  const fmtCOP = (n) => n ? `$ ${Number(n).toLocaleString("es-CO")}` : "—";
+  const entries = action.payload?.entries || [];
+  const totalDeb = entries.reduce((s, e) => s + Number(e.debit || 0), 0);
+  const totalCre = entries.reduce((s, e) => s + Number(e.credit || 0), 0);
+  const isJournal = action.type === "crear_causacion" && entries.length > 0;
+
+  const billItems = action.payload?.purchases?.items || [];
+  const isBill = action.type === "registrar_factura_compra" && billItems.length > 0;
+
+  const invoiceItems = action.payload?.items || [];
+  const isInvoice = action.type === "crear_factura_venta" && invoiceItems.length > 0;
+
   return (
     <div className="mb-4 rounded-xl overflow-hidden shadow-sm" style={{ border: "1px solid #E2E8F0" }} data-testid="execution-card">
+      {/* Header */}
       <div className="px-4 py-2.5 flex items-center gap-2" style={{ background: "#F8FAFC", borderBottom: "1px solid #E2E8F0" }}>
         <Play size={12} className="text-sky-600" />
         <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">Listo para ejecutar en Alegra</span>
         <span className="ml-auto text-[10px] text-slate-400">{action.title}</span>
       </div>
+
+      {/* Summary key-value table */}
       {action.summary?.length > 0 && (
         <table className="w-full text-xs" style={{ borderBottom: "1px solid #E2E8F0" }}>
           <tbody>
@@ -178,6 +194,116 @@ function ExecutionCard({ action, onConfirm, onCancel, executing }) {
           </tbody>
         </table>
       )}
+
+      {/* Debit/Credit journal table */}
+      {isJournal && (
+        <div style={{ borderBottom: "1px solid #E2E8F0" }}>
+          <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-100">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Asiento Contable</span>
+          </div>
+          <table className="w-full text-xs">
+            <thead>
+              <tr style={{ background: "#F1F5F9" }}>
+                <th className="px-3 py-1.5 text-left font-bold text-slate-500 text-[10px] w-1/2">Cuenta</th>
+                <th className="px-3 py-1.5 text-right font-bold text-slate-500 text-[10px] w-1/4">Débito</th>
+                <th className="px-3 py-1.5 text-right font-bold text-slate-500 text-[10px] w-1/4">Crédito</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((e, i) => (
+                <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "#F8FAFC", borderTop: "1px solid #F1F5F9" }}>
+                  <td className="px-3 py-1.5 text-slate-600">
+                    <span className="font-mono text-[10px] text-slate-400 mr-1">{e.id}</span>
+                    {e.name || ""}
+                  </td>
+                  <td className="px-3 py-1.5 text-right font-medium" style={{ color: Number(e.debit) > 0 ? "#0369A1" : "#CBD5E1" }}>
+                    {Number(e.debit) > 0 ? fmtCOP(e.debit) : "—"}
+                  </td>
+                  <td className="px-3 py-1.5 text-right font-medium" style={{ color: Number(e.credit) > 0 ? "#047857" : "#CBD5E1" }}>
+                    {Number(e.credit) > 0 ? fmtCOP(e.credit) : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr style={{ background: "#F1F5F9", borderTop: "2px solid #E2E8F0" }}>
+                <td className="px-3 py-1.5 font-bold text-slate-600 text-[10px] uppercase tracking-wide">Totales</td>
+                <td className="px-3 py-1.5 text-right font-bold text-sky-700 text-xs">{fmtCOP(totalDeb)}</td>
+                <td className="px-3 py-1.5 text-right font-bold text-emerald-700 text-xs">{fmtCOP(totalCre)}</td>
+              </tr>
+            </tfoot>
+          </table>
+          {totalDeb !== totalCre && (
+            <div className="px-3 py-1.5 bg-amber-50 border-t border-amber-200 flex items-center gap-1.5">
+              <AlertCircle size={11} className="text-amber-600" />
+              <span className="text-[10px] text-amber-700 font-semibold">Débitos y créditos no coinciden — revisar antes de confirmar</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Bill items table */}
+      {isBill && (
+        <div style={{ borderBottom: "1px solid #E2E8F0" }}>
+          <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-100">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Items de Compra</span>
+          </div>
+          <table className="w-full text-xs">
+            <thead>
+              <tr style={{ background: "#F1F5F9" }}>
+                <th className="px-3 py-1.5 text-left font-bold text-slate-500 text-[10px]">Item</th>
+                <th className="px-3 py-1.5 text-center font-bold text-slate-500 text-[10px]">Cant.</th>
+                <th className="px-3 py-1.5 text-right font-bold text-slate-500 text-[10px]">Precio Unit.</th>
+                <th className="px-3 py-1.5 text-right font-bold text-slate-500 text-[10px]">Subtotal</th>
+              </tr>
+            </thead>
+            <tbody>
+              {billItems.map((it, i) => {
+                const sub = Number(it.price || 0) * Number(it.quantity || 1);
+                return (
+                  <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "#F8FAFC" }}>
+                    <td className="px-3 py-1.5 text-slate-600">
+                      {it.name || <span className="font-mono text-[10px] text-slate-400">id:{it.id}</span>}
+                    </td>
+                    <td className="px-3 py-1.5 text-center text-slate-600">{it.quantity || 1}</td>
+                    <td className="px-3 py-1.5 text-right text-slate-600">{fmtCOP(it.price)}</td>
+                    <td className="px-3 py-1.5 text-right font-semibold text-slate-700">{fmtCOP(sub)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Invoice items table */}
+      {isInvoice && (
+        <div style={{ borderBottom: "1px solid #E2E8F0" }}>
+          <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-100">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Items de Venta</span>
+          </div>
+          <table className="w-full text-xs">
+            <thead>
+              <tr style={{ background: "#F1F5F9" }}>
+                <th className="px-3 py-1.5 text-left font-bold text-slate-500 text-[10px]">Producto</th>
+                <th className="px-3 py-1.5 text-center font-bold text-slate-500 text-[10px]">Cant.</th>
+                <th className="px-3 py-1.5 text-right font-bold text-slate-500 text-[10px]">Precio</th>
+              </tr>
+            </thead>
+            <tbody>
+              {invoiceItems.map((it, i) => (
+                <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "#F8FAFC" }}>
+                  <td className="px-3 py-1.5 text-slate-600">{it.name || `id:${it.id}`}</td>
+                  <td className="px-3 py-1.5 text-center text-slate-600">{it.quantity || 1}</td>
+                  <td className="px-3 py-1.5 text-right text-slate-600">{fmtCOP(it.price)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Action buttons */}
       <div className="p-3 flex gap-2 bg-white">
         <Button onClick={() => onConfirm(action)} disabled={executing}
           className="flex-1 text-xs h-9 font-bold disabled:opacity-40"
@@ -196,6 +322,111 @@ function ExecutionCard({ action, onConfirm, onCancel, executing }) {
     </div>
   );
 }
+
+function TerceroCard({ action, onConfirm, onCancel, executing }) {
+  const p = action?.payload || {};
+  const [name, setName] = useState(p.name || "");
+  const [nit, setNit] = useState(p.identification || "");
+  const [email, setEmail] = useState(p.email || "");
+  if (!action) return null;
+  const typeLabel = Array.isArray(p.type)
+    ? p.type.map((t) => t === "provider" ? "Proveedor" : t === "client" ? "Cliente" : t).join(", ")
+    : (p.type || "Proveedor");
+
+  const fieldCls = "w-full text-xs px-3 py-2 rounded-lg outline-none border border-slate-200 bg-white text-slate-700 focus:ring-2 focus:ring-orange-200 focus:border-orange-400 transition";
+  const labelCls = "text-[10px] font-bold uppercase tracking-wide mb-1 block text-slate-400";
+
+  const handleConfirmClick = () => {
+    const updatedPayload = { ...p, name, identification: nit, email };
+    onConfirm({ ...action, payload: updatedPayload });
+  };
+
+  return (
+    <div className="mb-4 rounded-xl overflow-hidden shadow-sm" style={{ border: "1px solid #FED7AA" }} data-testid="tercero-card">
+      {/* Header */}
+      <div className="px-4 py-2.5 flex items-center gap-2 flex-wrap" style={{ background: "#FFF7ED", borderBottom: "1px solid #FED7AA" }}>
+        <UserPlus size={13} className="text-orange-600 flex-shrink-0" />
+        <span className="text-xs font-bold text-orange-700 uppercase tracking-wide">Tercero no encontrado en Alegra</span>
+        <span className="ml-auto text-[10px] text-orange-500">¿Crear y continuar?</span>
+      </div>
+
+      {/* Fields */}
+      <div className="p-4 space-y-3 bg-white">
+        <div>
+          <label className={labelCls}>Nombre / Razón Social</label>
+          <input value={name} onChange={(e) => setName(e.target.value)}
+            className={fieldCls} placeholder="Nombre del tercero" data-testid="tercero-name" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className={labelCls}>NIT / Cédula</label>
+            <input value={nit} onChange={(e) => setNit(e.target.value)}
+              className={fieldCls} placeholder="900123456-1" data-testid="tercero-nit" />
+          </div>
+          <div>
+            <label className={labelCls}>Tipo</label>
+            <div className="text-xs px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-600 font-medium">
+              {typeLabel}
+            </div>
+          </div>
+        </div>
+        <div>
+          <label className={labelCls}>Email (opcional)</label>
+          <input value={email} onChange={(e) => setEmail(e.target.value)}
+            className={fieldCls} placeholder="correo@empresa.com" data-testid="tercero-email" />
+        </div>
+
+        {/* Account suggestion */}
+        {p.accounting_account_name && (
+          <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg" style={{ background: "#EFF6FF", border: "1px solid #BFDBFE" }}>
+            <div className="flex-shrink-0 mt-0.5">
+              <div className="w-4 h-4 rounded-full bg-blue-100 flex items-center justify-center">
+                <span className="text-[8px] font-bold text-blue-600">C</span>
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] font-bold text-blue-600 uppercase tracking-wide mb-0.5">Cuenta contable sugerida</div>
+              <div className="text-xs text-blue-700 font-medium">
+                <span className="font-mono text-[10px] text-blue-500 mr-1">{p.accounting_account_suggested}</span>
+                {p.accounting_account_name}
+              </div>
+              <div className="text-[10px] text-blue-400 mt-0.5">Puedes ajustar esto en Alegra después de la creación</div>
+            </div>
+          </div>
+        )}
+
+        {/* Next action preview */}
+        {p._next_action && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-50 border border-slate-200">
+            <ArrowRight size={11} className="text-slate-400 flex-shrink-0" />
+            <span className="text-[10px] text-slate-500">
+              Tras crear el tercero, se ejecutará automáticamente:
+              <span className="font-bold text-slate-600 ml-1">{p._next_action.title}</span>
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Buttons */}
+      <div className="p-3 flex gap-2 bg-white border-t border-slate-100">
+        <Button onClick={handleConfirmClick} disabled={executing || !name.trim()}
+          className="flex-1 text-xs h-9 font-bold disabled:opacity-40"
+          style={{ background: executing ? "#94A3B8" : "linear-gradient(135deg, #F97316, #EF4444)", color: "#fff" }}
+          data-testid="confirm-tercero-btn">
+          {executing
+            ? <><Loader2 size={13} className="mr-1.5 animate-spin" />Creando...</>
+            : <><UserPlus size={13} className="mr-1.5" />Crear tercero y continuar</>}
+        </Button>
+        <Button onClick={onCancel} disabled={executing} variant="outline"
+          className="text-xs h-9 px-3 font-medium border-slate-200 text-slate-500 hover:bg-slate-50"
+          data-testid="cancel-tercero-btn">
+          <X size={12} className="mr-1" />Cancelar
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 
 function DocumentProposalCard({ proposal, onConfirm, onCancel, loading }) {
   const [data, setData] = useState({ ...proposal });
@@ -516,10 +747,17 @@ export default function AgentChatPage() {
       const resp = await api.post("/chat/execute-action", { action: action.type, payload: action.payload });
       const docId = resp.data.id || resp.data.result?.id || "";
       const syncMsgs = resp.data.sync?.sync_messages || [];
-      const full = `${action.title} ejecutado en Alegra${docId ? ` — ID: ${docId}` : ""}${syncMsgs.length > 0 ? `\n\nMódulos actualizados:\n${syncMsgs.join("\n")}` : ""}`;
+      const full = `${resp.data.message || action.title + " ejecutado en Alegra"}${docId ? ` — ID: ${docId}` : ""}${syncMsgs.length > 0 ? `\n\nMódulos actualizados:\n${syncMsgs.join("\n")}` : ""}`;
       setMessages((prev) => [...prev, { role: "assistant", content: full, timestamp: new Date().toISOString(), isResult: true }]);
-      setPendingAction(null);
-      toast.success(`${action.title} ejecutado correctamente`);
+
+      // Handle sequential action (e.g. crear_contacto → then original action)
+      if (resp.data.next_pending_action?.type && resp.data.next_pending_action?.payload) {
+        toast.success(`${action.title} completado. Continuando con la siguiente acción...`);
+        setPendingAction(resp.data.next_pending_action);
+      } else {
+        setPendingAction(null);
+        toast.success(`${action.title} ejecutado correctamente`);
+      }
     } catch (e) {
       const errMsg = e.response?.data?.detail || "Error al ejecutar en Alegra";
       setMessages((prev) => [...prev, { role: "assistant", content: `Error: ${errMsg}`, timestamp: new Date().toISOString() }]);
@@ -619,8 +857,11 @@ export default function AgentChatPage() {
         )}
 
         {pendingAction && !loading && (
-          <ExecutionCard action={pendingAction} onConfirm={handleExecute}
-            onCancel={handleCancelAction} executing={executing} />
+          pendingAction.type === "crear_contacto"
+            ? <TerceroCard action={pendingAction} onConfirm={handleExecute}
+                onCancel={handleCancelAction} executing={executing} />
+            : <ExecutionCard action={pendingAction} onConfirm={handleExecute}
+                onCancel={handleCancelAction} executing={executing} />
         )}
       </div>
 

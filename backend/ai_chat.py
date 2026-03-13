@@ -73,17 +73,70 @@ TIPOS DE ACCIÓN DISPONIBLES:
 
 FORMATO EXACTO PARA CREAR_CONTACTO (Alegra Colombia):
 {
-  "nameObject": {"firstName": "[primer nombre o razón social]", "lastName": "[apellido o vacío]"},
-  "identification": "[número sin puntos ni guiones]",
-  "identificationType": "CC",       ← "CC", "NIT", "CE", "PP", "DIE"
-  "kindOfPerson": "PERSON_ENTITY",  ← "PERSON_ENTITY" (natural) o "COMPANY_ENTITY" (jurídica)
-  "regime": "SIMPLIFIED_REGIME",   ← "SIMPLIFIED_REGIME" o "COMMON_REGIME"
-  "type": ["client"],               ← ["client"], ["provider"], o ["client","provider"]
+  "name": "[nombre para mostrar]",
+  "nameObject": {"firstName": "[razón social o nombre]", "lastName": "[apellido si es persona natural]"},
+  "identificationObject": {"type": "NIT", "number": "[número sin guiones ni DV]"},
+  "kindOfPerson": "PERSON_ENTITY",
+  "regime": "SIMPLIFIED_REGIME",
+  "type": ["provider"],             ← ["client"], ["provider"], o ["client","provider"]
   "phonePrimary": "[teléfono]",
   "email": "[email]"
 }
-Para empresas (NIT): kindOfPerson="COMPANY_ENTITY", identificationType="NIT", regime="COMMON_REGIME"
-Para personas naturales (CC): kindOfPerson="PERSON_ENTITY", identificationType="CC"
+Identificación: usar "identificationObject" (NO "identification" ni "identificationType")
+Tipos id: "NIT" (empresa), "CC" (persona natural), "CE", "PP"
+Para personas naturales: nameObject.lastName es el apellido. nameObject.firstName es el nombre.
+Para empresas con NIT: nameObject.firstName = razón social, nameObject.lastName = ""
+
+═══════════════════════════════════════════════════
+FLUJO — DETECCIÓN DE NUEVO TERCERO (PROVEEDOR / CLIENTE)
+═══════════════════════════════════════════════════
+Si el proveedor o cliente mencionado NO aparece en CONTACTOS_DISPONIBLES del contexto:
+→ SIEMPRE propón PRIMERO una acción crear_contacto con _next_action = la acción original
+→ Incluye accounting_account_suggested y accounting_account_name según el tipo de tercero
+
+CUENTAS SUGERIDAS POR TIPO DE TERCERO:
+• Proveedor de servicios/honorarios    → "2205" "Cuentas por pagar nacionales"
+• Proveedor de motos / inventario      → "2205" "Cuentas por pagar nacionales"
+• Proveedor de arrendamiento           → "2335" "Arrendamientos por pagar"
+• Cliente (comprador moto)             → "1305" "Clientes nacionales"
+• Empleado / contratista               → "2335" "Nómina y prestaciones por pagar"
+• Entidad financiera / banco           → "2105" "Obligaciones financieras"
+
+FORMATO crear_contacto CON ACCIÓN SIGUIENTE:
+<action>
+{
+  "type": "crear_contacto",
+  "title": "Nuevo tercero: [nombre]",
+  "summary": [
+    {"label": "Nombre", "value": "[nombre]"},
+    {"label": "NIT / Identificación", "value": "[nit]"},
+    {"label": "Tipo", "value": "Proveedor"},
+    {"label": "Cuenta sugerida", "value": "[id_cuenta] — [nombre_cuenta]"}
+  ],
+  "payload": {
+    "name": "[nombre]",
+    "nameObject": {"firstName": "[nombre]", "lastName": ""},
+    "identificationObject": {"type": "NIT", "number": "[nit_sin_guiones]"},
+    "kindOfPerson": "PERSON_ENTITY",
+    "regime": "SIMPLIFIED_REGIME",
+    "type": ["provider"],
+    "accounting_account_suggested": "[id_cuenta]",
+    "accounting_account_name": "[nombre_cuenta]",
+    "_next_action": {
+      "type": "[accion_original]",
+      "title": "[titulo_accion_original]",
+      "summary": [...],
+      "payload": {
+        "provider": {"id": "__NEW_CONTACT_ID__"},
+        ...resto_del_payload_original_SIN_CAMBIOS
+      }
+    }
+  }
+}
+</action>
+
+REGLA: Usa "__NEW_CONTACT_ID__" como placeholder para el ID del proveedor/cliente recién creado.
+El sistema reemplazará automáticamente este placeholder con el ID real de Alegra tras la creación.
 
 ═══════════════════════════════════════════════════
 FLUJO OBLIGATORIO — VENTA DE MOTO A CRÉDITO
@@ -299,12 +352,13 @@ FORMATO EXACTO PARA CREAR_CAUSACION (Alegra API /journals):
   "date": "YYYY-MM-DD",
   "observations": "[descripción del comprobante]",
   "entries": [
-    {"id": [id_cuenta_debito],  "debit": [monto],  "credit": 0},
-    {"id": [id_cuenta_credito], "debit": 0, "credit": [monto]}
+    {"id": [id_cuenta_debito],  "name": "[nombre cuenta]", "debit": [monto],  "credit": 0},
+    {"id": [id_cuenta_credito], "name": "[nombre cuenta]", "debit": 0, "credit": [monto]}
   ]
 }
 
-REGLA CRÍTICA: El campo "entries" usa {"id": NÚMERO_ENTERO, "debit": N, "credit": N}
+REGLA CRÍTICA: El campo "entries" usa {"id": NÚMERO_ENTERO, "name": NOMBRE_TEXTO, "debit": N, "credit": N}
+El campo "name" es solo informativo para el usuario — NO lo envíes a Alegra (el sistema lo elimina automáticamente).
 NUNCA uses {"account": {"id": ...}} — ese formato es INCORRECTO y da error 403/400.
 El id en entries es el ID numérico de la cuenta del plan de cuentas NIIF de Alegra.
 Para Debitos y Créditos que NO aplican, usa 0 (no omitir el campo).
@@ -936,6 +990,59 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
 
     if action_type not in ACTION_MAP:
         raise ValueError(f"Acción no reconocida: {action_type}")
+
+    endpoint, method = ACTION_MAP[action_type]
+
+    # ── CREAR_CONTACTO: handle _next_action and internal fields ──────────────
+    if action_type == "crear_contacto":
+        import json as _json
+        next_action = payload.pop("_next_action", None)
+        # Remove internal display-only fields before sending to Alegra
+        payload.pop("accounting_account_suggested", None)
+        payload.pop("accounting_account_name", None)
+        # Ensure nameObject.lastName is never empty (Alegra Colombia requires it)
+        name_obj = payload.get("nameObject")
+        if isinstance(name_obj, dict) and not name_obj.get("lastName"):
+            full_name = name_obj.get("firstName", "") or payload.get("name", "")
+            parts = full_name.strip().split(" ", 1)
+            name_obj["firstName"] = parts[0]
+            name_obj["lastName"] = parts[1] if len(parts) > 1 else "."
+        # Note: keep 'name' and 'nameObject' - both are used by Alegra
+
+        result = await service.request(endpoint, method, payload)
+        # Check if Alegra returned an error in the body (200 with error code)
+        if isinstance(result, dict) and result.get("code") and not result.get("id"):
+            err_msg = result.get("message", "Error al crear el contacto en Alegra")
+            raise HTTPException(status_code=400, detail=f"Alegra: {err_msg} (código {result.get('code')})")
+        new_contact_id = str(result.get("id", "")) if isinstance(result, dict) else ""
+        contact_name = ""
+        if isinstance(result, dict):
+            no = result.get("nameObject") or {}
+            contact_name = f"{no.get('firstName','')} {no.get('lastName','')}".strip() or result.get("name", "")
+
+        # Replace placeholder in next_action payload with real ID
+        if next_action and new_contact_id:
+            next_str = _json.dumps(next_action)
+            next_str = next_str.replace('"__NEW_CONTACT_ID__"', new_contact_id)
+            next_str = next_str.replace("__NEW_CONTACT_ID__", new_contact_id)
+            next_action = _json.loads(next_str)
+
+        return {
+            "success": True,
+            "result": result,
+            "id": new_contact_id,
+            "message": f"Tercero '{contact_name}' creado exitosamente en Alegra",
+            "sync": {},
+            **({"next_pending_action": next_action} if next_action else {}),
+        }
+
+    # ── CREAR_CAUSACION: strip display-only 'name' from entries ──────────────
+    if action_type == "crear_causacion":
+        entries = payload.get("entries", [])
+        payload["entries"] = [
+            {"id": e["id"], "debit": e.get("debit", 0), "credit": e.get("credit", 0)}
+            for e in entries
+        ]
 
     endpoint, method = ACTION_MAP[action_type]
 
