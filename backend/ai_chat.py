@@ -2,6 +2,7 @@ import os
 import uuid
 import json
 from datetime import datetime, timezone
+from fastapi import HTTPException
 from emergentintegrations.llm.chat import LlmChat, UserMessage, FileContent
 
 AGENT_SYSTEM_PROMPT = """Eres el Agente Contable IA de RODDOS Colombia — actúas como un contador experto en NIIF Colombia.
@@ -427,6 +428,93 @@ REGISTER_KEYWORDS = [
 ]
 
 
+# ─── Similitud de patrones aprendidos ────────────────────────────────────────
+
+async def find_similar_pattern(db, concepto: str, threshold: float = 0.80) -> dict | None:
+    """Busca en agent_memory el patrón con mayor similitud Jaccard al concepto dado.
+    Retorna el patrón si similitud >= threshold, sino None.
+    """
+    try:
+        patterns = await db.agent_memory.find(
+            {"tipo": {"$in": ["crear_causacion", "crear_factura_venta", "registrar_factura_compra"]}},
+            {"_id": 0},
+        ).sort("frecuencia_count", -1).to_list(50)
+
+        if not patterns:
+            return None
+
+        concepto_words = set(concepto.lower().split())
+        if not concepto_words:
+            return None
+
+        best_match = None
+        best_sim   = 0.0
+
+        for p in patterns:
+            desc_words = set(p.get("descripcion", "").lower().split())
+            if not desc_words:
+                continue
+            intersection = len(concepto_words & desc_words)
+            union        = len(concepto_words | desc_words)
+            sim          = intersection / union if union > 0 else 0.0
+            if sim > best_sim:
+                best_sim   = sim
+                best_match = p
+
+        if best_sim >= threshold and best_match:
+            best_match = dict(best_match)
+            best_match["_similitud"] = round(best_sim, 3)
+            return best_match
+        return None
+    except Exception:
+        return None
+
+
+# ─── Guardar patrón confirmado ────────────────────────────────────────────────
+
+async def save_action_pattern(db, user: dict, action_type: str, payload: dict) -> None:
+    """Guarda o actualiza el patrón de acción en agent_memory (agent_memory.save_pattern)."""
+    if action_type not in ("crear_causacion", "crear_factura_venta", "registrar_factura_compra"):
+        return
+
+    description = (
+        payload.get("description")
+        or payload.get("observations")
+        or f"Acción {action_type}"
+    )
+    amount = 0.0
+    if isinstance(payload.get("items"), list) and payload["items"]:
+        amount = sum(float(i.get("price") or i.get("debit") or 0) for i in payload["items"])
+    elif payload.get("total"):
+        amount = float(payload["total"])
+
+    cuentas_usadas: list[dict] = []
+    if action_type == "crear_causacion":
+        for entry in (payload.get("entries") or []):
+            acc_id = str(entry.get("id", ""))
+            if float(entry.get("debit", 0) or 0) > 0:
+                cuentas_usadas.append({"id": acc_id, "rol": "debito",  "name": ""})
+            elif float(entry.get("credit", 0) or 0) > 0:
+                cuentas_usadas.append({"id": acc_id, "rol": "credito", "name": ""})
+
+    await db.agent_memory.update_one(
+        {"user_id": user.get("id"), "tipo": action_type, "descripcion": description},
+        {"$set": {
+            "id":               str(uuid.uuid4()),
+            "user_id":          user.get("id"),
+            "user_email":       user.get("email"),
+            "tipo":             action_type,
+            "descripcion":      description,
+            "payload_alegra":   payload,
+            "monto":            amount,
+            "cuentas_usadas":   cuentas_usadas,
+            "ultima_ejecucion": datetime.now(timezone.utc).isoformat(),
+            "frecuencia":       "mensual",
+        }, "$inc": {"frecuencia_count": 1}},
+        upsert=True,
+    )
+
+
 async def gather_context(user_message: str, alegra_service, db) -> dict:
     """Gather relevant Alegra data to provide context to Claude."""
     context = {
@@ -617,8 +705,11 @@ async def gather_accounts_context(user_message: str, alegra_service, db) -> tupl
     except Exception:
         accounts_str = "Error cargando plan de cuentas (usar cuentas NIIF estándar Colombia)."
 
-    # Load RODDOS learned patterns
+    # Load RODDOS learned patterns — primero buscar similitud al mensaje actual
     try:
+        # agent_memory.find_similar(concepto) — ANTES de generar cada propuesta
+        similar = await find_similar_pattern(db, user_message)
+
         patterns = await db.agent_memory.find(
             {"tipo": {"$in": ["crear_causacion", "crear_factura_venta", "registrar_factura_compra"]}},
             {"_id": 0}
@@ -627,14 +718,37 @@ async def gather_accounts_context(user_message: str, alegra_service, db) -> tupl
         if patterns:
             plines = []
             TIPO_LABELS = {
-                "crear_causacion": "Causación",
-                "crear_factura_venta": "Factura venta",
+                "crear_causacion":         "Causación",
+                "crear_factura_venta":     "Factura venta",
                 "registrar_factura_compra": "Factura compra",
             }
+
+            # Si hay similitud >= 80% → incluir al TOPE como sugerencia destacada
+            if similar:
+                sim_pct    = round(similar.get("_similitud", 0) * 100)
+                freq_sim   = similar.get("frecuencia_count", 1)
+                tipo_sim   = TIPO_LABELS.get(similar["tipo"], similar["tipo"])
+                cuentas_sim = similar.get("cuentas_usadas", [])
+                cuentas_sim_str = " | ".join([
+                    f"{c.get('rol','?')}: [{c.get('id','')}] {c.get('name','')}"
+                    for c in cuentas_sim[:2]
+                ])
+                plines.append(
+                    f"[PATRÓN SIMILAR DETECTADO — {sim_pct}% similitud]\n"
+                    f"• {tipo_sim} — \"{similar['descripcion']}\" ({freq_sim}x) {cuentas_sim_str}\n"
+                    f"→ Puedes sugerir este patrón directamente al usuario\n"
+                )
+
             for p in patterns:
+                # Evitar duplicar el patrón ya incluido como similar
+                if similar and p.get("descripcion") == similar.get("descripcion"):
+                    continue
                 freq = p.get("frecuencia_count", 1)
                 cuentas = p.get("cuentas_usadas", [])
-                cuentas_str = " | ".join([f"{c.get('rol','?')}: [{c.get('id','')}] {c.get('name','')}" for c in cuentas[:2]])
+                cuentas_str = " | ".join([
+                    f"{c.get('rol','?')}: [{c.get('id','')}] {c.get('name','')}"
+                    for c in cuentas[:2]
+                ])
                 plines.append(
                     f"• {TIPO_LABELS.get(p['tipo'], p['tipo'])} — \"{p['descripcion']}\" "
                     f"({freq}x) {cuentas_str}"
@@ -1080,42 +1194,8 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
     else:
         doc_id = ""
 
-    # Save to agent_memory for recurrent suggestion + account pattern learning
-    if action_type in ("crear_causacion", "crear_factura_venta", "registrar_factura_compra"):
-        description = payload.get("description") or payload.get("observations") or f"Acción {action_type}"
-        amount = 0
-        if isinstance(payload.get("items"), list) and payload["items"]:
-            amount = sum(float(i.get("price") or i.get("debit") or 0) for i in payload["items"])
-        elif payload.get("total"):
-            amount = float(payload["total"])
-
-        # Extract accounts used in journal entries for pattern learning
-        cuentas_usadas = []
-        if action_type == "crear_causacion":
-            for entry in (payload.get("entries") or []):
-                # Nuevo formato /journals: {"id": 5196, "debit": N, "credit": N}
-                acc_id = str(entry.get("id", ""))
-                if entry.get("debit") and float(entry.get("debit", 0)) > 0:
-                    cuentas_usadas.append({"id": acc_id, "rol": "debito", "name": ""})
-                elif entry.get("credit") and float(entry.get("credit", 0)) > 0:
-                    cuentas_usadas.append({"id": acc_id, "rol": "credito", "name": ""})
-
-        await db.agent_memory.update_one(
-            {"user_id": user.get("id"), "tipo": action_type, "descripcion": description},
-            {"$set": {
-                "id": str(uuid.uuid4()),
-                "user_id": user.get("id"),
-                "user_email": user.get("email"),
-                "tipo": action_type,
-                "descripcion": description,
-                "payload_alegra": payload,
-                "monto": amount,
-                "cuentas_usadas": cuentas_usadas,
-                "ultima_ejecucion": datetime.now(timezone.utc).isoformat(),
-                "frecuencia": "mensual",
-            }, "$inc": {"frecuencia_count": 1}},
-            upsert=True,
-        )
+    # agent_memory.save_pattern() — guarda patrón cuando el usuario confirma
+    await save_action_pattern(db, user, action_type, payload)
 
     return {
         "success": True,

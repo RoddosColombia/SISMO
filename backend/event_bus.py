@@ -48,6 +48,7 @@ async def emit_event(
         "modules_to_notify": modules,
         "processed_by": [],
         "alegra_synced": alegra_synced,
+        "estado": "pending",
     }
     await db.roddos_events.insert_one(event)
     event.pop("_id", None)

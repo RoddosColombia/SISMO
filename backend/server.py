@@ -16,6 +16,7 @@ from auth import hash_password
 from database import db, client
 from routers import auth, settings, alegra, chat, inventory, taxes, budget, dashboard, audit
 from routers import repuestos, loanbook, cartera, telegram
+from services.scheduler import start_scheduler, stop_scheduler
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -123,13 +124,17 @@ async def startup():
         await db.inventario_motos.create_index([("estado", 1)])
         await db.inventario_motos.create_index([("chasis", 1)], unique=True, sparse=True)
         await db.catalogo_motos.create_index([("activo", 1)])
+        await db.roddos_events.create_index([("estado", 1), ("timestamp", -1)])
         logger.info("MongoDB indexes ensured")
     except Exception as e:
         logger.warning(f"Index creation (non-fatal): {e}")
 
+    start_scheduler()
+
 
 @app.on_event("shutdown")
 async def shutdown():
+    stop_scheduler()
     client.close()
 
 

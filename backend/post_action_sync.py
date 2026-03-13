@@ -1,7 +1,7 @@
 """post_action_sync — syncs internal modules after every AI action in Alegra.
 
 Flow: AI confirms action → execute_chat_action calls Alegra → calls this function
-→ updates MongoDB (loanbook, cartera_pagos, inventario) → emits events
+→ updates MongoDB (loanbook, cartera_pagos, inventario) → emit_state_change (último paso)
 → returns sync_messages list for the AI to report to the user.
 
 Supports metadata dict (passed from execute_chat_action after stripping _metadata from payload).
@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime, timezone, date, timedelta
 from math import ceil
 
-from event_bus import emit_event
+from services.shared_state import emit_state_change
 
 
 # ─── Loanbook stat recompute ──────────────────────────────────────────────────
@@ -208,14 +208,16 @@ async def post_action_sync(
         else:
             sync_msgs.append("ℹ️ Factura creada. Si es crédito, asegúrate de incluir _metadata con plan, cuotas y valor.")
 
-        await emit_event(db, "agente_ia", "factura.venta.creada", {
-            "alegra_id": alegra_id,
-            "factura_numero": numero,
-            "cliente_nombre": cliente_nombre,
-            "plan": plan,
-            "total": total,
-            "user": user.get("email"),
-        }, alegra_synced=True)
+        # emit_state_change — ÚLTIMO PASO CASO 1
+        await emit_state_change(
+            db,
+            "factura.venta.creada",
+            moto_chasis or alegra_id,
+            "Vendida",
+            user.get("email", ""),
+            {"alegra_id": alegra_id, "factura_numero": numero,
+             "cliente_nombre": cliente_nombre, "plan": plan, "total": total},
+        )
 
     # ── CASO 2: Pago de Cuota ─────────────────────────────────────────────────
     elif action_type == "registrar_pago":
@@ -229,11 +231,6 @@ async def post_action_sync(
 
         metodo = payload.get("paymentMethod", "efectivo")
         sync_msgs.append(f"✅ **Pago** de ${monto:,.0f} registrado en Alegra (ref: {alegra_id})")
-
-        await emit_event(db, "agente_ia", "pago.cuota.registrado", {
-            "alegra_id": alegra_id, "monto": monto, "metodo": metodo,
-            "invoice_ids": invoice_ids, "user": user.get("email"),
-        }, alegra_synced=True)
 
         # Sync internal loanbook / cartera
         for inv_id in invoice_ids:
@@ -290,15 +287,31 @@ async def post_action_sync(
                 sync_msgs.append(f"🎉 ¡Crédito **{loan['codigo']}** COMPLETADO!")
             modules += ["cartera", "loanbook", "dashboard"]
 
+        # emit_state_change — ÚLTIMO PASO CASO 2
+        await emit_state_change(
+            db,
+            "pago.cuota.registrado",
+            alegra_id,
+            "pagada",
+            user.get("email", ""),
+            {"monto": monto, "metodo": metodo, "invoice_ids": invoice_ids},
+        )
+
     # ── CASO 3 y 5: Causación contable ───────────────────────────────────────
     elif action_type == "crear_causacion":
         descripcion = payload.get("description", "Asiento contable")
-        await emit_event(db, "agente_ia", "asiento.contable.creado", {
-            "alegra_id": alegra_id, "descripcion": descripcion, "user": user.get("email"),
-        }, alegra_synced=True)
         modules.append("dashboard")
         sync_msgs.append(f"✅ **Asiento contable** '{descripcion}' creado en Alegra (ID: {alegra_id})")
         sync_msgs.append("✅ Dashboard notificado")
+        # emit_state_change — ÚLTIMO PASO CASO 3
+        await emit_state_change(
+            db,
+            "asiento.contable.creado",
+            alegra_id,
+            "creado",
+            user.get("email", ""),
+            {"descripcion": descripcion},
+        )
 
     # ── CASO 4: Factura de Compra → Inventario ────────────────────────────────
     elif action_type == "registrar_factura_compra":
@@ -307,11 +320,6 @@ async def post_action_sync(
             proveedor = payload["vendor"].get("name", "")
         total = float(payload.get("total", 0)) if payload.get("total") else 0.0
         plazo_dias = int(meta.get("plazo_dias", 0))
-
-        await emit_event(db, "agente_ia", "factura.compra.creada", {
-            "alegra_id": alegra_id, "proveedor": proveedor, "total": total,
-            "user": user.get("email"),
-        }, alegra_synced=True)
 
         sync_msgs.append(
             f"✅ **Factura de compra** registrada — Proveedor: {proveedor} · Total: ${total:,.0f}"
@@ -346,6 +354,15 @@ async def post_action_sync(
             sync_msgs.append(f"✅ Plazo de pago: {plazo_dias} días — vence **{vencimiento}**")
 
         modules.append("dashboard")
+        # emit_state_change — ÚLTIMO PASO CASO 4
+        await emit_state_change(
+            db,
+            "factura.compra.creada",
+            alegra_id,
+            "creada",
+            user.get("email", ""),
+            {"proveedor": proveedor, "total": total},
+        )
 
     # ── CASO 6 (entrega interna — no Alegra) ──────────────────────────────────
     elif action_type == "registrar_entrega":
@@ -353,16 +370,18 @@ async def post_action_sync(
         codigo = alegra_response.get("codigo", "") if isinstance(alegra_response, dict) else ""
         cliente = alegra_response.get("cliente_nombre", "") if isinstance(alegra_response, dict) else ""
 
-        await emit_event(db, "loanbook", "loanbook.activado", {
-            "loanbook_id": payload.get("loanbook_id", ""),
-            "codigo": codigo,
-            "cliente_nombre": cliente,
-            "primera_cuota": primera_cuota,
-            "user": user.get("email"),
-        })
         sync_msgs.append(f"✅ **Loanbook {codigo}** activado — Primera cuota: **{primera_cuota}** (miércoles)")
         sync_msgs.append("✅ Cliente ahora visible en la Cola de Gestión Remota")
         modules += ["loanbook", "cartera", "dashboard"]
+        # emit_state_change — ÚLTIMO PASO CASO 6
+        await emit_state_change(
+            db,
+            "loanbook.activado",
+            payload.get("loanbook_id", ""),
+            "activo",
+            user.get("email", ""),
+            {"codigo": codigo, "cliente_nombre": cliente, "primera_cuota": primera_cuota},
+        )
 
     elif action_type == "crear_contacto":
         nombre = payload.get("name", "")
