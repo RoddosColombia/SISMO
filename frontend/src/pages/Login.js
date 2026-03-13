@@ -32,7 +32,7 @@ export default function Login() {
   const API = process.env.REACT_APP_BACKEND_URL;
 
   useEffect(() => {
-    if (token) navigate("/dashboard", { replace: true });
+    if (token) navigate("/agente-contable", { replace: true });
   }, [token, navigate]);
 
   const handleCredentials = async (e) => {
@@ -46,7 +46,7 @@ export default function Login() {
         setStep(2);
         toast.info("Ingresa el código de tu app autenticadora");
       } else {
-        navigate("/dashboard", { replace: true });
+        navigate("/agente-contable", { replace: true });
       }
     } catch (err) {
       toast.error(err.response?.data?.detail || err.message || "Error de autenticación");
@@ -67,7 +67,7 @@ export default function Login() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Código incorrecto");
       setAuth(data.token, data.user);
-      navigate("/dashboard", { replace: true });
+      navigate("/agente-contable", { replace: true });
     } catch (err) {
       toast.error(err.message);
       setTotp("");

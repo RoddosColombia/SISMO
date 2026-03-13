@@ -6,6 +6,7 @@ import { AlegraProvider } from "./contexts/AlegraContext";
 import Layout from "./components/Layout";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
+import AgentChatPage from "./pages/AgentChatPage";
 import FacturacionVenta from "./pages/FacturacionVenta";
 import FacturacionCompra from "./pages/FacturacionCompra";
 import CausacionIngresos from "./pages/CausacionIngresos";
@@ -55,7 +56,8 @@ function AppRoutes() {
             </ProtectedRoute>
           }
         >
-          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route index element={<Navigate to="/agente-contable" replace />} />
+          <Route path="agente-contable" element={<AgentChatPage />} />
           <Route path="dashboard" element={<Dashboard />} />
           {/* Facturación */}
           <Route path="facturacion-venta" element={<FacturacionVenta />} />
@@ -85,7 +87,7 @@ function AppRoutes() {
         </Route>
 
         {/* Catch-all → require login */}
-        <Route path="*" element={<ProtectedRoute><Navigate to="/dashboard" replace /></ProtectedRoute>} />
+        <Route path="*" element={<ProtectedRoute><Navigate to="/agente-contable" replace /></ProtectedRoute>} />
       </Routes>
       <Toaster richColors position="top-right" />
     </BrowserRouter>

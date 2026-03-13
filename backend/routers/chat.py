@@ -15,7 +15,12 @@ logger = logging.getLogger(__name__)
 @router.post("/message")
 async def chat_message(req: ChatMessageRequest, current_user=Depends(get_current_user)):
     try:
-        return await process_chat(req.session_id, req.message, db, current_user)
+        return await process_chat(
+            req.session_id, req.message, db, current_user,
+            file_content=req.file_content,
+            file_name=req.file_name,
+            file_type=req.file_type,
+        )
     except Exception as e:
         logger.error(f"Chat error for user {current_user.get('email')}: {e}")
         raise HTTPException(

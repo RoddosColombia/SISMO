@@ -42,6 +42,9 @@ class LoginRequest(BaseModel):
 class ChatMessageRequest(BaseModel):
     session_id: str
     message: str
+    file_content: Optional[str] = None  # base64 encoded
+    file_name: Optional[str] = None
+    file_type: Optional[str] = None     # MIME type e.g. image/jpeg, application/pdf
 
 
 class SaveCredentialsRequest(BaseModel):

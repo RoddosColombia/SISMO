@@ -2,7 +2,7 @@ import os
 import uuid
 import json
 from datetime import datetime, timezone
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+from emergentintegrations.llm.chat import LlmChat, UserMessage, FileContent
 
 AGENT_SYSTEM_PROMPT = """Eres el Agente Contable IA de RODDOS Colombia — actúas como un contador experto en NIIF Colombia.
 Tienes acceso DIRECTO a Alegra ERP y EJECUTAS acciones reales, no solo sugieres.
@@ -567,7 +567,184 @@ async def gather_accounts_context(user_message: str, alegra_service, db) -> tupl
     return accounts_str, patterns_str
 
 
-async def process_chat(session_id: str, user_message: str, db, user: dict) -> dict:
+DOCUMENT_ANALYSIS_SYSTEM_PROMPT = """Eres el Agente Contable IA de RODDOS Colombia, experto en contabilidad NIIF Colombia.
+Has recibido un comprobante contable (factura, recibo, comprobante de pago, extracto u otro documento).
+
+PLAN DE CUENTAS DISPONIBLE EN ALEGRA (cuentas hoja):
+{accounts_context}
+
+LOANBOOKS ACTIVOS EN RODDOS:
+{loanbook_context}
+
+FECHA ACTUAL: {fecha_actual}
+
+TU TAREA:
+1. Lee y analiza cuidadosamente el documento
+2. Extrae TODOS los datos relevantes con máxima precisión
+3. Determina el tipo de transacción contable
+4. Detecta si es un pago de cuota de Loanbook RODDOS (busca: "RODDOS", moto, cuota, plan de pagos, o si el monto coincide con algún Loanbook activo)
+5. Sugiere la cuenta contable correcta del plan de cuentas disponible
+6. Propone la acción a ejecutar en Alegra
+
+REGLAS CONTABLES:
+- Facturas de proveedores con IVA → accion_contable = registrar_factura_compra
+- Recibos, comprobantes de servicio sin facturas formales → accion_contable = crear_causacion
+- Comprobantes de pago/transferencias → accion_contable = registrar_pago
+- ReteFuente: calcula según tipo (servicios 4%, honorarios 10%, arrendamiento 3.5%, compras 2.5%)
+- Si el documento es ilegible o incompleto → ilegible=true, lista campos en campos_faltantes
+
+DESPUÉS de tu análisis en texto, incluye OBLIGATORIAMENTE este bloque:
+<document_proposal>
+{
+  "es_pago_loanbook": false,
+  "loanbook_codigo": null,
+  "tipo_documento": "factura_compra",
+  "proveedor_cliente": "",
+  "nit": "",
+  "fecha": "YYYY-MM-DD",
+  "numero_documento": "",
+  "concepto": "",
+  "subtotal": 0,
+  "iva_porcentaje": 0,
+  "iva_valor": 0,
+  "retefuente_valor": 0,
+  "retefuente_tipo": "ninguna",
+  "total": 0,
+  "accion_contable": "crear_causacion",
+  "cuenta_gasto_id": null,
+  "cuenta_gasto_nombre": "",
+  "ilegible": false,
+  "campos_faltantes": []
+}
+</document_proposal>
+
+Valores válidos tipo_documento: factura_compra | factura_venta | recibo_pago | comprobante_egreso | extracto_bancario | otro
+Valores válidos accion_contable: registrar_factura_compra | crear_causacion | registrar_pago | ninguna
+Valores retefuente_tipo: ninguna | servicios_4 | servicios_6 | honorarios_10 | arrendamiento_3.5 | compras_2.5
+
+IMPORTANTE: cuenta_gasto_id debe ser un ID NUMÉRICO real del plan de cuentas listado arriba.
+Responde en español colombiano. Sé muy preciso con montos y cuentas."""
+
+
+async def process_document_chat(
+    session_id: str, user_message: str,
+    file_content: str, file_name: str, file_type: str,
+    db, user: dict
+) -> dict:
+    """Process a chat message that includes a document (image/PDF) for accounting analysis."""
+    api_key = os.environ.get("EMERGENT_LLM_KEY")
+
+    from alegra_service import AlegraService
+    alegra_service = AlegraService(db)
+
+    # Always load full accounts context for document analysis
+    accounts_str, _ = await gather_accounts_context("causar registrar factura", alegra_service, db)
+
+    # Get active loanbooks for payment detection
+    loanbook_str = "Sin loanbooks activos."
+    try:
+        loans = await db.loanbook.find(
+            {"estado": {"$in": ["activo", "mora", "pendiente_entrega"]}},
+            {"_id": 0, "id": 1, "codigo": 1, "cliente_nombre": 1, "saldo_pendiente": 1, "plan": 1}
+        ).to_list(15)
+        if loans:
+            loanbook_str = "\n".join([
+                f"• [{l['codigo']}] {l['cliente_nombre']} — Plan: {l.get('plan', '')} Saldo: ${l.get('saldo_pendiente', 0):,.0f}"
+                for l in loans
+            ])
+    except Exception:
+        pass
+
+    fecha_actual = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    system_prompt = (
+        DOCUMENT_ANALYSIS_SYSTEM_PROMPT
+        .replace("{accounts_context}", accounts_str)
+        .replace("{loanbook_context}", loanbook_str)
+        .replace("{fecha_actual}", fecha_actual)
+    )
+
+    # Save user message to DB
+    await db.chat_messages.insert_one({
+        "id": str(uuid.uuid4()),
+        "session_id": session_id,
+        "role": "user",
+        "content": f"{user_message or 'Analiza este comprobante'}\n[Archivo adjunto: {file_name}]",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "user_id": user.get("id"),
+    })
+
+    # Call Claude with file content (use separate session to avoid polluting main chat context)
+    chat = LlmChat(
+        api_key=api_key,
+        session_id=f"{session_id}-doc-{uuid.uuid4().hex[:8]}",
+        system_message=system_prompt,
+    ).with_model("anthropic", "claude-sonnet-4-5-20250929")
+
+    file_obj = FileContent(content_type=file_type, file_content_base64=file_content)
+    text = user_message or "Analiza este comprobante contable y extrae todos los datos para su registro en Alegra."
+    msg = UserMessage(text=text, file_contents=[file_obj])
+    response_text = await chat.send_message(msg)
+
+    # Parse <document_proposal> block
+    document_proposal = None
+    clean_response = response_text
+    if "<document_proposal>" in response_text and "</document_proposal>" in response_text:
+        try:
+            start = response_text.index("<document_proposal>") + len("<document_proposal>")
+            end = response_text.index("</document_proposal>")
+            proposal_json = response_text[start:end].strip()
+            document_proposal = json.loads(proposal_json)
+            clean_response = (
+                response_text[:response_text.index("<document_proposal>")].strip()
+                + response_text[end + len("</document_proposal>"):].strip()
+            ).strip()
+        except Exception:
+            pass
+
+    # Also parse <action> block if present
+    action = None
+    if "<action>" in clean_response and "</action>" in clean_response:
+        try:
+            start = clean_response.index("<action>") + 8
+            end = clean_response.index("</action>")
+            action = json.loads(clean_response[start:end].strip())
+            clean_response = (
+                clean_response[:clean_response.index("<action>")].strip()
+                + clean_response[end + 9:].strip()
+            ).strip()
+        except Exception:
+            pass
+
+    # Save assistant response
+    await db.chat_messages.insert_one({
+        "id": str(uuid.uuid4()),
+        "session_id": session_id,
+        "role": "assistant",
+        "content": response_text,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "user_id": user.get("id"),
+    })
+
+    return {
+        "message": clean_response,
+        "document_proposal": document_proposal,
+        "pending_action": action,
+        "session_id": session_id,
+    }
+
+
+async def process_chat(
+    session_id: str, user_message: str, db, user: dict,
+    file_content: str = None, file_name: str = None, file_type: str = None,
+) -> dict:
+    # Route to document analysis if a file was attached
+    if file_content:
+        return await process_document_chat(
+            session_id, user_message, file_content,
+            file_name or "documento", file_type or "image/jpeg",
+            db, user
+        )
+
     api_key = os.environ.get("EMERGENT_LLM_KEY")
 
     # Import here to avoid circular import

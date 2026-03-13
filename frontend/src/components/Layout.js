@@ -4,14 +4,14 @@ import {
   LayoutDashboard, FileText, ShoppingCart, TrendingUp, TrendingDown,
   Building2, Settings, LogOut, ChevronLeft, Menu, Bell, User,
   CreditCard, Receipt, Calculator, Users, Gift, BarChart2, Tag, Target, Bike, X,
-  Wrench, BookOpen, Wallet
+  Wrench, BookOpen, Wallet, Bot
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useAlegra } from "../contexts/AlegraContext";
-import AIChatWidget from "./AIChatWidget";
 
 const MODULES = [
-  { path: "/dashboard",            label: "Dashboard",             icon: LayoutDashboard, group: null },
+  { path: "/agente-contable",       label: "Agente Contable",       icon: Bot,           group: null,          badge: "active" },
+  { path: "/dashboard",             label: "Dashboard",             icon: LayoutDashboard, group: null },
   { path: "/facturacion-venta",    label: "Facturación Venta",     icon: FileText,        group: "Facturación" },
   { path: "/facturacion-compra",   label: "Facturación Compra",    icon: ShoppingCart,    group: "Facturación" },
   { path: "/registro-cuotas",      label: "Registro de Cuotas",    icon: CreditCard,      group: "Facturación" },
@@ -85,6 +85,7 @@ export default function Layout() {
   const location  = useLocation();
   const navigate  = useNavigate();
 
+  const isChatPage = location.pathname.startsWith("/agente-contable");
   const currentModule = MODULES.find(m => location.pathname.startsWith(m.path));
 
   const fetchNotifications = useCallback(async () => {
@@ -180,7 +181,12 @@ export default function Layout() {
                   }
                 >
                   <mod.icon size={16} className="flex-shrink-0" />
-                  {!collapsed && <span className="text-[12.5px] font-medium">{mod.label}</span>}
+                  {!collapsed && (
+                    <span className="text-[12.5px] font-medium flex-1">{mod.label}</span>
+                  )}
+                  {!collapsed && mod.badge === "active" && (
+                    <span className="w-2 h-2 rounded-full flex-shrink-0 animate-pulse" style={{ background: "#00C853" }} />
+                  )}
                 </NavLink>
               );
             });
@@ -302,12 +308,13 @@ export default function Layout() {
         </header>
 
         {/* Page content */}
-        <main className="flex-1 p-4 lg:p-6 overflow-auto animate-fadeInUp" style={{ background: "#F8FAFC" }}>
+        <main
+          className={`flex-1 ${isChatPage ? "overflow-hidden" : "p-4 lg:p-6 overflow-auto animate-fadeInUp"}`}
+          style={{ background: isChatPage ? "#0A0A0A" : "#F8FAFC" }}
+        >
           <Outlet />
         </main>
       </div>
-
-      <AIChatWidget />
     </div>
   );
 }
