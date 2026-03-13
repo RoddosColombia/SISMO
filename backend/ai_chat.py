@@ -220,6 +220,93 @@ NUNCA omitas dueDate ni paymentForm.
 Esto agrega las motos automáticamente al inventario con estado "Disponible".
 
 ═══════════════════════════════════════════════════
+MAPA DE CUENTAS CONTABLES — RODDOS SAS (IDs reales Alegra)
+═══════════════════════════════════════════════════
+REGLA: SIEMPRE usa estas cuentas HOJA (leaf) — las cuentas padre dan error.
+
+GASTOS (debito en causaciones):
+  5200 → Asesoría jurídica
+  5201 → Asesoría financiera
+  5202 → Otros honorarios
+  5204 → Arrendamiento de equipos
+  5205 → Arrendamiento de Oficinas            ← usar para arrendamientos locales
+  5207 → Gas
+  5208 → Aseo
+  5209 → Agua
+  5210 → Asistencia técnica
+  5211 → Alcantarillado/Acueducto
+  5212 → Energía eléctrica
+  5213 → Teléfono / Internet
+  5214 → Transporte y acarreo
+  5215 → Otros servicios                      ← usar para servicios generales
+  5230 → Software contables
+  5252 → Gastos por Intereses financieros
+  5253 → Gastos por Intereses de mora
+  5263 → Retención en la fuente asumida
+
+RETENCIONES EN LA FUENTE (crédito en causaciones — pasivos):
+  5110 → ReteFuente Salarios por pagar
+  5112 → ReteFuente Honorarios y comisiones 10% por pagar
+  5113 → ReteFuente Honorarios y comisiones 11% por pagar
+  5115 → ReteFuente Servicios 4% por pagar
+  5116 → ReteFuente Servicios 6% por pagar
+  5118 → ReteFuente Arriendo 3.5% por pagar
+  5120 → ReteFuente Compra 2.5% por pagar
+  5121 → Retención de IVA por pagar
+  5122 → Retención de ICA por pagar
+  5123 → Otro tipo de retención por pagar
+
+PASIVOS — PROVEEDORES Y TERCEROS (crédito en causaciones):
+  5070 → Cuentas por pagar a proveedores nacionales   ← proveedor neto a pagar
+  5071 → Cuentas por pagar a proveedores del exterior
+
+INGRESOS (crédito en asientos de ingreso):
+  5154 → Ingresos por Intereses financieros
+  5155 → Utilidad en venta de Activos
+  5157 → Ganancia por diferencia en cambio
+  5158 → Ajustes por aproximaciones
+  5299 → Alquiler Oficina
+  5151 → Devoluciones en ventas
+
+NÓMINA — PASIVOS (crédito):
+  5081 → Intereses sobre cesantías por pagar
+  5082 → Prima de servicios por pagar
+  5089 → Aportes EPS por pagar
+  5090 → Aportes ARP por pagar
+  5091 → Aportes ICBF/SENA/Cajas por pagar
+  5092 → Fondos cesantías/pensiones por pagar
+
+═══════════════════════════════════════════════════
+FLUJO — CAUSACIÓN CONTABLE (EGRESO / INGRESO)
+═══════════════════════════════════════════════════
+• Endpoint real: POST /journals
+• REGLA: débitos totales DEBEN igualar créditos totales
+
+FORMATO EXACTO PARA CREAR_CAUSACION (Alegra API /journals):
+{
+  "date": "YYYY-MM-DD",
+  "observations": "[descripción del comprobante]",
+  "entries": [
+    {"id": [id_cuenta_debito],  "debit": [monto],  "credit": 0},
+    {"id": [id_cuenta_credito], "debit": 0, "credit": [monto]}
+  ]
+}
+
+REGLA CRÍTICA: El campo "entries" usa {"id": NÚMERO_ENTERO, "debit": N, "credit": N}
+NUNCA uses {"account": {"id": ...}} — ese formato es INCORRECTO y da error 403/400.
+El id en entries es el ID numérico de la cuenta del plan de cuentas NIIF de Alegra.
+Para Debitos y Créditos que NO aplican, usa 0 (no omitir el campo).
+
+RETENCIONES Colombia (calcular antes de mostrar el asiento):
+• ReteFuente Arrendamiento inmuebles:   3.5% del valor bruto
+• ReteFuente Servicios generales:       4% (si monto > $199.196)
+• ReteFuente Honorarios PN:             10%
+• ReteFuente Honorarios PJ:             11%
+• ReteFuente Servicios técnicos:        6%
+• ReteICA Bogotá servicios generales:   0.414% (11.04 por mil)
+• IVA Descontable:                      19% del valor (solo si aplica)
+
+═══════════════════════════════════════════════════
 FORMATO DE RESPUESTA PARA ACCIONES:
 ═══════════════════════════════════════════════════
 1. Análisis contable (qué cuentas y por qué — SIEMPRE)
@@ -231,25 +318,24 @@ FORMATO DE RESPUESTA PARA ACCIONES:
    ...
 3. Bloque <action> con JSON completo (OBLIGATORIO para acciones ejecutables)
 
-Ejemplo de <action>:
+Ejemplo de <action> para causación arrendamiento con retenciones:
 <action>
 {
   "type": "crear_causacion",
   "title": "Causación arrendamiento oct-2025",
   "summary": [
     {"label": "Concepto", "value": "Arrendamiento local comercial"},
-    {"label": "Débito", "value": "[5120] Arrendamiento $3.000.000"},
-    {"label": "Crédito", "value": "[2205] Proveedores $2.895.000"},
-    {"label": "ReteFuente 3.5%", "value": "$105.000"},
-    {"label": "Total neto proveedor", "value": "$2.895.000"}
+    {"label": "Débito", "value": "[ID_GASTO] Arrendamiento $3.000.000"},
+    {"label": "Crédito", "value": "[ID_RETEFUENTE] ReteFuente 3.5% $105.000"},
+    {"label": "Crédito", "value": "[ID_PROVEEDOR] Proveedor neto $2.895.000"}
   ],
   "payload": {
     "date": "2025-10-31",
-    "description": "Causación arrendamiento octubre",
+    "observations": "Causación arrendamiento octubre 2025",
     "entries": [
-      {"account": {"id": "ACCOUNT_ID_GASTO"}, "debit": 3000000},
-      {"account": {"id": "ACCOUNT_ID_RETEFUENTE"}, "credit": 105000},
-      {"account": {"id": "ACCOUNT_ID_PROVEEDOR"}, "credit": 2895000}
+      {"id": ID_CUENTA_GASTO_ARRENDAMIENTO, "debit": 3000000, "credit": 0},
+      {"id": ID_CUENTA_RETEFUENTE_PASIVO,   "debit": 0, "credit": 105000},
+      {"id": ID_CUENTA_PROVEEDORES,          "debit": 0, "credit": 2895000}
     ]
   }
 }
@@ -634,7 +720,7 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
     ACTION_MAP = {
         "crear_factura_venta": ("invoices", "POST"),
         "registrar_factura_compra": ("bills", "POST"),
-        "crear_causacion": ("journal-entries", "POST"),
+        "crear_causacion": ("journals", "POST"),
         "registrar_pago": ("payments", "POST"),
         "crear_contacto": ("contacts", "POST"),
     }
@@ -690,10 +776,11 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
         cuentas_usadas = []
         if action_type == "crear_causacion":
             for entry in (payload.get("entries") or []):
-                acc_id = entry.get("account", {}).get("id", "")
-                if entry.get("debit"):
+                # Nuevo formato /journals: {"id": 5196, "debit": N, "credit": N}
+                acc_id = str(entry.get("id", ""))
+                if entry.get("debit") and float(entry.get("debit", 0)) > 0:
                     cuentas_usadas.append({"id": acc_id, "rol": "debito", "name": ""})
-                elif entry.get("credit"):
+                elif entry.get("credit") and float(entry.get("credit", 0)) > 0:
                     cuentas_usadas.append({"id": acc_id, "rol": "credito", "name": ""})
 
         await db.agent_memory.update_one(

@@ -72,7 +72,10 @@ class AlegraService:
                     resp = await client.get(url, headers=headers)
 
             if resp.status_code == 401:
-                raise HTTPException(status_code=400, detail="Credenciales de Alegra inválidas o token expirado. Ve a Configuración → Integración Alegra y genera un nuevo token.")
+                raise HTTPException(
+                    status_code=400,
+                    detail="Credenciales de Alegra incorrectas o expiradas. Ve a Configuración → Integración Alegra y actualiza el token en app.alegra.com/user/profile#token"
+                )
             if resp.status_code == 400:
                 error_data = resp.json() if resp.content else {}
                 raise HTTPException(
@@ -84,10 +87,13 @@ class AlegraService:
                     # Plan no incluye este endpoint en lectura — devolver lista vacía sin error
                     return []
                 else:
-                    # POST/PUT con 403 → función no habilitada en el plan Alegra
+                    # POST con 403 → permisos insuficientes
                     raise HTTPException(
                         status_code=403,
-                        detail=f"El plan actual de Alegra no permite ejecutar esta operación ({endpoint}). Verifica el plan en app.alegra.com."
+                        detail=(
+                            f"Tu usuario no tiene permisos de Contabilidad en Alegra para ejecutar '{endpoint}'. "
+                            "Verifica en Alegra → Configuración → Usuarios que el módulo Contabilidad esté habilitado."
+                        )
                     )
             if resp.status_code == 404:
                 return []
@@ -158,7 +164,7 @@ class AlegraService:
             if p.get("date_beforeOrNow"):
                 data = [x for x in data if (x.get("date") or "0000") <= p["date_beforeOrNow"]]
             return data
-        if "journal-entries" in endpoint:
+        if "journal-entries" in endpoint or "journals" in endpoint:
             if method == "POST":
                 return {"id": f"ce-{uuid.uuid4().hex[:6]}", "number": f"CE-2025-0{len(MOCK_JOURNAL_ENTRIES)+1:02d}", **body}
             data = list(MOCK_JOURNAL_ENTRIES)

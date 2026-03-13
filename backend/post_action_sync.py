@@ -68,11 +68,13 @@ async def post_action_sync(
     # ── CASO 1: Factura de Venta de Moto ─────────────────────────────────────
     if action_type == "crear_factura_venta":
         numero = ""
+        is_draft = False
         if isinstance(alegra_response, dict):
             numero = (
                 alegra_response.get("numberTemplate", {}).get("fullNumber", "")
                 or str(alegra_id)
             )
+            is_draft = alegra_response.get("status", "") == "draft"
         total = float(alegra_response.get("total", 0)) if isinstance(alegra_response, dict) else 0.0
 
         # Extract metadata fields
@@ -119,6 +121,12 @@ async def post_action_sync(
                 modules.append("inventario")
 
         sync_msgs.append(f"✅ **Factura** {numero} creada en Alegra (total: ${total:,.0f})")
+        if is_draft:
+            sync_msgs.append(
+                "⚠️ La factura quedó en **BORRADOR** — La resolución DIAN de RODDOS está vencida "
+                "(venció 2026-03-06). Para activarla ve a **Alegra → Configuración → Numeraciones** "
+                "y renueva la resolución con la DIAN. La factura se activará automáticamente."
+            )
 
         # 1b. Create Loanbook (only for financed plans)
         if plan and plan != "Contado" and num_cuotas > 0 and cuota_valor > 0:

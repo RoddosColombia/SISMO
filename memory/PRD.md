@@ -313,3 +313,21 @@ Estructura modular:
 - HALLAZGO: journal-entries 403 → plan Alegra sin módulo Contabilidad (Flujos 3+5 bloqueados)
 - HALLAZGO: Facturas API → "draft" (DIAN firma) → pagos solo contra facturas "open"
 - VERIFICADO: Ciclo 3 momentos operativo | 305 cuentas NIIF | Cuotas miércoles OK
+
+
+## Fix journal-entries → journals — 2026-03-13
+### Diagnóstico y corrección del BUG CRÍTICO endpoint causaciones
+- ROOT CAUSE 1: Endpoint INCORRECTO — código usaba `/journal-entries` (403) → correcto es `/journals` (201)
+- ROOT CAUSE 2: Formato entries INCORRECTO — código usaba `{"account":{"id":X}}` → correcto es `{"id":X,"debit":N,"credit":N}`
+- ROOT CAUSE 3: Cuentas padre no aceptan movimientos (ej: 5206 "Servicios públicos" es padre)
+- FIX: ACTION_MAP actualizado: "crear_causacion" → ("journals", "POST")
+- FIX: Mock service actualizado para "journals" 
+- FIX: System prompt actualizado con formato EXACTO de entries
+- FIX: MAPA DE CUENTAS RODDOS añadido al system prompt (IDs reales de todas las cuentas hoja)
+- FIX: agent_memory extrae IDs de entries con nuevo formato `entry.get("id")`
+- FIX: post_action_sync detecta factura en "draft" y avisa al usuario
+- HALLAZGO CRÍTICO: Resolución DIAN FE414-FE500 VENCIDA el 2026-03-06
+  → Todas las facturas creadas después de esa fecha quedan en "draft"
+  → ACCIÓN: RODDOS debe renovar resolución DIAN en Alegra → Configuración → Numeraciones
+- VERIFICADO: POST /journals HTTP 201, status:open, arrendamiento $100.000 con ReteFuente 3.5% ✅
+- Flujos 1,2,3,4,6 operativos | Flujo 3+5 causaciones: AHORA OPERATIVOS ✅
