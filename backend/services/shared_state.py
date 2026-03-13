@@ -47,6 +47,12 @@ def _invalidate_keys(keys_or_prefixes: list[str]) -> None:
 # ─── Reglas por event_type: qué colección actualizar y qué caché invalidar ───
 # col=None → solo registrar evento, sin actualización de estado en MongoDB
 _STATE_RULES: dict[str, dict] = {
+    "cuota_pagada": {
+        "col": "loanbook",
+        "id_field": "id",
+        "state_field": "estado",
+        "invalidate": ["loanbook:", "portfolio_health", "daily_queue:"],
+    },
     "factura.venta.creada": {
         "col": "inventario_motos",
         "id_field": "chasis",
@@ -328,7 +334,9 @@ async def get_portfolio_health(db) -> dict:
 # ─── 5. get_daily_collection_queue ────────────────────────────────────────────
 
 async def get_daily_collection_queue(db) -> list[dict]:
-    """Cola de cobro del día: cuotas vencidas o con vencimiento hoy. TTL 30s."""
+    """Cola de cobro del día: cuotas vencidas o con vencimiento hoy. TTL 30s.
+    Cada item incluye: bucket, dpd_actual, total_a_pagar, dias_para_protocolo, whatsapp_link.
+    """
     today = date.today().isoformat()
     key   = f"daily_queue:{today}"
     cached = _cache_get(key)
@@ -349,27 +357,43 @@ async def get_daily_collection_queue(db) -> list[dict]:
             if not fv or estado_cuota not in ("pendiente", "vencida"):
                 continue
             if fv <= today:
-                days_overdue = (date.today() - date.fromisoformat(fv)).days
-                prioridad = (
-                    "URGENTE"   if days_overdue > 14
-                    else "PARA_HOY" if days_overdue == 0
+                dpd_actual = (date.today() - date.fromisoformat(fv)).days
+                bucket = (
+                    "URGENTE"   if dpd_actual > 14
+                    else "PARA_HOY" if dpd_actual == 0
                     else "VENCIDA"
                 )
+                # DPD=22 activa recuperación (PRD: "Máximo sin pago: 21 días")
+                dias_para_protocolo = max(0, 22 - dpd_actual)
+
+                # WhatsApp link con código país Colombia (57)
+                telefono = loan.get("cliente_telefono", "")
+                wa_phone = telefono.replace(" ", "").replace("+", "").replace("-", "")
+                if wa_phone and not wa_phone.startswith("57") and len(wa_phone) == 10:
+                    wa_phone = f"57{wa_phone}"
+                valor_fmt = str(int(cuota.get("valor", 0)))
+                whatsapp_link = (
+                    f"https://wa.me/{wa_phone}?text=RODDOS%3A+Cuota+vencida+%24{valor_fmt}"
+                    if wa_phone else ""
+                )
+
                 queue.append({
-                    "loanbook_id":       loan["id"],
-                    "codigo":            loan["codigo"],
-                    "cliente_nombre":    loan["cliente_nombre"],
-                    "cliente_telefono":  loan.get("cliente_telefono", ""),
-                    "cuota_numero":      cuota["numero"],
-                    "fecha_vencimiento": fv,
-                    "valor":             cuota.get("valor", 0),
-                    "dias_vencida":      days_overdue,
-                    "prioridad":         prioridad,
-                    "saldo_total":       loan.get("saldo_pendiente", 0),
+                    "loanbook_id":          loan["id"],
+                    "codigo":               loan["codigo"],
+                    "cliente_nombre":       loan["cliente_nombre"],
+                    "cliente_telefono":     telefono,
+                    "cuota_numero":         cuota["numero"],
+                    "fecha_vencimiento":    fv,
+                    "bucket":               bucket,
+                    "dpd_actual":           dpd_actual,
+                    "total_a_pagar":        cuota.get("valor", 0),
+                    "dias_para_protocolo":  dias_para_protocolo,
+                    "whatsapp_link":        whatsapp_link,
+                    "saldo_total":          loan.get("saldo_pendiente", 0),
                 })
                 break  # solo primera cuota vencida por loan
 
-    queue.sort(key=lambda x: (-x["dias_vencida"], x["fecha_vencimiento"]))
+    queue.sort(key=lambda x: (-x["dpd_actual"], x["fecha_vencimiento"]))
     _cache_set(key, queue)
     return queue
 

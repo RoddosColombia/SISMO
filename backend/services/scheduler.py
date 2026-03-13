@@ -3,15 +3,31 @@ scheduler.py — APScheduler para RODDOS Contable IA.
 
 Job único (BUILD 2):
   process_pending_events: corre cada 60 s, procesa roddos_events con estado='pending'
-  y los marca como 'processed'. Si un evento falla → estado='failed', log, continúa.
+  y los marca como 'processed'. Si event_type desconocido o excepción → estado='failed', log.
 """
 import logging
 from datetime import datetime, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-logger   = logging.getLogger(__name__)
+logger    = logging.getLogger(__name__)
 _scheduler = AsyncIOScheduler(timezone="America/Bogota")
+
+# Tipos de evento conocidos — cualquier otro → estado='failed'
+KNOWN_EVENT_TYPES: frozenset[str] = frozenset({
+    "factura.venta.creada",
+    "factura.venta.anulada",
+    "pago.cuota.registrado",
+    "cuota_pagada",
+    "inventario.moto.entrada",
+    "inventario.moto.baja",
+    "cliente.mora.detectada",
+    "asiento.contable.creado",
+    "agente_ia.accion.ejecutada",
+    "factura.compra.creada",
+    "repuesto.vendido",
+    "loanbook.activado",
+})
 
 
 # ─── Job ──────────────────────────────────────────────────────────────────────
@@ -23,7 +39,7 @@ async def _process_pending_events() -> None:
     try:
         pending = await db.roddos_events.find(
             {"estado": "pending"},
-            {"_id": 0, "event_id": 1},
+            {"_id": 0, "event_id": 1, "event_type": 1},
         ).limit(200).to_list(200)
 
         if not pending:
@@ -34,17 +50,22 @@ async def _process_pending_events() -> None:
         now_iso         = datetime.now(timezone.utc).isoformat()
 
         for doc in pending:
-            event_id = doc.get("event_id")
+            event_id   = doc.get("event_id")
+            event_type = doc.get("event_type", "")
             if not event_id:
                 continue
             try:
+                # Validar event_type — desconocido → fallo intencional
+                if event_type not in KNOWN_EVENT_TYPES:
+                    raise ValueError(f"event_type desconocido: '{event_type}'")
+
                 await db.roddos_events.update_one(
                     {"event_id": event_id},
                     {"$set": {"estado": "processed", "processed_at": now_iso}},
                 )
                 processed_count += 1
             except Exception as e:
-                logger.error(f"[Scheduler] Error procesando evento {event_id}: {e}")
+                logger.error(f"[Scheduler] Error procesando evento {event_id} ({event_type}): {e}")
                 try:
                     await db.roddos_events.update_one(
                         {"event_id": event_id},
