@@ -1,8 +1,10 @@
-"""Cartera router — weekly/monthly collection views and client behavior."""
+"""Cartera router — remote collection queue, gestiones, weekly/monthly views, client behavior."""
+import uuid
 from datetime import datetime, timezone, date, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 
 from database import db
 from dependencies import get_current_user
@@ -10,6 +12,19 @@ from event_bus import emit_event
 from routers.loanbook import _update_overdue
 
 router = APIRouter(prefix="/cartera", tags=["cartera"])
+
+
+# ─── Models ───────────────────────────────────────────────────────────────────
+
+class GestionCreate(BaseModel):
+    loanbook_id: str
+    codigo_loan: str
+    cliente_nombre: str
+    tipo: str          # "llamada" | "whatsapp" | "otro"
+    resultado: str     # "contesto_promesa" | "no_contesto" | "numero_error" | "acuerdo_ref" | "nota_libre"
+    promesa_fecha: Optional[str] = None
+    notas: Optional[str] = ""
+
 
 
 def _week_range(semana: Optional[str]) -> tuple:
@@ -218,79 +233,144 @@ async def get_cliente_record(cliente_id: str, current_user=Depends(get_current_u
     return {"loans": loans, "historial_pagos": pagos}
 
 
-@router.get("/ruta-hoy")
-async def get_ruta_hoy(current_user=Depends(get_current_user)):
-    """Return today's field collection route: ALL overdue cuotas + today's cuotas.
+# ─── Cola de Gestión Remota ───────────────────────────────────────────────────
 
-    Sorted by urgency: most-overdue first, then today.
-    Includes cliente_telefono for quick-call / WhatsApp actions.
+@router.get("/cola-remota")
+async def get_cola_remota(current_user=Depends(get_current_user)):
+    """Remote collection management queue — 3 priority groups.
+
+    1. URGENTE:      overdue > 30 days (chronic delinquency)
+    2. PARA_HOY:     cuota due today
+    3. PREVENTIVO:   cuota due in the next 2 days (preemptive reminder)
+
+    Only returns entries from ACTIVE loans (estado = activo | mora).
+    Cartera is inactive while loan is in estado='pendiente_entrega'.
     """
     today = date.today()
     today_s = today.isoformat()
+    urgente_cutoff = (today - timedelta(days=30)).isoformat()
+    preventivo_end = (today + timedelta(days=2)).isoformat()
 
     loans = await db.loanbook.find(
-        {"estado": {"$in": ["activo", "mora", "pendiente_entrega"]}}, {"_id": 0}
+        {"estado": {"$in": ["activo", "mora"]}}, {"_id": 0}
     ).to_list(2000)
 
-    ruta: list[dict] = []
+    urgente: list[dict] = []
+    para_hoy: list[dict] = []
+    preventivo: list[dict] = []
+
     for loan in loans:
         cuotas = _update_overdue(loan.get("cuotas", []))
         for c in cuotas:
             fv = c.get("fecha_vencimiento", "")
+            if not fv:
+                continue
             estado = c.get("estado", "")
-            # Only include unpaid cuotas due today or overdue
-            if estado in ("vencida", "pendiente") and fv <= today_s:
-                dias_vencida = (today - date.fromisoformat(fv)).days if fv else 0
-                ruta.append({
-                    "loanbook_id": loan["id"],
-                    "codigo": loan["codigo"],
-                    "factura_alegra_id": loan.get("factura_alegra_id", ""),
-                    "cliente_id": loan.get("cliente_id", ""),
-                    "cliente_nombre": loan["cliente_nombre"],
-                    "cliente_nit": loan.get("cliente_nit", ""),
-                    "cliente_telefono": loan.get("cliente_telefono", ""),
-                    "moto": loan.get("moto_descripcion", ""),
-                    "plan": loan["plan"],
-                    "cuota_numero": c["numero"],
-                    "fecha_vencimiento": fv,
-                    "valor": c["valor"],
-                    "estado": estado,
-                    "dias_vencida": dias_vencida,
-                    "es_hoy": fv == today_s,
-                    "fecha_pago": c.get("fecha_pago"),
-                    "valor_pagado": c.get("valor_pagado", 0),
-                    "comprobante": c.get("comprobante"),
-                    "total_cuotas": loan["num_cuotas"],
-                })
 
-    # Sort: most overdue first (dias_vencida DESC), then by client name
-    ruta.sort(key=lambda x: (-x["dias_vencida"], x["cliente_nombre"]))
+            # Skip paid cuotas
+            if estado == "pagada":
+                continue
 
-    # Cobrado hoy from cartera_pagos
+            dias = (today - date.fromisoformat(fv)).days if fv <= today_s else -(date.fromisoformat(fv) - today).days
+
+            entry = {
+                "loanbook_id": loan["id"],
+                "codigo": loan["codigo"],
+                "factura_alegra_id": loan.get("factura_alegra_id", ""),
+                "cliente_id": loan.get("cliente_id", ""),
+                "cliente_nombre": loan["cliente_nombre"],
+                "cliente_telefono": loan.get("cliente_telefono", ""),
+                "moto": loan.get("moto_descripcion", ""),
+                "plan": loan["plan"],
+                "cuota_numero": c["numero"],
+                "total_cuotas": loan["num_cuotas"],
+                "valor": c["valor"],
+                "fecha_vencimiento": fv,
+                "estado": estado,
+                "dias_vencida": dias,
+            }
+
+            if estado == "vencida" and fv <= urgente_cutoff:
+                urgente.append(entry)
+            elif estado in ("vencida", "pendiente") and fv == today_s:
+                para_hoy.append(entry)
+            elif estado == "pendiente" and today_s < fv <= preventivo_end:
+                preventivo.append(entry)
+
+    # Sort urgente by most overdue (dias_vencida DESC)
+    urgente.sort(key=lambda x: -x["dias_vencida"])
+    para_hoy.sort(key=lambda x: -x["dias_vencida"])
+    preventivo.sort(key=lambda x: x["fecha_vencimiento"])
+
     pagos_hoy = await db.cartera_pagos.find({"fecha_pago": today_s}, {"_id": 0}).to_list(5000)
     cobrado_hoy = sum(p.get("valor_pagado", 0) for p in pagos_hoy)
 
     return {
         "fecha": today_s,
-        "ruta": ruta,
+        "urgente": urgente,
+        "para_hoy": para_hoy,
+        "preventivo": preventivo,
         "resumen": {
-            "total_por_cobrar": len(ruta),
-            "total_esperado": sum(c["valor"] for c in ruta),
+            "total_urgente": len(urgente),
+            "total_hoy": len(para_hoy),
+            "total_preventivo": len(preventivo),
+            "total_clientes": len(urgente) + len(para_hoy) + len(preventivo),
             "cobrado_hoy": cobrado_hoy,
-            "vencidas": sum(1 for c in ruta if c["dias_vencida"] > 0),
-            "para_hoy": sum(1 for c in ruta if c["dias_vencida"] == 0),
         },
     }
 
 
-@router.post("/{loanbook_id}/pago-rapido")
-async def pago_rapido(loanbook_id: str, body: dict, current_user=Depends(get_current_user)):
-    """Fast payment registration from Cartera mobile — delegates to loanbook router logic."""
-    from routers.loanbook import PagoRequest, register_pago
-    req = PagoRequest(
-        cuota_numero=body["cuota_numero"],
-        valor_pagado=float(body["valor_pagado"]),
-        metodo_pago=body.get("metodo_pago", "efectivo"),
-        notas=body.get("notas", ""),
+# ─── Gestiones de Contacto ────────────────────────────────────────────────────
+
+@router.post("/gestiones")
+async def crear_gestion(req: GestionCreate, current_user=Depends(get_current_user)):
+    """Register a remote contact attempt (call, WhatsApp) and its result."""
+    today_s = date.today().isoformat()
+    gestion = {
+        "id": str(uuid.uuid4()),
+        "loanbook_id": req.loanbook_id,
+        "codigo_loan": req.codigo_loan,
+        "cliente_nombre": req.cliente_nombre,
+        "fecha": today_s,
+        "tipo": req.tipo,
+        "resultado": req.resultado,
+        "promesa_fecha": req.promesa_fecha,
+        "notas": req.notas or "",
+        "registrado_por": current_user.get("email"),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.gestiones_cartera.insert_one(gestion)
+    del gestion["_id"]
+
+    # Update loan: register last_contact info
+    await db.loanbook.update_one(
+        {"id": req.loanbook_id},
+        {"$set": {
+            "ultimo_contacto_fecha": today_s,
+            "ultimo_contacto_resultado": req.resultado,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }},
     )
-    return await register_pago(loanbook_id, req, current_user)
+
+    return gestion
+
+
+@router.get("/gestiones/{loanbook_id}")
+async def get_gestiones(loanbook_id: str, current_user=Depends(get_current_user)):
+    """Return full contact history for a loan — displayed as timeline."""
+    gestiones = (
+        await db.gestiones_cartera
+        .find({"loanbook_id": loanbook_id}, {"_id": 0})
+        .sort("created_at", -1)
+        .to_list(200)
+    )
+    return gestiones
+
+
+# ─── Ruta-Hoy (legacy alias → cola-remota) ───────────────────────────────────
+
+@router.get("/ruta-hoy")
+async def get_ruta_hoy(current_user=Depends(get_current_user)):
+    """Legacy alias — redirects to cola-remota."""
+    return await get_cola_remota(current_user)
+

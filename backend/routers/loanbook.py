@@ -45,11 +45,32 @@ class PagoRequest(BaseModel):
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
+def _first_wednesday(fecha_entrega: date) -> date:
+    """Return the first Wednesday >= (fecha_entrega + 7 days).
+
+    Rule per RODDOS: 'fecha_entrega + 7 days → miércoles de esa semana'.
+    - If target (fecha_entrega+7) is Mon or Tue → advance to Wednesday of same week.
+    - If target is Wednesday → use it.
+    - If target is Thu/Fri/Sat/Sun → advance to Wednesday of NEXT week.
+    All RODDOS installments fall on Wednesdays without exception.
+    """
+    target = fecha_entrega + timedelta(days=7)
+    wd = target.weekday()  # 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat, 6=Sun
+    if wd == 2:
+        return target
+    elif wd < 2:          # Mon/Tue → Wednesday same week
+        return target + timedelta(days=2 - wd)
+    else:                 # Thu/Fri/Sat/Sun → Wednesday next week
+        return target + timedelta(days=9 - wd)
+
+
 def _update_overdue(cuotas: list) -> list:
-    """Mark pending cuotas as overdue if their due date has passed."""
+    """Mark pending cuotas as overdue if their due date has passed.
+    Cuotas with estado 'sin_fecha' or empty fecha_vencimiento are skipped.
+    """
     today_str = date.today().isoformat()
     for c in cuotas:
-        if c["estado"] == "pendiente" and c["fecha_vencimiento"] <= today_str:
+        if c["estado"] == "pendiente" and c.get("fecha_vencimiento") and c["fecha_vencimiento"] <= today_str:
             c["estado"] = "vencida"
     return cuotas
 
@@ -255,11 +276,12 @@ async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depen
         raise HTTPException(status_code=400, detail="La fecha de entrega ya fue registrada. Contacte al administrador para modificarla.")
 
     fecha_entrega = date.fromisoformat(req.fecha_entrega)
-    fecha_primer_pago = fecha_entrega + timedelta(days=7)
+    # RODDOS rule: first payment = first Wednesday >= (fecha_entrega + 7 days)
+    fecha_primer_pago = _first_wednesday(fecha_entrega)
     num_cuotas = loan["num_cuotas"]
     valor_cuota = loan["valor_cuota"]
 
-    # Keep cuota inicial (index 0), generate weekly cuotas 1..N
+    # Keep cuota inicial (index 0), generate weekly cuotas 1..N (all Wednesdays)
     cuotas = [loan["cuotas"][0]]  # preserve cuota inicial
     for i in range(1, num_cuotas + 1):
         fecha_cuota = fecha_primer_pago + timedelta(weeks=i - 1)
@@ -268,7 +290,7 @@ async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depen
             "tipo": "semanal",
             "fecha_vencimiento": fecha_cuota.isoformat(),
             "valor": valor_cuota,
-            "estado": "vencida" if fecha_cuota < date.today() else "pendiente",
+            "estado": "vencida" if fecha_cuota.isoformat() < date.today().isoformat() else "pendiente",
             "fecha_pago": None,
             "valor_pagado": 0.0,
             "alegra_payment_id": None,
@@ -289,8 +311,30 @@ async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depen
     stats = _compute_stats(loan)
     loan.update(stats)
     loan.pop("_id", None)
+
+    # Update moto status to "Entregada" if moto_id available
+    if loan.get("moto_id"):
+        await db.inventario_motos.update_one(
+            {"id": loan["moto_id"]},
+            {"$set": {"estado": "Entregada", "fecha_entrega": req.fecha_entrega}},
+        )
+
+    # Emit loanbook.activado event
+    await emit_event(db, "loanbook", "loanbook.activado", {
+        "loanbook_id": loan_id,
+        "codigo": loan["codigo"],
+        "cliente_nombre": loan["cliente_nombre"],
+        "fecha_entrega": req.fecha_entrega,
+        "primera_cuota": fecha_primer_pago.isoformat(),
+        "num_cuotas": num_cuotas,
+    })
+
     await log_action(current_user, f"/loanbook/{loan_id}/entrega", "PUT", {"fecha_entrega": req.fecha_entrega})
-    return loan
+    return {
+        **loan,
+        "primera_cuota_fecha": fecha_primer_pago.isoformat(),
+        "message": f"Loanbook activado — Primera cuota: {fecha_primer_pago.strftime('%d/%m/%Y')} (miércoles)",
+    }
 
 
 @router.put("/{loan_id}/cuota/{cuota_num}")

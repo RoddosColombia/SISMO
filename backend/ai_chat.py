@@ -62,13 +62,103 @@ TARIFAS VIGENTES Colombia 2025 (UVT = $49.799):
 ═══════════════════════════════════════════════════
 TIPOS DE ACCIÓN DISPONIBLES:
 ═══════════════════════════════════════════════════
-• crear_factura_venta → POST /invoices
+• crear_factura_venta   → POST /invoices
 • registrar_factura_compra → POST /bills
-• crear_causacion → POST /journal-entries
-• registrar_pago → POST /payments
-• crear_contacto → POST /contacts
-• calcular_retencion → cálculo local (sin ejecutar en Alegra)
-• consultar_facturas → información de facturas existentes
+• crear_causacion       → POST /journal-entries
+• registrar_pago        → POST /payments
+• crear_contacto        → POST /contacts
+• registrar_entrega     → ACCIÓN INTERNA (activa plan de cuotas)
+• calcular_retencion    → cálculo local (sin ejecutar en Alegra)
+• consultar_facturas    → información de facturas existentes
+
+═══════════════════════════════════════════════════
+FLUJO OBLIGATORIO — VENTA DE MOTO A CRÉDITO
+═══════════════════════════════════════════════════
+Cuando el usuario quiera vender una moto:
+
+PASO 1 — Verificar disponibilidad:
+Si el contexto incluye INVENTARIO_DISPONIBLE, verifica que la moto esté listada.
+Si su estado ≠ "Disponible", RECHAZA la operación:
+  "La moto [descripción] no está disponible (estado: [X]). No se puede facturar."
+
+PASO 2 — Confirmar plan y cuota:
+Si el usuario no indicó el plan, PREGUNTA:
+  "¿Cuál es el plan de pago? P39S (39 semanas), P52S (52 semanas), P78S (78 semanas), o Contado."
+  "¿Cuál es el valor de la cuota semanal?"
+  "¿Cuál es la cuota inicial?"
+
+PASO 3 — Mostrar resumen y crear la acción:
+El campo _metadata es OBLIGATORIO para crear el Loanbook automáticamente.
+Incluye dentro del payload el campo "_metadata" con todos estos datos:
+{
+  "_metadata": {
+    "moto_id": "[id interno del inventario]",
+    "moto_chasis": "[número de chasis]",
+    "moto_descripcion": "[marca modelo color]",
+    "cliente_id": "[id_alegra del cliente]",
+    "cliente_nombre": "[nombre completo]",
+    "cliente_nit": "[nit]",
+    "cliente_telefono": "[celular]",
+    "plan": "P39S",
+    "num_cuotas": 39,
+    "cuota_valor": 190000,
+    "cuota_inicial": 500000,
+    "precio_venta": 8000000
+  }
+}
+
+PLANES DISPONIBLES:
+• P39S = 39 cuotas semanales | P52S = 52 cuotas | P78S = 78 cuotas | Contado = sin Loanbook
+
+El sistema creará automáticamente el Loanbook con estado "PENDIENTE ENTREGA".
+Las fechas de cuotas se asignan SOLO cuando se registre la entrega física.
+NUNCA aparecerá en Cartera hasta que se registre la entrega.
+
+═══════════════════════════════════════════════════
+FLUJO OBLIGATORIO — REGISTRO DE ENTREGA DE MOTO
+═══════════════════════════════════════════════════
+Cuando el usuario diga "entrega de moto", "entregué la moto", o similar:
+
+1. Pide el código de Loanbook (LB-XXXX-YYYY) y la fecha de entrega.
+2. Crea la acción tipo "registrar_entrega":
+<action>
+{
+  "type": "registrar_entrega",
+  "title": "Entrega moto — [código loanbook]",
+  "summary": [
+    {"label": "Loanbook", "value": "[código]"},
+    {"label": "Cliente", "value": "[nombre]"},
+    {"label": "Fecha entrega", "value": "[fecha]"},
+    {"label": "Efecto", "value": "Se calculan fechas de cuota (miércoles), Loanbook → ACTIVO, cliente aparece en Cola de Gestión"}
+  ],
+  "payload": {
+    "loanbook_id": "[id o código del loanbook]",
+    "loanbook_codigo": "[código LB-...]",
+    "fecha_entrega": "YYYY-MM-DD",
+    "notas": "Entrega conforme al cliente"
+  }
+}
+</action>
+
+El sistema calculará automáticamente:
+• Primera cuota = primer miércoles >= (fecha_entrega + 7 días)
+• Todas las cuotas siguientes serán miércoles consecutivos
+• RODDOS: TODOS los cobros vencen el miércoles sin excepción
+
+═══════════════════════════════════════════════════
+FLUJO — FACTURA DE COMPRA (PROVEEDOR)
+═══════════════════════════════════════════════════
+Si la compra incluye motos para inventario, incluye en el payload:
+{
+  "_metadata": {
+    "proveedor_nombre": "[nombre]",
+    "plazo_dias": 90,
+    "motos_a_agregar": [
+      {"marca": "Honda", "version": "CB190R", "cantidad": 3, "precio_unitario": 8400000}
+    ]
+  }
+}
+Esto agrega las motos automáticamente al inventario con estado "Disponible".
 
 ═══════════════════════════════════════════════════
 FORMATO DE RESPUESTA PARA ACCIONES:
@@ -153,6 +243,53 @@ async def gather_context(user_message: str, alegra_service, db) -> dict:
 
     # Pull IVA status for cuatrimestral context
     msg_lower = user_message.lower()
+
+    # ── Inject available inventory context for moto sale scenarios ─────────
+    sale_kws = ["vende", "venta", "moto", "cb", "fz", "tvs", "kawas", "akt", "chasis",
+                "vin", "plan", "p39", "p52", "p78", "financ", "cuota", "entrega", "entregó"]
+    if any(kw in msg_lower for kw in sale_kws):
+        try:
+            motos = await db.inventario_motos.find(
+                {"estado": "Disponible"},
+                {"_id": 0, "id": 1, "marca": 1, "version": 1, "color": 1, "chasis": 1,
+                 "motor": 1, "estado": 1, "total": 1},
+            ).sort("created_at", -1).to_list(30)
+            if motos:
+                context["inventario_disponible"] = motos
+        except Exception:
+            pass
+
+    # ── Inject active loanbook context for payment/delivery scenarios ───────
+    pay_kws = ["pago", "cuota", "cobr", "cancelar", "pagó", "cancel", "loanbook", "lb-", "entrega"]
+    if any(kw in msg_lower for kw in pay_kws):
+        try:
+            loans = await db.loanbook.find(
+                {"estado": {"$in": ["activo", "mora", "pendiente_entrega"]}},
+                {"_id": 0, "id": 1, "codigo": 1, "cliente_nombre": 1,
+                 "factura_alegra_id": 1, "plan": 1, "num_cuotas": 1,
+                 "saldo_pendiente": 1, "estado": 1, "fecha_entrega": 1,
+                 "cuotas": 1},
+            ).sort("updated_at", -1).to_list(15)
+            context["loanbook_activos"] = [
+                {
+                    "id": l["id"],
+                    "codigo": l["codigo"],
+                    "cliente": l["cliente_nombre"],
+                    "factura_alegra_id": l.get("factura_alegra_id", ""),
+                    "plan": l.get("plan", ""),
+                    "saldo_pendiente": l.get("saldo_pendiente", 0),
+                    "estado": l.get("estado", ""),
+                    "fecha_entrega": l.get("fecha_entrega"),
+                    "proximas_cuotas": [
+                        c for c in l.get("cuotas", [])
+                        if c.get("estado") in ("pendiente", "vencida", "sin_fecha")
+                    ][:4],
+                }
+                for l in loans
+            ]
+        except Exception:
+            pass
+
     if any(w in msg_lower for w in ["iva", "impuesto", "dian", "declaraci", "periodo", "cuatrimest", "cuánto", "cuanto", "pagar"]):
         try:
             from server import db as main_db
@@ -314,10 +451,27 @@ async def process_chat(session_id: str, user_message: str, db, user: dict) -> di
     else:
         iva_context_str = "Pregunta sobre IVA para obtener el estado actualizado del período cuatrimestral."
 
+    # Append inventory / loanbook context if injected
+    extra_context = ""
+    if context_data.get("inventario_disponible"):
+        motos_list = context_data["inventario_disponible"]
+        lines = [f"  • [{m.get('id','')}] {m.get('marca','')} {m.get('version','')} {m.get('color','')} — Chasis: {m.get('chasis','')} Motor: {m.get('motor','')} Precio: ${m.get('total',0):,.0f}" for m in motos_list[:20]]
+        extra_context += "\n\nINVENTARIO_DISPONIBLE (motos en stock para venta):\n" + "\n".join(lines)
+    if context_data.get("loanbook_activos"):
+        lb_list = context_data["loanbook_activos"]
+        lines = [
+            f"  • [{l['codigo']}] id={l['id']} — {l['cliente']} | Plan: {l['plan']} | "
+            f"Saldo: ${l['saldo_pendiente']:,.0f} | Estado: {l['estado']} | "
+            f"Alegra factura: {l.get('factura_alegra_id','?')} | "
+            f"Entrega: {l.get('fecha_entrega','pendiente')}"
+            for l in lb_list[:10]
+        ]
+        extra_context += "\n\nLOANBOOK_ACTIVOS:\n" + "\n".join(lines)
+
     # Build system prompt with all context
     system_prompt = (
         AGENT_SYSTEM_PROMPT
-        .replace("{context}", context_str)
+        .replace("{context}", context_str + extra_context)
         .replace("{iva_context}", iva_context_str)
         .replace("{accounts_context}", accounts_str)
         .replace("{patterns_context}", patterns_str)
@@ -393,6 +547,44 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
         raise ValueError(f"Acción no reconocida: {action_type}")
 
     endpoint, method = ACTION_MAP[action_type]
+
+    # ── Extract internal _metadata BEFORE sending payload to Alegra ──────────
+    internal_metadata: dict = {}
+    if isinstance(payload, dict):
+        internal_metadata = payload.pop("_metadata", None) or {}
+
+    # ── Special case: registrar_entrega (internal-only, no Alegra call) ──────
+    if action_type == "registrar_entrega":
+        loan_id = payload.get("loanbook_id", "") or internal_metadata.get("loanbook_id", "")
+        loan_codigo = payload.get("loanbook_codigo", "")
+        fecha_entrega = payload.get("fecha_entrega", "")
+        if not fecha_entrega:
+            raise ValueError("Falta fecha_entrega para registrar la entrega")
+
+        # Look up by id or codigo
+        loan = await db.loanbook.find_one({"id": loan_id}, {"_id": 0})
+        if not loan and loan_codigo:
+            loan = await db.loanbook.find_one({"codigo": loan_codigo}, {"_id": 0})
+        if not loan:
+            raise ValueError(f"Loanbook '{loan_id or loan_codigo}' no encontrado")
+
+        from routers.loanbook import register_entrega as lb_entrega, EntregaRequest
+        req_obj = EntregaRequest(fecha_entrega=fecha_entrega)
+        result = await lb_entrega(loan["id"], req_obj, user)
+        result_dict = dict(result) if not isinstance(result, dict) else result
+
+        from post_action_sync import post_action_sync
+        sync_result = await post_action_sync(
+            "registrar_entrega", result_dict, payload, db, user, metadata=internal_metadata
+        )
+        return {
+            "success": True,
+            "result": result_dict,
+            "id": loan["id"],
+            "message": result_dict.get("message", "Entrega registrada y Loanbook activado"),
+            "sync": sync_result,
+        }
+
     result = await service.request(endpoint, method, payload)
 
     # POST ACTION SYNC — updates internal modules and emits events
@@ -403,6 +595,7 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
         payload,
         db,
         user,
+        metadata=internal_metadata,
     )
 
     if isinstance(result, dict):
