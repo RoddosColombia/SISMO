@@ -29,6 +29,21 @@ export function formatDate(dateStr) {
   return d.toLocaleDateString("es-CO", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
+/**
+ * Get invoice/bill number — works with both mock (inv.number) and
+ * real Alegra data (inv.numberTemplate.fullNumber)
+ */
+export function getDocNumber(doc) {
+  return doc?.numberTemplate?.fullNumber || doc?.number || doc?.id || "—";
+}
+
+/**
+ * Get provider/vendor name — real Alegra bills use `provider`, mock uses `vendor`
+ */
+export function getVendorName(bill) {
+  return bill?.provider?.name || bill?.vendor?.name || "—";
+}
+
 /** Format date as "15 oct. 2025" */
 export function formatShortDate(dateStr) {
   if (!dateStr) return "";

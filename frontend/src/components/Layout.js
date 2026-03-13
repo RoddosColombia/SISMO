@@ -95,7 +95,7 @@ export default function Layout() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden" style={{ background: "#0D0D0D" }}>
+    <div className="flex h-screen overflow-hidden" style={{ background: "#F8FAFC" }}>
       {/* Mobile overlay */}
       {mobileOpen && (
         <div className="fixed inset-0 z-20 bg-black/70 backdrop-blur-sm lg:hidden" onClick={() => setMobileOpen(false)} />
@@ -292,7 +292,7 @@ export default function Layout() {
         </header>
 
         {/* Page content */}
-        <main className="flex-1 p-4 lg:p-6 overflow-auto animate-fadeInUp" style={{ background: "#0D0D0D" }}>
+        <main className="flex-1 p-4 lg:p-6 overflow-auto animate-fadeInUp" style={{ background: "#F8FAFC" }}>
           <Outlet />
         </main>
       </div>

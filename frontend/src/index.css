@@ -21,27 +21,27 @@
   --roddos-danger:  #FF4444;
 }
 
-/* ─── shadcn/ui token override → dark ──────────────────────────────────────── */
+/* ─── shadcn/ui token override → light content with dark chrome ─────────────── */
 @layer base {
   :root {
-    --background: 0 0% 7%;           /* #121212 */
-    --foreground: 0 0% 91%;          /* #E8E8E8 */
-    --card: 0 0% 12%;                /* #1E1E1E */
-    --card-foreground: 0 0% 91%;
-    --popover: 0 0% 12%;
-    --popover-foreground: 0 0% 91%;
-    --primary: 189 100% 50%;         /* #00E5FF cyan */
+    --background: 210 40% 98%;        /* #F8FAFC light */
+    --foreground: 222 47% 11%;        /* #0F172A dark text */
+    --card: 0 0% 100%;                /* #FFFFFF white cards */
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 189 100% 50%;          /* #00E5FF cyan — RODDOS accent */
     --primary-foreground: 0 0% 7%;
-    --secondary: 145 100% 39%;       /* #00C853 green */
+    --secondary: 145 100% 39%;        /* #00C853 green */
     --secondary-foreground: 0 0% 7%;
-    --muted: 0 0% 16%;
-    --muted-foreground: 0 0% 53%;
-    --accent: 0 0% 16%;
-    --accent-foreground: 0 0% 91%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 210 40% 96%;
+    --accent-foreground: 222 47% 11%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 17%;              /* #2A2A2A */
-    --input: 0 0% 17%;
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
     --ring: 189 100% 50%;
     --radius: 0.5rem;
     --chart-1: 189 100% 50%;
@@ -63,8 +63,8 @@ body {
   font-family: 'Raleway', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: var(--roddos-black);
-  color: var(--roddos-text);
+  background-color: #F8FAFC;
+  color: #1E293B;
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -76,53 +76,8 @@ h1, h2, h3, h4, h5, h6 {
 .font-montserrat { font-family: 'Montserrat', sans-serif; }
 .font-raleway    { font-family: 'Raleway', sans-serif; }
 
-/* ─── Cards / Surfaces ─────────────────────────────────────────────────────── */
-/* Override the common white card pattern used in module pages */
-.bg-white {
-  background-color: var(--roddos-card) !important;
-  color: var(--roddos-text) !important;
-}
-.bg-\[\#F8FAFC\], .bg-\[\#F0F4FF\] {
-  background-color: var(--roddos-surface) !important;
-}
-
-/* ─── Text colors ───────────────────────────────────────────────────────────── */
-.text-\[\#0F172A\], .text-\[\#0F2A5C\], .text-\[\#1E293B\] {
-  color: var(--roddos-white) !important;
-}
-.text-slate-700, .text-slate-600 {
-  color: var(--roddos-text) !important;
-}
-.text-slate-500, .text-slate-400 {
-  color: var(--roddos-subtext) !important;
-}
-
-/* ─── Borders ───────────────────────────────────────────────────────────────── */
-.border-slate-100, .border-slate-200 {
-  border-color: var(--roddos-border) !important;
-}
-.border-\[\#E2E8F0\], .border-\[\#C7D7FF\] {
-  border-color: var(--roddos-border) !important;
-}
-
-/* ─── Table overrides ───────────────────────────────────────────────────────── */
-.bg-slate-50 {
-  background-color: #181818 !important;
-}
-
-/* ─── Input fields ──────────────────────────────────────────────────────────── */
-input, textarea, select {
-  background-color: var(--roddos-surface) !important;
-  color: var(--roddos-text) !important;
-  border-color: var(--roddos-border) !important;
-}
-input::placeholder, textarea::placeholder {
-  color: var(--roddos-subtext) !important;
-}
-input:focus, textarea:focus, select:focus {
-  border-color: var(--roddos-cyan) !important;
-  outline-color: var(--roddos-cyan) !important;
-}
+/* ─── Cards / Surfaces — only affect sidebar/header dark chrome ─────────────── */
+/* Module pages keep their original white/light Tailwind classes */
 
 /* ─── Alegra selector ───────────────────────────────────────────────────────── */
 .alegra-selector-container {

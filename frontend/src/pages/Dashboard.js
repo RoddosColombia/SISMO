@@ -3,7 +3,7 @@ import { TrendingUp, TrendingDown, DollarSign, Clock, ChevronRight, RefreshCw } 
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { useAuth } from "../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { formatCOP, formatShortDate, getStatusInfo, getMonthName } from "../utils/formatters";
+import { formatCOP, formatShortDate, getStatusInfo, getMonthName, getDocNumber, getVendorName } from "../utils/formatters";
 import { toast } from "sonner";
 import ProactiveAlerts from "../components/ProactiveAlerts";
 
@@ -176,7 +176,7 @@ export default function Dashboard() {
                 <tr key={inv.id} className="transition-colors" style={{ borderTop: "1px solid #161616" }}
                   onMouseEnter={e => e.currentTarget.style.background = "#1E1E1E"}
                   onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                  <td className="px-4 py-2.5 font-mono text-xs" style={{ color: "#888" }}>{inv.number}</td>
+                  <td className="px-4 py-2.5 font-mono text-xs" style={{ color: "#888" }}>{getDocNumber(inv)}</td>
                   <td className="px-4 py-2.5 max-w-[120px] truncate" style={{ color: "#E8E8E8" }}>{inv.client?.name}</td>
                   <td className="px-4 py-2.5 text-right font-bold num-right" style={{ color: "#00E5FF" }}>{formatCOP(inv.total)}</td>
                   <td className="px-4 py-2.5 text-center"><StatusBadge status={inv.status} /></td>
@@ -210,7 +210,7 @@ export default function Dashboard() {
                 <tr key={bill.id} className="transition-colors" style={{ borderTop: "1px solid #161616" }}
                   onMouseEnter={e => e.currentTarget.style.background = "#1E1E1E"}
                   onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                  <td className="px-4 py-2.5 font-mono text-xs" style={{ color: "#888" }}>{bill.number}</td>
+                  <td className="px-4 py-2.5 font-mono text-xs" style={{ color: "#888" }}>{getDocNumber(bill)}</td>
                   <td className="px-4 py-2.5 max-w-[120px] truncate" style={{ color: "#E8E8E8" }}>{bill.provider?.name}</td>
                   <td className="px-4 py-2.5 text-right font-bold num-right" style={{ color: "#FF4444" }}>{formatCOP(bill.total)}</td>
                   <td className="px-4 py-2.5 text-center"><StatusBadge status={bill.status} /></td>

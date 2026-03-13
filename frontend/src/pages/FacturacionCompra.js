@@ -9,7 +9,7 @@ import AlegraAccountSelector from "../components/AlegraAccountSelector";
 import JournalEntryPreview from "../components/JournalEntryPreview";
 import { useAuth } from "../contexts/AuthContext";
 import { useAlegra } from "../contexts/AlegraContext";
-import { formatCOP, formatDate, todayStr, addDays, getStatusInfo, calcIVA } from "../utils/formatters";
+import { formatCOP, formatDate, todayStr, addDays, getStatusInfo, calcIVA, getDocNumber, getVendorName } from "../utils/formatters";
 import { exportExcel } from "../utils/exportUtils";
 import { toast } from "sonner";
 
@@ -114,8 +114,8 @@ export default function FacturacionCompra() {
   };
 
   const filtered = bills.filter(b =>
-    !search || b.number?.toLowerCase().includes(search.toLowerCase()) ||
-    b.provider?.name?.toLowerCase().includes(search.toLowerCase())
+    !search || getDocNumber(b).toLowerCase().includes(search.toLowerCase()) ||
+    getVendorName(b).toLowerCase().includes(search.toLowerCase())
   );
 
   const handleExportExcel = () => {
@@ -133,8 +133,8 @@ export default function FacturacionCompra() {
           { key: "estado", label: "Estado", width: 14 },
         ],
         rows: filtered.map(b => ({
-          numero: b.number || b.id,
-          proveedor: b.provider?.name || "—",
+          numero: getDocNumber(b),
+          proveedor: getVendorName(b),
           fecha: b.date || "—",
           vencimiento: b.dueDate || "—",
           total: parseFloat(b.total || 0),
@@ -193,8 +193,8 @@ export default function FacturacionCompra() {
               const si = getStatusInfo(b.status);
               return (
                 <tr key={b.id} className="border-t border-slate-50 hover:bg-[#F0F4FF]/30 transition-colors">
-                  <td className="px-5 py-3 font-mono text-xs font-semibold text-[#0F2A5C]">{b.number}</td>
-                  <td className="px-5 py-3 text-slate-700 max-w-[130px] truncate">{b.provider?.name}</td>
+                  <td className="px-5 py-3 font-mono text-xs font-semibold text-[#0F2A5C]">{getDocNumber(b)}</td>
+                  <td className="px-5 py-3 text-slate-700 max-w-[130px] truncate">{getVendorName(b)}</td>
                   <td className="px-5 py-3 text-slate-500">{formatDate(b.date)}</td>
                   <td className="px-5 py-3 text-slate-600 max-w-[150px] truncate">{b.description}</td>
                   <td className="px-5 py-3 text-right font-bold text-[#0F172A] num-right">{formatCOP(b.total)}</td>

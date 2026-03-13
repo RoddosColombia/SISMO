@@ -3,7 +3,7 @@ import { BarChart2, TrendingUp, TrendingDown, RefreshCw, Loader2, FileDown, File
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from "recharts";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
-import { formatCOP, formatDate } from "../utils/formatters";
+import { formatCOP, formatDate, getDocNumber, getVendorName } from "../utils/formatters";
 import { exportPDF, exportExcel } from "../utils/exportUtils";
 
 export default function EstadoResultados() {
@@ -67,7 +67,7 @@ export default function EstadoResultados() {
           title: `Ingresos — ${invoices.length} facturas`,
           head: [["Factura", "Cliente", "Fecha", "Total"]],
           body: invoices.map(inv => [
-            inv.numberTemplate?.fullNumber || inv.number || inv.id,
+            getDocNumber(inv),
             inv.client?.name || "—",
             inv.date || "—",
             formatCOP(inv.total),
@@ -77,8 +77,8 @@ export default function EstadoResultados() {
           title: `Egresos — ${bills.length} facturas`,
           head: [["Factura", "Proveedor", "Fecha", "Total"]],
           body: bills.map(bill => [
-            bill.numberTemplate?.fullNumber || bill.number || bill.id,
-            bill.vendor?.name || "—",
+            getDocNumber(bill),
+            getVendorName(bill),
             bill.date || "—",
             formatCOP(bill.total),
           ]),

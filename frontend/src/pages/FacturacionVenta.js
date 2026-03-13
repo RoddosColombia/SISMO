@@ -9,9 +9,8 @@ import AlegraAccountSelector from "../components/AlegraAccountSelector";
 import JournalEntryPreview from "../components/JournalEntryPreview";
 import { useAuth } from "../contexts/AuthContext";
 import { useAlegra } from "../contexts/AlegraContext";
-import { formatCOP, formatDate, todayStr, addDays, getStatusInfo, calcIVA } from "../utils/formatters";
+import { formatCOP, formatDate, todayStr, addDays, getStatusInfo, calcIVA, getDocNumber } from "../utils/formatters";
 import { exportExcel } from "../utils/exportUtils";
-import { toast } from "sonner";
 
 const EMPTY_ITEM = { description: "", quantity: 1, price: 0, ivaRate: 19, account: null };
 const STATUS_LABEL = { open: "Pendiente", paid: "Pagada", overdue: "Vencida", voided: "Anulada", draft: "Borrador" };
@@ -123,7 +122,7 @@ export default function FacturacionVenta() {
   };
 
   const filtered = invoices.filter(inv =>
-    !search || inv.number?.toLowerCase().includes(search.toLowerCase()) ||
+    !search || getDocNumber(inv).toLowerCase().includes(search.toLowerCase()) ||
     inv.client?.name?.toLowerCase().includes(search.toLowerCase())
   );
 
@@ -143,7 +142,7 @@ export default function FacturacionVenta() {
           { key: "estado", label: "Estado", width: 14 },
         ],
         rows: filtered.map(inv => ({
-          numero: inv.number || inv.id,
+          numero: getDocNumber(inv),
           cliente: inv.client?.name || "—",
           fecha: inv.date || "—",
           vencimiento: inv.dueDate || "—",
@@ -208,7 +207,7 @@ export default function FacturacionVenta() {
               const si = getStatusInfo(inv.status);
               return (
                 <tr key={inv.id} className="border-t border-slate-50 hover:bg-[#F0F4FF]/30 transition-colors">
-                  <td className="px-5 py-3 font-mono text-xs font-semibold text-[#0F2A5C]">{inv.number}</td>
+                  <td className="px-5 py-3 font-mono text-xs font-semibold text-[#0F2A5C]">{getDocNumber(inv)}</td>
                   <td className="px-5 py-3 text-slate-700 max-w-[150px] truncate">{inv.client?.name}</td>
                   <td className="px-5 py-3 text-slate-500">{formatDate(inv.date)}</td>
                   <td className="px-5 py-3 text-slate-500">{formatDate(inv.dueDate)}</td>
