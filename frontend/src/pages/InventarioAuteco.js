@@ -203,8 +203,8 @@ export default function InventarioAuteco() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-[#0F2A5C] font-montserrat">Inventario Auteco</h2>
-          <p className="text-sm text-slate-500 mt-1">Importa facturas PDF de Auteco y registra el inventario en Alegra</p>
+          <h2 className="text-2xl font-bold text-[#0F2A5C] font-montserrat">Motos</h2>
+          <p className="text-sm text-slate-500 mt-1">Inventario de motos Auteco — importa PDF de compra y gestiona disponibilidad y ventas</p>
         </div>
         <div className="flex items-center gap-2">
           <button

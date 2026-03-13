@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Plus, Search, RefreshCw, Loader2, Send, FileDown } from "lucide-react";
+import { Plus, Search, RefreshCw, Loader2, Send, FileDown, Calendar } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../components/ui/sheet";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -9,11 +9,20 @@ import AlegraAccountSelector from "../components/AlegraAccountSelector";
 import JournalEntryPreview from "../components/JournalEntryPreview";
 import { useAuth } from "../contexts/AuthContext";
 import { useAlegra } from "../contexts/AlegraContext";
-import { formatCOP, formatDate, todayStr, addDays, getStatusInfo, calcIVA, getDocNumber, getVendorName } from "../utils/formatters";
+import { formatCOP, formatDate, todayStr, addDays, getStatusInfo, calcIVA, getDocNumber, getVendorName, getMonthRange } from "../utils/formatters";
 import { exportExcel } from "../utils/exportUtils";
 import { toast } from "sonner";
 
 const EMPTY_ITEM = { description: "", quantity: 1, price: 0, ivaRate: 19, account: null };
+
+// Plazos de pago por tipo de proveedor
+const PLAZOS_PROVEEDOR = [
+  { value: "contado", label: "Contado (mismo día)", dias: 0 },
+  { value: "30", label: "30 días", dias: 30 },
+  { value: "60", label: "60 días", dias: 60 },
+  { value: "80", label: "80 días — Repuestos", dias: 80 },
+  { value: "90", label: "90 días — Motos Auteco", dias: 90 },
+];
 
 export default function FacturacionCompra() {
   const { api } = useAuth();
@@ -24,11 +33,17 @@ export default function FacturacionCompra() {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
 
+  // Date filter — default current month
+  const { from: defaultFrom, to: defaultTo } = getMonthRange();
+  const [dateFrom, setDateFrom] = useState(defaultFrom);
+  const [dateTo, setDateTo] = useState(defaultTo);
+
   // Form
   const [provider, setProvider] = useState(null);
   const [providerSearch, setProviderSearch] = useState("");
   const [date, setDate] = useState(todayStr());
-  const [dueDate, setDueDate] = useState(addDays(todayStr(), 30));
+  const [plazo, setPlazo] = useState("contado");
+  const [dueDate, setDueDate] = useState(todayStr());
   const [items, setItems] = useState([{ ...EMPTY_ITEM }]);
   const [paymentAccount, setPaymentAccount] = useState(null);
   const [observations, setObservations] = useState("");
@@ -36,11 +51,11 @@ export default function FacturacionCompra() {
   const loadBills = useCallback(async () => {
     setLoading(true);
     try {
-      const resp = await api.get("/alegra/bills");
+      const resp = await api.get("/alegra/bills", { params: { date_start: dateFrom, date_end: dateTo } });
       setBills(resp.data);
     } catch { toast.error("Error cargando facturas de compra"); }
     finally { setLoading(false); }
-  }, [api]);
+  }, [api, dateFrom, dateTo]);
 
   useEffect(() => { loadBills(); }, [loadBills]);
 
@@ -54,11 +69,24 @@ export default function FacturacionCompra() {
 
   const openNew = () => {
     setProvider(null); setProviderSearch(""); setDate(todayStr());
-    setDueDate(addDays(todayStr(), 30));
+    setPlazo("contado");
+    setDueDate(todayStr());
     setItems([{ ...EMPTY_ITEM, account: getDefaultAccount("gasto_admin") }]);
     setPaymentAccount(getDefaultAccount("banco_principal"));
     setObservations("");
     setOpen(true);
+  };
+
+  const handlePlazoChange = (p) => {
+    setPlazo(p);
+    const found = PLAZOS_PROVEEDOR.find(x => x.value === p);
+    if (found) setDueDate(addDays(date, found.dias));
+  };
+
+  const handleDateChange = (newDate) => {
+    setDate(newDate);
+    const found = PLAZOS_PROVEEDOR.find(x => x.value === plazo);
+    if (found) setDueDate(addDays(newDate, found.dias));
   };
 
   const subtotal = items.reduce((s, it) => s + (parseFloat(it.price) || 0) * (parseFloat(it.quantity) || 1), 0);
@@ -128,7 +156,7 @@ export default function FacturacionCompra() {
           { key: "numero", label: "Número", width: 18 },
           { key: "proveedor", label: "Proveedor", width: 30 },
           { key: "fecha", label: "Fecha", width: 14 },
-          { key: "vencimiento", label: "Vencimiento", width: 14 },
+          { key: "fecha_pago", label: "Fecha de pago", width: 14 },
           { key: "total", label: "Total", width: 16 },
           { key: "estado", label: "Estado", width: 14 },
         ],
@@ -136,7 +164,7 @@ export default function FacturacionCompra() {
           numero: getDocNumber(b),
           proveedor: getVendorName(b),
           fecha: b.date || "—",
-          vencimiento: b.dueDate || "—",
+          fecha_pago: b.dueDate || "—",
           total: parseFloat(b.total || 0),
           estado: STATUS_ES[b.status] || b.status || "—",
         })),
@@ -167,9 +195,19 @@ export default function FacturacionCompra() {
         </div>
       </div>
 
-      <div className="relative">
-        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-        <Input placeholder="Buscar por número o proveedor..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} data-testid="bill-search" />
+      <div className="flex flex-wrap gap-2 items-center">
+        <div className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs border border-slate-200 bg-white">
+          <Calendar size={13} className="text-[#0F2A5C]" />
+          <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+            className="outline-none text-xs text-slate-700" data-testid="bill-date-from" />
+          <span className="text-slate-300">—</span>
+          <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+            className="outline-none text-xs text-slate-700" data-testid="bill-date-to" />
+        </div>
+        <div className="relative flex-1 min-w-[200px]">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Input placeholder="Buscar por número o proveedor..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} data-testid="bill-search" />
+        </div>
       </div>
 
       <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden" data-testid="bills-table">
@@ -179,9 +217,9 @@ export default function FacturacionCompra() {
               <th className="text-left px-5 py-3">Número</th>
               <th className="text-left px-5 py-3">Proveedor</th>
               <th className="text-left px-5 py-3">Fecha</th>
-              <th className="text-left px-5 py-3">Descripción</th>
+              <th className="text-left px-5 py-3">Fecha de pago</th>
               <th className="text-right px-5 py-3">Total</th>
-              <th className="text-center px-5 py-3">Estado</th>
+              <th className="text-center px-5 py-3">Estado pago</th>
             </tr>
           </thead>
           <tbody>
@@ -196,7 +234,7 @@ export default function FacturacionCompra() {
                   <td className="px-5 py-3 font-mono text-xs font-semibold text-[#0F2A5C]">{getDocNumber(b)}</td>
                   <td className="px-5 py-3 text-slate-700 max-w-[130px] truncate">{getVendorName(b)}</td>
                   <td className="px-5 py-3 text-slate-500">{formatDate(b.date)}</td>
-                  <td className="px-5 py-3 text-slate-600 max-w-[150px] truncate">{b.description}</td>
+                  <td className="px-5 py-3 text-slate-600 max-w-[150px] truncate">{formatDate(b.dueDate) || "—"}</td>
                   <td className="px-5 py-3 text-right font-bold text-[#0F172A] num-right">{formatCOP(b.total)}</td>
                   <td className="px-5 py-3 text-center"><span className={`text-xs font-medium px-2 py-0.5 rounded-full ${si.className}`}>{si.label}</span></td>
                 </tr>
@@ -232,13 +270,23 @@ export default function FacturacionCompra() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label className="text-sm font-semibold text-slate-700">Fecha</Label>
-                <Input type="date" value={date} onChange={e => setDate(e.target.value)} className="mt-1.5" data-testid="bill-date" />
+                <Label className="text-sm font-semibold text-slate-700">Fecha de factura</Label>
+                <Input type="date" value={date} onChange={e => handleDateChange(e.target.value)} className="mt-1.5" data-testid="bill-date" />
               </div>
               <div>
-                <Label className="text-sm font-semibold text-slate-700">Vencimiento</Label>
-                <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="mt-1.5" />
+                <Label className="text-sm font-semibold text-slate-700">Plazo de pago</Label>
+                <Select value={plazo} onValueChange={handlePlazoChange}>
+                  <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {PLAZOS_PROVEEDOR.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
+            </div>
+            <div>
+              <Label className="text-sm font-semibold text-slate-700">Fecha de pago estimada</Label>
+              <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="mt-1.5" />
+              <p className="text-[11px] text-slate-400 mt-1">Calculada según el plazo. Puedes editarla manualmente.</p>
             </div>
 
             {/* Items with per-line account */}

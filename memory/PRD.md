@@ -1,7 +1,7 @@
 # RODDOS Contable IA — PRD
 
-**Fecha:** 2026-03-12
-**Versión:** 2.0
+**Fecha:** 2026-03-13
+**Versión:** 2.1
 
 ---
 
@@ -38,26 +38,34 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
 
 ### 2. Dashboard Financiero
 - 4 KPIs: Ventas, Gastos, Flujo de caja, Por cobrar
-- Gráfico de área (AreaChart recharts) — Ingresos vs Gastos 6 meses
-- Tablas: Últimas facturas de venta y compra
+- **Filtro por fechas** (desde/hasta) — default mes actual
+- Subtítulo dinámico con período seleccionado
+- Gráfico de área (AreaChart recharts) — Ingresos vs Gastos 6 meses **con datos reales de Alegra**
+- Tablas: Últimas facturas de venta y compra del período seleccionado
 
 ### 3. Facturación de Venta (Módulo 1)
-- Lista de facturas con estados (Pendiente/Pagada/Vencida)
-- Nueva factura con: autocomplete cliente, items con IVA, AlegraAccountSelector
+- Lista de facturas con **filtro por fechas** (default mes actual)
+- Columna "Vencimiento" renombrada a **"Finalización"**
+- Nueva factura con: **Plan de pago** (Contado/P39S/P52S/P78S), auto-cálculo fecha finalización
+- **Diálogo de confirmación** antes de anular factura
 - Preview asiento contable en tiempo real (JournalEntryPreview)
 - POST /invoices → Alegra
 
 ### 4. Facturación de Compra (Módulo 2)
-- Lista de facturas de proveedor
-- Nueva factura de compra con: múltiples líneas, selector de cuenta por ítem
+- Lista de facturas de proveedor con **filtro por fechas** (default mes actual)
+- Columna "Descripción" renombrada a **"Fecha de pago"** (muestra dueDate calculado)
+- Columna "Estado" renombrada a **"Estado pago"** (aclara que es estado del pago)
+- Nueva factura de compra con: **Plazo de pago** (Contado/30/60/80/90 días), auto-cálculo fecha pago
 - POST /bills → Alegra
 
 ### 5. Registro de Cuotas (Módulo 3)
-- Lista facturas abiertas desde Alegra
+- Lista facturas abiertas desde Alegra — **solo desde marzo 2026**
+- Banner informativo integración con módulo Loanbook
 - Formulario de pago con selección de cuenta bancaria
 - POST /payments → Alegra
 
 ### 6. Causación de Ingresos (Módulo 4)
+- **Panel "Manual de uso"** con guía completa e integración IA
 - Causación con tipo de ingreso (operacional, no operacional, etc.)
 - Auto-carga cuenta de ingreso según tipo
 - Preview asiento completo con validación débitos = créditos
@@ -73,7 +81,7 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
 - Tabla de movimientos con checkbox
 - POST /bank-accounts/{id}/reconciliations → Alegra
 
-### 9. Inventario Auteco (NUEVO - Módulo 9)
+### 9. Motos (ex Inventario Auteco — Módulo 9)
 - **Upload de factura PDF de Auteco** → Claude AI extrae datos de motos
 - Tabla de inventario: Placa, Marca, Versión, Color, Año, Motor, Chasis, Costo, IVA, IPOC, Total, Estado, Ubicación
 - **Registro automático de cada moto como ítem en Alegra** (POST /items)

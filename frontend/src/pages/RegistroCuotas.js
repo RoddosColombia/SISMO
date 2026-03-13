@@ -30,7 +30,7 @@ export default function RegistroCuotas() {
     setLoading(true);
     try {
       const [invRes, bankRes] = await Promise.all([
-        api.get("/alegra/invoices", { params: { status: "open" } }),
+        api.get("/alegra/invoices", { params: { status: "open", date_start: "2026-03-01" } }),
         api.get("/alegra/bank-accounts"),
       ]);
       const data = invRes.data;
@@ -80,6 +80,17 @@ export default function RegistroCuotas() {
         <button onClick={loadData} disabled={loading} className="flex items-center gap-1.5 text-xs bg-white border border-slate-200 text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-50">
           <RefreshCw size={13} className={loading ? "animate-spin" : ""} /> Actualizar
         </button>
+      </div>
+
+      {/* Info banner */}
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
+        <div className="flex items-start gap-2">
+          <AlertCircle size={16} className="mt-0.5 flex-shrink-0 text-blue-600" />
+          <div>
+            <p className="font-semibold">Facturas desde marzo 2026</p>
+            <p className="text-xs mt-0.5">Solo se muestran facturas emitidas a partir del 1 de marzo de 2026. Para gestionar los planes de cuotas (P39S, P52S, P78S) y configurar el valor de cada cuota por cliente, usa el módulo <strong>Loanbook</strong>.</p>
+          </div>
+        </div>
       </div>
 
       {/* Summary */}

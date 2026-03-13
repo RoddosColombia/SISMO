@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Plus, Search, Send, Ban, RefreshCw, Loader2, FileDown } from "lucide-react";
+import { Plus, Search, Send, Ban, RefreshCw, Loader2, FileDown, Calendar } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../components/ui/sheet";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -9,12 +9,20 @@ import AlegraAccountSelector from "../components/AlegraAccountSelector";
 import JournalEntryPreview from "../components/JournalEntryPreview";
 import { useAuth } from "../contexts/AuthContext";
 import { useAlegra } from "../contexts/AlegraContext";
-import { formatCOP, formatDate, todayStr, addDays, getStatusInfo, calcIVA, getDocNumber } from "../utils/formatters";
+import { formatCOP, formatDate, todayStr, addDays, getStatusInfo, calcIVA, getDocNumber, getMonthRange } from "../utils/formatters";
 import { exportExcel } from "../utils/exportUtils";
 import { toast } from "sonner";
 
 const EMPTY_ITEM = { description: "", quantity: 1, price: 0, ivaRate: 19, account: null };
 const STATUS_LABEL = { open: "Pendiente", paid: "Pagada", overdue: "Vencida", voided: "Anulada", draft: "Borrador" };
+
+// Payment plan options (model started March 2026)
+const PLANES_PAGO = [
+  { value: "contado", label: "Contado", dias: 0 },
+  { value: "P39S", label: "P39S — 39 semanas", dias: 273 },
+  { value: "P52S", label: "P52S — 52 semanas", dias: 364 },
+  { value: "P78S", label: "P78S — 78 semanas", dias: 546 },
+];
 
 export default function FacturacionVenta() {
   const { api } = useAuth();
@@ -24,12 +32,19 @@ export default function FacturacionVenta() {
   const [submitting, setSubmitting] = useState(false);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [voidConfirm, setVoidConfirm] = useState(null); // invoice to void
+
+  // Date filter — default current month
+  const { from: defaultFrom, to: defaultTo } = getMonthRange();
+  const [dateFrom, setDateFrom] = useState(defaultFrom);
+  const [dateTo, setDateTo] = useState(defaultTo);
 
   // Form state
   const [client, setClient] = useState(null);
   const [clientSearch, setClientSearch] = useState("");
   const [date, setDate] = useState(todayStr());
-  const [dueDate, setDueDate] = useState(addDays(todayStr(), 30));
+  const [planPago, setPlanPago] = useState("contado");
+  const [dueDate, setDueDate] = useState(todayStr());
   const [items, setItems] = useState([{ ...EMPTY_ITEM }]);
   const [incomeAccount, setIncomeAccount] = useState(null);
   const [paymentAccount, setPaymentAccount] = useState(null);
@@ -38,11 +53,11 @@ export default function FacturacionVenta() {
   const loadInvoices = useCallback(async () => {
     setLoading(true);
     try {
-      const resp = await api.get("/alegra/invoices");
+      const resp = await api.get("/alegra/invoices", { params: { date_start: dateFrom, date_end: dateTo } });
       setInvoices(resp.data);
     } catch { toast.error("Error cargando facturas"); }
     finally { setLoading(false); }
-  }, [api]);
+  }, [api, dateFrom, dateTo]);
 
   useEffect(() => { loadInvoices(); }, [loadInvoices]);
 
@@ -63,12 +78,25 @@ export default function FacturacionVenta() {
 
   const openNewInvoice = () => {
     setClient(null); setClientSearch(""); setDate(todayStr());
-    setDueDate(addDays(todayStr(), 30));
+    setPlanPago("contado");
+    setDueDate(todayStr());
     setItems([{ ...EMPTY_ITEM }]);
     setIncomeAccount(getDefaultAccount("ingreso_operacional"));
     setPaymentAccount(getDefaultAccount("banco_principal"));
     setObservations("");
     setOpen(true);
+  };
+
+  // Recalculate dueDate when date or plan changes
+  const handlePlanChange = (plan) => {
+    setPlanPago(plan);
+    const found = PLANES_PAGO.find(p => p.value === plan);
+    if (found) setDueDate(addDays(date, found.dias));
+  };
+  const handleDateChange = (newDate) => {
+    setDate(newDate);
+    const found = PLANES_PAGO.find(p => p.value === planPago);
+    if (found) setDueDate(addDays(newDate, found.dias));
   };
 
   // Totals
@@ -114,10 +142,16 @@ export default function FacturacionVenta() {
     } finally { setSubmitting(false); }
   };
 
-  const handleVoid = async (invoiceId) => {
+  const handleVoid = async (invoice) => {
+    setVoidConfirm(invoice);
+  };
+
+  const confirmVoid = async () => {
+    if (!voidConfirm) return;
     try {
-      await api.post(`/alegra/invoices/${invoiceId}/void`);
+      await api.post(`/alegra/invoices/${voidConfirm.id}/void`);
       toast.success("Factura anulada en Alegra");
+      setVoidConfirm(null);
       loadInvoices();
     } catch { toast.error("Error al anular la factura"); }
   };
@@ -137,7 +171,7 @@ export default function FacturacionVenta() {
           { key: "numero", label: "Número", width: 18 },
           { key: "cliente", label: "Cliente", width: 30 },
           { key: "fecha", label: "Fecha", width: 14 },
-          { key: "vencimiento", label: "Vencimiento", width: 14 },
+          { key: "finalizacion", label: "Finalización", width: 14 },
           { key: "subtotal", label: "Subtotal", width: 16 },
           { key: "total", label: "Total", width: 16 },
           { key: "estado", label: "Estado", width: 14 },
@@ -146,7 +180,7 @@ export default function FacturacionVenta() {
           numero: getDocNumber(inv),
           cliente: inv.client?.name || "—",
           fecha: inv.date || "—",
-          vencimiento: inv.dueDate || "—",
+          finalizacion: inv.dueDate || "—",
           subtotal: parseFloat(inv.subtotal || 0),
           total: parseFloat(inv.total || 0),
           estado: STATUS_ES[inv.status] || inv.status || "—",
@@ -163,7 +197,7 @@ export default function FacturacionVenta() {
           <h2 className="text-xl font-bold text-[#0F172A] font-montserrat">Facturación de Venta</h2>
           <p className="text-sm text-slate-500">Crea y gestiona facturas directamente en Alegra</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button onClick={loadInvoices} className="p-2.5 border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-500">
             <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
           </button>
@@ -179,10 +213,20 @@ export default function FacturacionVenta() {
         </div>
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-        <Input placeholder="Buscar por número o cliente..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} data-testid="invoice-search" />
+      {/* Date filter + Search */}
+      <div className="flex flex-wrap gap-2 items-center">
+        <div className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs border border-slate-200 bg-white">
+          <Calendar size={13} className="text-[#0F2A5C]" />
+          <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+            className="outline-none text-xs text-slate-700" data-testid="inv-date-from" />
+          <span className="text-slate-300">—</span>
+          <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+            className="outline-none text-xs text-slate-700" data-testid="inv-date-to" />
+        </div>
+        <div className="relative flex-1 min-w-[200px]">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Input placeholder="Buscar por número o cliente..." className="pl-9" value={search} onChange={e => setSearch(e.target.value)} data-testid="invoice-search" />
+        </div>
       </div>
 
       {/* Table */}
@@ -193,7 +237,7 @@ export default function FacturacionVenta() {
               <th className="text-left px-5 py-3">Número</th>
               <th className="text-left px-5 py-3">Cliente</th>
               <th className="text-left px-5 py-3">Fecha</th>
-              <th className="text-left px-5 py-3">Vencimiento</th>
+              <th className="text-left px-5 py-3">Finalización</th>
               <th className="text-right px-5 py-3">Total</th>
               <th className="text-center px-5 py-3">Estado</th>
               <th className="text-center px-5 py-3">Acciones</th>
@@ -216,7 +260,7 @@ export default function FacturacionVenta() {
                   <td className="px-5 py-3 text-center"><span className={`text-xs font-medium px-2 py-0.5 rounded-full ${si.className}`}>{si.label}</span></td>
                   <td className="px-5 py-3 text-center">
                     {inv.status !== "voided" && (
-                      <button onClick={() => handleVoid(inv.id)} className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1 mx-auto" data-testid={`void-invoice-${inv.id}`}>
+                      <button onClick={() => handleVoid(inv)} className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1 mx-auto" data-testid={`void-invoice-${inv.id}`}>
                         <Ban size={12} /> Anular
                       </button>
                     )}
@@ -259,16 +303,26 @@ export default function FacturacionVenta() {
               {client && <p className="text-xs text-green-600 mt-1">Cliente: {client.name} · NIT: {client.identification}</p>}
             </div>
 
-            {/* Dates */}
+            {/* Dates + Plan de pago */}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label className="text-sm font-semibold text-slate-700">Fecha</Label>
-                <Input type="date" value={date} onChange={e => { setDate(e.target.value); setDueDate(addDays(e.target.value, 30)); }} className="mt-1.5" data-testid="invoice-date" />
+                <Input type="date" value={date} onChange={e => handleDateChange(e.target.value)} className="mt-1.5" data-testid="invoice-date" />
               </div>
               <div>
-                <Label className="text-sm font-semibold text-slate-700">Vencimiento</Label>
-                <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="mt-1.5" data-testid="invoice-due-date" />
+                <Label className="text-sm font-semibold text-slate-700">Plan de pago</Label>
+                <Select value={planPago} onValueChange={handlePlanChange}>
+                  <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {PLANES_PAGO.map(p => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
+            </div>
+            <div>
+              <Label className="text-sm font-semibold text-slate-700">Fecha de Finalización</Label>
+              <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="mt-1.5" data-testid="invoice-due-date" />
+              <p className="text-[11px] text-slate-400 mt-1">Calculada automáticamente según el plan. Inicio del modelo: marzo 2026.</p>
             </div>
 
             {/* Income Account */}
@@ -359,6 +413,34 @@ export default function FacturacionVenta() {
           </div>
         </SheetContent>
       </Sheet>
+      {/* Void Confirmation Modal */}
+      {voidConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl w-[420px] p-6">
+            <h3 className="text-lg font-bold text-red-600 mb-2">Confirmar Anulación</h3>
+            <p className="text-sm text-slate-600 mb-1">
+              ¿Estás seguro de que deseas anular la factura <strong>{getDocNumber(voidConfirm)}</strong>?
+            </p>
+            <p className="text-sm text-slate-600 mb-4">
+              Cliente: <strong>{voidConfirm.client?.name}</strong> — Total: <strong>{formatCOP(voidConfirm.total)}</strong>
+            </p>
+            <p className="text-xs text-red-500 mb-4 bg-red-50 rounded-lg p-3">
+              Esta acción no se puede deshacer. La factura quedará como ANULADA en Alegra.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setVoidConfirm(null)}
+                className="flex-1 border border-slate-200 rounded-lg py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition">
+                Cancelar
+              </button>
+              <button onClick={confirmVoid}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white rounded-lg py-2.5 text-sm font-semibold transition"
+                data-testid="confirm-void-btn">
+                Sí, anular factura
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

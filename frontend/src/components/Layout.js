@@ -18,7 +18,7 @@ const MODULES = [
   { path: "/causacion-ingresos",   label: "Causación Ingresos",    icon: TrendingUp,      group: "Causaciones" },
   { path: "/causacion-egresos",    label: "Causación Egresos",     icon: TrendingDown,    group: "Causaciones" },
   { path: "/conciliacion-bancaria",label: "Conciliación Bancaria", icon: Building2,       group: "Causaciones" },
-  { path: "/inventario-auteco",    label: "Inventario Auteco",     icon: Bike,            group: "Inventario" },
+  { path: "/inventario-auteco",    label: "Motos",                 icon: Bike,            group: "Inventario" },
   { path: "/repuestos",            label: "Repuestos",             icon: Wrench,          group: "Inventario" },
   { path: "/loanbook",             label: "Loanbook",              icon: BookOpen,        group: "Cartera" },
   { path: "/cartera",              label: "Cartera",               icon: Wallet,          group: "Cartera" },

@@ -138,6 +138,29 @@ export default function CausacionIngresos() {
         </div>
       </div>
 
+      {/* Manual de uso */}
+      <div className="bg-gradient-to-r from-[#F0F4FF] to-[#E8F0FF] border border-[#C7D7FF] rounded-xl p-4">
+        <h3 className="text-sm font-bold text-[#0F2A5C] mb-2">Manual de uso — Módulo de Causaciones IA</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-slate-700">
+          <div>
+            <p className="font-semibold text-[#0F2A5C] mb-1">¿Qué es una causación?</p>
+            <p>Es el registro contable que reconoce un ingreso o gasto en el período en que ocurre, independientemente de si se cobró o pagó. Crea un asiento de diario directamente en Alegra.</p>
+          </div>
+          <div>
+            <p className="font-semibold text-[#0F2A5C] mb-1">Integración con IA</p>
+            <p>Puedes usar el <strong>chat de IA</strong> (icono inferior derecho) para que el asistente genere causaciones automáticamente. Di, por ejemplo: <em>"Causar ingreso de $2.000.000 por venta de servicios del 15 de marzo"</em>.</p>
+          </div>
+          <div>
+            <p className="font-semibold text-[#0F2A5C] mb-1">Causación desde Facturación de Venta</p>
+            <p>Cuando creas una factura de venta, Alegra registra automáticamente el ingreso. La causación manual aquí es para ingresos que NO pasan por factura, como cobros de cuotas directos o ingresos financieros.</p>
+          </div>
+          <div>
+            <p className="font-semibold text-[#0F2A5C] mb-1">Causación desde Registro de Pagos (Cartera)</p>
+            <p>Al registrar un pago de cuota en el módulo de <strong>Cartera</strong>, el sistema crea el pago en Alegra automáticamente. Si necesitas causar el ingreso sin el pago físico aún, usa este módulo.</p>
+          </div>
+        </div>
+      </div>
+
       {/* Table */}
       <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden" data-testid="journal-entries-table">
         <table className="w-full text-sm">

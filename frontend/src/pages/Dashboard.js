@@ -1,20 +1,32 @@
-import React, { useState, useEffect } from "react";
-import { TrendingUp, TrendingDown, DollarSign, Clock, ChevronRight, RefreshCw } from "lucide-react";
+import React, { useState, useEffect, useCallback } from "react";
+import { TrendingUp, TrendingDown, DollarSign, Clock, ChevronRight, RefreshCw, Calendar } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { useAuth } from "../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { formatCOP, formatShortDate, getStatusInfo, getMonthName, getDocNumber, getVendorName } from "../utils/formatters";
+import { formatCOP, getStatusInfo, getDocNumber, getVendorName, getMonthRange, formatMonthYear } from "../utils/formatters";
 import { toast } from "sonner";
 import ProactiveAlerts from "../components/ProactiveAlerts";
 
-const CHART_DATA = [
-  { month: "May", ingresos: 12500000, gastos: 9200000 },
-  { month: "Jun", ingresos: 15800000, gastos: 11100000 },
-  { month: "Jul", ingresos: 13200000, gastos: 10500000 },
-  { month: "Ago", ingresos: 18900000, gastos: 12300000 },
-  { month: "Sep", ingresos: 16400000, gastos: 11800000 },
-  { month: "Oct", ingresos: 23865000, gastos: 17258000 },
-];
+function buildChartData(invoices, bills) {
+  const months = {};
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() - i);
+    const key = d.toISOString().slice(0, 7);
+    const label = d.toLocaleDateString("es-CO", { month: "short" });
+    months[key] = { month: label.charAt(0).toUpperCase() + label.slice(1, 3), ingresos: 0, gastos: 0 };
+  }
+  (invoices || []).forEach(inv => {
+    const m = (inv.date || "").slice(0, 7);
+    if (months[m]) months[m].ingresos += parseFloat(inv.total || 0);
+  });
+  (bills || []).forEach(b => {
+    const m = (b.date || "").slice(0, 7);
+    if (months[m]) months[m].gastos += parseFloat(b.total || 0);
+  });
+  return Object.values(months);
+}
 
 function KpiCard({ title, value, subtitle, icon: Icon, accentColor, delta, testId }) {
   return (
@@ -59,25 +71,40 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const [invoices, setInvoices] = useState([]);
   const [bills, setBills] = useState([]);
+  const [chartData, setChartData] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const loadData = async () => {
+  const { from: defaultFrom, to: defaultTo } = getMonthRange();
+  const [dateFrom, setDateFrom] = useState(defaultFrom);
+  const [dateTo, setDateTo] = useState(defaultTo);
+
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [invResp, billResp] = await Promise.all([
-        api.get("/alegra/invoices"),
-        api.get("/alegra/bills"),
+      // 6-month range for chart
+      const sixMonthsAgo = new Date();
+      sixMonthsAgo.setDate(1);
+      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
+      const chartStart = sixMonthsAgo.toISOString().split("T")[0];
+      const chartEnd = new Date().toISOString().split("T")[0];
+
+      const [invResp, billResp, allInvResp, allBillResp] = await Promise.all([
+        api.get("/alegra/invoices", { params: { date_start: dateFrom, date_end: dateTo } }),
+        api.get("/alegra/bills", { params: { date_start: dateFrom, date_end: dateTo } }),
+        api.get("/alegra/invoices", { params: { date_start: chartStart, date_end: chartEnd } }),
+        api.get("/alegra/bills", { params: { date_start: chartStart, date_end: chartEnd } }),
       ]);
       setInvoices(invResp.data.slice(0, 5));
       setBills(billResp.data.slice(0, 5));
+      setChartData(buildChartData(allInvResp.data, allBillResp.data));
     } catch (e) {
       toast.error("Error cargando datos del dashboard");
     } finally {
       setLoading(false);
     }
-  };
+  }, [api, dateFrom, dateTo]); // eslint-disable-line
 
-  useEffect(() => { loadData(); }, []); // eslint-disable-line
+  useEffect(() => { loadData(); }, [loadData]);
 
   const totalVentas = invoices.reduce((s, i) => s + (i.total || 0), 0);
   const totalGastos = bills.reduce((s, b) => s + (b.total || 0), 0);
@@ -99,18 +126,31 @@ export default function Dashboard() {
   return (
     <div className="space-y-6" data-testid="dashboard-page">
       {/* Page header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-black text-white font-montserrat">Dashboard Financiero</h2>
-          <p className="text-xs mt-1" style={{ color: "#555" }}>Octubre 2025 — Datos en tiempo real de Alegra</p>
+          <p className="text-xs mt-1" style={{ color: "#555" }}>
+            {formatMonthYear(dateFrom)} — {dateFrom !== dateTo ? formatMonthYear(dateTo) : ""} — Datos en tiempo real de Alegra
+          </p>
         </div>
-        <button onClick={loadData}
-          className="flex items-center gap-2 text-xs font-semibold px-3 py-2 rounded-lg transition"
-          style={{ background: "#1A1A1A", border: "1px solid #2A2A2A", color: "#888" }}
-          data-testid="refresh-dashboard-btn">
-          <RefreshCw size={13} className={loading ? "animate-spin" : ""} style={{ color: "#00E5FF" }} />
-          Actualizar
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Date filter */}
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium" style={{ background: "#1A1A1A", border: "1px solid #2A2A2A", color: "#888" }}>
+            <Calendar size={13} style={{ color: "#00E5FF" }} />
+            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+              className="bg-transparent outline-none text-xs" style={{ color: "#CCC", width: 130 }} data-testid="dashboard-date-from" />
+            <span style={{ color: "#444" }}>—</span>
+            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+              className="bg-transparent outline-none text-xs" style={{ color: "#CCC", width: 130 }} data-testid="dashboard-date-to" />
+          </div>
+          <button onClick={loadData}
+            className="flex items-center gap-2 text-xs font-semibold px-3 py-2 rounded-lg transition"
+            style={{ background: "#1A1A1A", border: "1px solid #2A2A2A", color: "#888" }}
+            data-testid="refresh-dashboard-btn">
+            <RefreshCw size={13} className={loading ? "animate-spin" : ""} style={{ color: "#00E5FF" }} />
+            Actualizar
+          </button>
+        </div>
       </div>
 
       {/* Proactive Alerts */}
@@ -118,17 +158,17 @@ export default function Dashboard() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" data-testid="kpi-cards">
-        <KpiCard title="Ventas del Mes"  value={formatCOP(totalVentas)} subtitle="5 facturas emitidas"         icon={TrendingUp}   accentColor="#00E5FF" delta={12}  testId="kpi-ventas" />
-        <KpiCard title="Gastos del Mes"  value={formatCOP(totalGastos)} subtitle="5 facturas de compra"        icon={TrendingDown}  accentColor="#FF4444" delta={-3}  testId="kpi-gastos" />
-        <KpiCard title="Flujo de Caja"   value={formatCOP(flujoCaja)}   subtitle={flujoCaja >= 0 ? "Positivo" : "Negativo"} icon={DollarSign} accentColor="#00C853" testId="kpi-flujo" />
-        <KpiCard title="Por Cobrar"      value={formatCOP(pendientes)}  subtitle="Facturas pendientes y vencidas" icon={Clock}       accentColor="#FFB300" testId="kpi-por-cobrar" />
+        <KpiCard title="Ventas del Período" value={formatCOP(totalVentas)} subtitle={`${invoices.length} facturas emitidas`} icon={TrendingUp} accentColor="#00E5FF" testId="kpi-ventas" />
+        <KpiCard title="Gastos del Período" value={formatCOP(totalGastos)} subtitle={`${bills.length} facturas de compra`} icon={TrendingDown} accentColor="#FF4444" testId="kpi-gastos" />
+        <KpiCard title="Flujo de Caja" value={formatCOP(flujoCaja)} subtitle={flujoCaja >= 0 ? "Positivo" : "Negativo"} icon={DollarSign} accentColor="#00C853" testId="kpi-flujo" />
+        <KpiCard title="Por Cobrar" value={formatCOP(pendientes)} subtitle="Facturas pendientes y vencidas" icon={Clock} accentColor="#FFB300" testId="kpi-por-cobrar" />
       </div>
 
       {/* Chart */}
       <div className="rounded-xl p-5" style={{ background: "#1A1A1A", border: "1px solid #1E1E1E" }} data-testid="revenue-chart">
         <h3 className="text-sm font-bold text-white font-montserrat mb-4">Ingresos vs Gastos — Últimos 6 meses</h3>
         <ResponsiveContainer width="100%" height={220}>
-          <AreaChart data={CHART_DATA} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
+          <AreaChart data={chartData} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
             <defs>
               <linearGradient id="colorIngresos" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%"  stopColor="#00E5FF" stopOpacity={0.25} />

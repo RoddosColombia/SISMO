@@ -85,6 +85,23 @@ export function calcRetencion(amount, percentage) {
   return Math.round(amount * (percentage / 100));
 }
 
+/** Get current month range as {from: YYYY-MM-DD, to: YYYY-MM-DD} */
+export function getMonthRange(offsetMonths = 0) {
+  const now = new Date();
+  const d = new Date(now.getFullYear(), now.getMonth() + offsetMonths, 1);
+  const from = d.toISOString().split("T")[0];
+  const last = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+  const to = last.toISOString().split("T")[0];
+  return { from, to };
+}
+
+/** Format month/year label in Spanish (e.g. "Marzo 2026") */
+export function formatMonthYear(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString("es-CO", { month: "long", year: "numeric" });
+}
+
 /** Parse COP input string to number */
 export function parseCOP(str) {
   if (!str) return 0;
