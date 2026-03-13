@@ -64,12 +64,26 @@ TIPOS DE ACCIÓN DISPONIBLES:
 ═══════════════════════════════════════════════════
 • crear_factura_venta   → POST /invoices
 • registrar_factura_compra → POST /bills
-• crear_causacion       → POST /journal-entries
+• crear_causacion       → POST /journal-entries  ⚠ Requiere plan Alegra con módulo Contabilidad
 • registrar_pago        → POST /payments
 • crear_contacto        → POST /contacts
 • registrar_entrega     → ACCIÓN INTERNA (activa plan de cuotas)
 • calcular_retencion    → cálculo local (sin ejecutar en Alegra)
 • consultar_facturas    → información de facturas existentes
+
+FORMATO EXACTO PARA CREAR_CONTACTO (Alegra Colombia):
+{
+  "nameObject": {"firstName": "[primer nombre o razón social]", "lastName": "[apellido o vacío]"},
+  "identification": "[número sin puntos ni guiones]",
+  "identificationType": "CC",       ← "CC", "NIT", "CE", "PP", "DIE"
+  "kindOfPerson": "PERSON_ENTITY",  ← "PERSON_ENTITY" (natural) o "COMPANY_ENTITY" (jurídica)
+  "regime": "SIMPLIFIED_REGIME",   ← "SIMPLIFIED_REGIME" o "COMMON_REGIME"
+  "type": ["client"],               ← ["client"], ["provider"], o ["client","provider"]
+  "phonePrimary": "[teléfono]",
+  "email": "[email]"
+}
+Para empresas (NIT): kindOfPerson="COMPANY_ENTITY", identificationType="NIT", regime="COMMON_REGIME"
+Para personas naturales (CC): kindOfPerson="PERSON_ENTITY", identificationType="CC"
 
 ═══════════════════════════════════════════════════
 FLUJO OBLIGATORIO — VENTA DE MOTO A CRÉDITO
@@ -89,6 +103,29 @@ Si el usuario no indicó el plan, PREGUNTA:
 
 PASO 3 — Mostrar resumen y crear la acción:
 El campo _metadata es OBLIGATORIO para crear el Loanbook automáticamente.
+
+FORMATO DE PAYLOAD EXACTO PARA CREAR_FACTURA_VENTA (Alegra API v1):
+{
+  "date": "YYYY-MM-DD",
+  "dueDate": "YYYY-MM-DD",          ← OBLIGATORIO: mismo que date para crédito
+  "paymentForm": "CREDIT",          ← OBLIGATORIO: "CREDIT" para crédito, "CASH" para contado
+  "client": {"id": "[id_alegra]"},
+  "items": [
+    {
+      "id": "[item_id_alegra]",
+      "quantity": 1,
+      "price": [precio_sin_iva],
+      "tax": [{"id": "4"}]          ← IVA 19% id=4
+    }
+  ],
+  "observations": "Venta [marca modelo] Chasis [XXX]",
+  "anotation": "[chasis]\n[motor]",
+  "_metadata": { ... }
+}
+
+REGLA: dueDate = date para crédito (Alegra gestiona los plazos internamente).
+NUNCA omitas dueDate ni paymentForm — la API los rechaza sin ellos.
+
 Incluye dentro del payload el campo "_metadata" con todos estos datos:
 {
   "_metadata": {
@@ -149,6 +186,28 @@ El sistema calculará automáticamente:
 FLUJO — FACTURA DE COMPRA (PROVEEDOR)
 ═══════════════════════════════════════════════════
 Si la compra incluye motos para inventario, incluye en el payload:
+
+FORMATO EXACTO PARA REGISTRAR_FACTURA_COMPRA (Alegra API v1):
+{
+  "date": "YYYY-MM-DD",
+  "dueDate": "YYYY-MM-DD",
+  "paymentForm": "CREDIT",          ← "CREDIT" o "CASH"
+  "provider": {"id": "[id_alegra_proveedor]"},
+  "purchases": {
+    "items": [
+      {
+        "id": "[item_id]",
+        "quantity": [cant],
+        "price": [precio_unitario_sin_iva],
+        "tax": [{"id": "4"}]
+      }
+    ]
+  }
+}
+
+NUNCA uses "items" en el nivel raíz para bills — SIEMPRE usa "purchases.items".
+NUNCA omitas dueDate ni paymentForm.
+
 {
   "_metadata": {
     "proveedor_nombre": "[nombre]",
@@ -584,6 +643,19 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
         raise ValueError(f"Acción no reconocida: {action_type}")
 
     endpoint, method = ACTION_MAP[action_type]
+
+    # ── Guard: prevent double-selling same moto ───────────────────────────────
+    if action_type == "crear_factura_venta":
+        moto_id   = internal_metadata.get("moto_id", "")
+        moto_chas = internal_metadata.get("moto_chasis", "")
+        if moto_id or moto_chas:
+            query = {"id": moto_id} if moto_id else {"chasis": moto_chas}
+            moto = await db.inventario_motos.find_one(query, {"_id": 0, "estado": 1, "chasis": 1})
+            if moto and moto.get("estado") not in ("Disponible", None, ""):
+                raise ValueError(
+                    f"La moto {moto_chas or moto_id} ya fue registrada como '{moto.get('estado')}'. "
+                    "No se puede vender una moto que no está disponible."
+                )
 
     result = await service.request(endpoint, method, payload)
 

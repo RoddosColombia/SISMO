@@ -33,8 +33,13 @@ class ExecuteActionRequest(BaseModel):
 async def chat_execute_action(req: ExecuteActionRequest, current_user=Depends(get_current_user)):
     try:
         return await execute_chat_action(req.action, req.payload, db, current_user)
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Execute action error [{req.action}]: {e}")
+        raise HTTPException(status_code=500, detail=f"Error ejecutando la acción: {str(e)}")
 
 
 @router.get("/history/{session_id}")

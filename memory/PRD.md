@@ -299,3 +299,17 @@ Estructura modular:
       ├── budget.py      (53 líneas)
       ├── dashboard.py   (178 líneas)
       └── audit.py       (35 líneas)
+
+
+## Auditoría Integración Alegra — 2026-03-13
+### 9 bugs corregidos, 64/67 puntos verificados (96%)
+- FIX CRÍTICO: paymentForm + dueDate obligatorios en invoice (system prompt)
+- FIX CRÍTICO: POST 403 Alegra ahora lanza HTTPException (no silencio)
+- FIX CRÍTICO: crear_contacto Colombia: nameObject + kindOfPerson + regime
+- FIX ALTO: registrar_factura_compra usa purchases.items (no items raíz)
+- FIX ALTO: Guard anti-doble-venta en execute_chat_action
+- FIX ALTO: HTTP 400 Alegra → HTTPException con mensaje claro
+- FIX MEDIO: execute-action captura HTTPException explícitamente
+- HALLAZGO: journal-entries 403 → plan Alegra sin módulo Contabilidad (Flujos 3+5 bloqueados)
+- HALLAZGO: Facturas API → "draft" (DIAN firma) → pagos solo contra facturas "open"
+- VERIFICADO: Ciclo 3 momentos operativo | 305 cuentas NIIF | Cuotas miércoles OK

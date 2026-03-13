@@ -73,9 +73,22 @@ class AlegraService:
 
             if resp.status_code == 401:
                 raise HTTPException(status_code=400, detail="Credenciales de Alegra inválidas o token expirado. Ve a Configuración → Integración Alegra y genera un nuevo token.")
+            if resp.status_code == 400:
+                error_data = resp.json() if resp.content else {}
+                raise HTTPException(
+                    status_code=400,
+                    detail=error_data.get("message") or error_data.get("error") or f"Error en Alegra ({endpoint}): solicitud inválida"
+                )
             if resp.status_code == 403:
-                # Plan no incluye este endpoint — devolver lista vacía sin error
-                return []
+                if method == "GET":
+                    # Plan no incluye este endpoint en lectura — devolver lista vacía sin error
+                    return []
+                else:
+                    # POST/PUT con 403 → función no habilitada en el plan Alegra
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"El plan actual de Alegra no permite ejecutar esta operación ({endpoint}). Verifica el plan en app.alegra.com."
+                    )
             if resp.status_code == 404:
                 return []
             if resp.status_code == 429:
