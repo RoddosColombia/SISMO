@@ -1,0 +1,45 @@
+{
+  "summary": "Full E2E testing of BUILD 1 RODDOS: catalogo_motos collection, REST endpoints, and Catálogo de Motos tab in /configuracion. All 9 backend tests pass. All frontend flows pass: tab visible, table renders, inline edit, toggle active, modal create with validation.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_results": {
+    "GET /api/settings/catalogo": "PASS - Returns Sport 100 and Raider 125 with all required fields (id, modelo, marca, costo, pvp, cuota_inicial, matricula, planes.P39S/P52S/P78S, activo)",
+    "POST /api/settings/catalogo": "PASS - Creates new model with all fields, persists to DB (verified via GET)",
+    "PUT /api/settings/catalogo/{id} price": "PASS - Updates PVP correctly, persists to DB",
+    "PUT /api/settings/catalogo/{id} deactivate": "PASS - activo:false saved and persisted",
+    "PUT /api/settings/catalogo/nonexistent": "PASS - Returns 404",
+    "Tab Catálogo de Motos visible": "PASS - data-testid='tab-catalogo' found with text 'Catálogo de Motos'",
+    "Table columns": "PASS - Modelo, Costo, PVP, CI, Matrícula, P39S, P52S, P78S, Activo, Acciones all present",
+    "Inline edit activation": "PASS - Pencil button (2nd button in row) activates 8 input fields in the row",
+    "Guardar button saves changes": "PASS - PUT sent, toast 'Cambios guardados', inputs disappear, table refreshes",
+    "Toggle activo/inactivo": "PASS - First button in row toggles active state with toast confirmation",
+    "Agregar Modelo modal": "PASS - Opens with Modelo, Marca, Costo, PVP, Cuota Inicial, Matrícula, P39S/P52S/P78S fields",
+    "Modal validation": "PASS - Empty modelo shows toast 'El nombre del modelo es obligatorio'",
+    "Create model from modal": "PASS - TEST_FrontEnd Moto created, appears in table (4 modelos)"
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_catalogo_motos.py",
+    "/app/test_reports/pytest/catalogo_results.xml"
+  ],
+  "action_items": [
+    "Cleanup test data: DELETE TEST_Moto Prueba and TEST_FrontEnd Moto from catalogo_motos collection (left from testing)"
+  ],
+  "critical_code_review_comments": [
+    "Settings.tsx is 1063 lines - exceeds 700-line guideline. Consider splitting CatalogoTab, SecurityTab, AuditTab, WebhooksTab, MercatelyTab into separate files.",
+    "PUT /settings/catalogo uses `if v is not None` to filter updates, which means setting a value to 0 will be ignored (falsy but valid). Should use `if v is not None` correctly - currently it does use is not None so it's fine.",
+    "No mutex testing possible via UI (loanbook.py mutex tested by code review only)"
+  ],
+  "updated_files": ["/app/backend/tests/test_catalogo_motos.py"],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% (12/12)"},
+  "seed_data_creation": "Created TEST_Moto Prueba (via backend test) and TEST_FrontEnd Moto (via frontend test) in catalogo_motos. Both inactive.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All BUILD 1 RODDOS features work end-to-end. catalogo_motos has Sport 100 + Raider 125 + 2 test entries. Settings.tsx tab 'Catálogo de Motos' fully functional (inline edit, toggle, add modal). Cleanup test data if needed."
+}

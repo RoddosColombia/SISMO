@@ -72,6 +72,47 @@ async def startup():
             "updated_at": datetime.now(timezone.utc).isoformat(),
         })
 
+    # ── Catálogo de motos (seed once) ─────────────────────────────────────────
+    if not await db.catalogo_motos.find_one({}):
+        now = datetime.now(timezone.utc).isoformat()
+        await db.catalogo_motos.insert_many([
+            {
+                "id": str(uuid.uuid4()),
+                "modelo": "Sport 100",
+                "marca": "Auteco",
+                "costo": 4157461,
+                "pvp": 5749900,
+                "cuota_inicial": 500000,
+                "matricula": 660000,
+                "planes": {
+                    "P39S": {"semanas": 39, "cuota": 175000},
+                    "P52S": {"semanas": 52, "cuota": 160000},
+                    "P78S": {"semanas": 78, "cuota": 130000},
+                },
+                "activo": True,
+                "actualizado_en": now,
+                "actualizado_por": "sistema",
+            },
+            {
+                "id": str(uuid.uuid4()),
+                "modelo": "Raider 125",
+                "marca": "Auteco",
+                "costo": 5638974,
+                "pvp": 7800000,
+                "cuota_inicial": 800000,
+                "matricula": 660000,
+                "planes": {
+                    "P39S": {"semanas": 39, "cuota": 210000},
+                    "P52S": {"semanas": 52, "cuota": 179900},
+                    "P78S": {"semanas": 78, "cuota": 149900},
+                },
+                "activo": True,
+                "actualizado_en": now,
+                "actualizado_por": "sistema",
+            },
+        ])
+        logger.info("catalogo_motos initialized with 2 default models")
+
     try:
         await db.agent_memory.create_index([("user_id", 1), ("tipo", 1)])
         await db.agent_memory.create_index([("frecuencia_count", -1)])
@@ -81,6 +122,7 @@ async def startup():
         await db.chat_messages.create_index([("session_id", 1), ("timestamp", 1)])
         await db.inventario_motos.create_index([("estado", 1)])
         await db.inventario_motos.create_index([("chasis", 1)], unique=True, sparse=True)
+        await db.catalogo_motos.create_index([("activo", 1)])
         logger.info("MongoDB indexes ensured")
     except Exception as e:
         logger.warning(f"Index creation (non-fatal): {e}")

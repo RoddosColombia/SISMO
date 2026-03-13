@@ -1,7 +1,10 @@
-"""Settings router — Alegra credentials, demo mode, default accounts, webhooks."""
+"""Settings router — Alegra credentials, demo mode, default accounts, webhooks, catalogo."""
 import os
+import uuid
 from datetime import datetime, timezone
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from alegra_service import AlegraService
 from database import db
@@ -121,3 +124,76 @@ async def save_mercately_credentials(req: MercatelyCredentialsRequest, current_u
         upsert=True,
     )
     return {"message": "Credenciales Mercately guardadas. Lista para integración WhatsApp."}
+
+
+# ─── Catálogo de Motos ────────────────────────────────────────────────────────
+
+class PlanConfig(BaseModel):
+    semanas: int
+    cuota: float
+
+class CatalogoMotoCreate(BaseModel):
+    modelo: str
+    marca: str = "Auteco"
+    costo: float
+    pvp: float
+    cuota_inicial: float = 0
+    matricula: float = 660000
+    planes: dict  # {"P39S": {"semanas": 39, "cuota": 175000}, ...}
+    activo: bool = True
+
+class CatalogoMotoUpdate(BaseModel):
+    modelo: Optional[str] = None
+    marca: Optional[str] = None
+    costo: Optional[float] = None
+    pvp: Optional[float] = None
+    cuota_inicial: Optional[float] = None
+    matricula: Optional[float] = None
+    planes: Optional[dict] = None
+    activo: Optional[bool] = None
+
+
+@router.get("/catalogo")
+async def get_catalogo(current_user=Depends(get_current_user)):
+    """List all motorcycle models in the catalog."""
+    items = await db.catalogo_motos.find({}, {"_id": 0}).to_list(100)
+    return items
+
+
+@router.get("/catalogo/{item_id}")
+async def get_catalogo_item(item_id: str, current_user=Depends(get_current_user)):
+    """Get a single catalog model by id."""
+    item = await db.catalogo_motos.find_one({"id": item_id}, {"_id": 0})
+    if not item:
+        raise HTTPException(status_code=404, detail="Modelo no encontrado")
+    return item
+
+
+@router.post("/catalogo")
+async def create_catalogo_item(req: CatalogoMotoCreate, current_user=Depends(require_admin)):
+    """Add a new motorcycle model to the catalog."""
+    doc = {
+        "id": str(uuid.uuid4()),
+        **req.model_dump(),
+        "actualizado_en": datetime.now(timezone.utc).isoformat(),
+        "actualizado_por": current_user.get("email"),
+    }
+    await db.catalogo_motos.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@router.put("/catalogo/{item_id}")
+async def update_catalogo_item(item_id: str, req: CatalogoMotoUpdate, current_user=Depends(require_admin)):
+    """Update prices, cuotas or active status of a catalog model.
+    Changes apply ONLY to new sales — existing loanbooks are never modified.
+    """
+    item = await db.catalogo_motos.find_one({"id": item_id})
+    if not item:
+        raise HTTPException(status_code=404, detail="Modelo no encontrado")
+    updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    updates["actualizado_en"] = datetime.now(timezone.utc).isoformat()
+    updates["actualizado_por"] = current_user.get("email")
+    await db.catalogo_motos.update_one({"id": item_id}, {"$set": updates})
+    updated = await db.catalogo_motos.find_one({"id": item_id}, {"_id": 0})
+    return updated

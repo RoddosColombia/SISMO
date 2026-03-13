@@ -176,6 +176,19 @@ async def create_loan(req: LoanCreate, current_user=Depends(get_current_user)):
     if req.plan not in PLAN_CUOTAS:
         raise HTTPException(status_code=400, detail=f"Plan inválido. Opciones: {list(PLAN_CUOTAS.keys())}")
 
+    # ── MUTEX R5: prevent double-sale for the same moto ───────────────────────
+    if req.moto_id:
+        existing_loan = await db.loanbook.find_one(
+            {"moto_id": req.moto_id, "estado": {"$nin": ["completado"]}},
+            {"_id": 0, "codigo": 1},
+        )
+        if existing_loan:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Esta moto ya tiene un crédito activo: {existing_loan['codigo']}",
+            )
+    # ─────────────────────────────────────────────────────────────────────────
+
     num_cuotas = PLAN_CUOTAS[req.plan]
     valor_financiado = req.precio_venta - req.cuota_inicial
     codigo = await _get_next_codigo()
@@ -276,6 +289,24 @@ async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depen
         raise HTTPException(status_code=400, detail="La fecha de entrega ya fue registrada. Contacte al administrador para modificarla.")
 
     fecha_entrega = date.fromisoformat(req.fecha_entrega)
+
+    # ── MUTEX R5: verify moto state before delivery ───────────────────────────
+    if loan.get("moto_id"):
+        moto = await db.inventario_motos.find_one({"id": loan["moto_id"]}, {"_id": 0})
+        if moto:
+            estado_moto = (moto.get("estado") or "").lower()
+            if estado_moto != "vendida":
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Moto no disponible para entrega. Estado actual: {moto.get('estado')}",
+                )
+            loanbook_id_moto = moto.get("loanbook_id")
+            if loanbook_id_moto and loanbook_id_moto != loan_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Esta moto ya está asignada a otro crédito: {loanbook_id_moto}",
+                )
+    # ─────────────────────────────────────────────────────────────────────────
     # RODDOS rule: first payment = first Wednesday >= (fecha_entrega + 7 days)
     fecha_primer_pago = _first_wednesday(fecha_entrega)
     num_cuotas = loan["num_cuotas"]
