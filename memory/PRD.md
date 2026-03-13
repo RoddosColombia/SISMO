@@ -171,7 +171,7 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
 ## Backlog Priorizado
 
 ### P0 — Crítico
-- Ninguno pendiente
+- Ninguno pendiente (registrar_factura_compra corregido 2026-03-13)
 
 ### P1 — Alta prioridad
 - Verificación E2E procesamiento documentos con comprobantes reales
@@ -205,6 +205,13 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
 - 2026-03-13: Sprint Agente Contable — Cartera mobile, Loanbook, post_action_sync, Bus de Eventos
 - 2026-03-13: Fix CRÍTICO journal-entries → /journals, formato entries corregido
 - 2026-03-13: Auditoría Integración Alegra — 64/67 puntos verificados (96%)
+- **2026-03-13 v2.3 (update): FIX P0 FACTURA COMPRA + BOTÓN ENVÍO CHAT**
+  - registrar_factura_compra corregido: SOLO productos físicos del catálogo (purchases.items)
+  - Para servicios (arrendamiento, honorarios, utilities): AI redirige a crear_causacion
+  - gather_context ahora carga items_catalogo de Alegra para escenarios de compra
+  - Botón Send del chat: z-index aumentado a 10000 (superando insignia Emergent 9999)
+  - AIChatWidget.js eliminado del repositorio
+  - System prompt aclarado con regla crítica de dos tipos de factura de compra
 - **2026-03-13 v2.2 (update): FONDOS BLANCOS + TELEGRAM BOT**
   - Chat IA rediseñado a tema claro: fondo #F8FAFC, burbujas blancas, texto oscuro — consistente con el resto de la app
   - Markdown en chat: strong azul, tablas con bordes, code blocks con fondo gris claro
