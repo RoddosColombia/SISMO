@@ -205,6 +205,11 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
 - 2026-03-13: Sprint Agente Contable — Cartera mobile, Loanbook, post_action_sync, Bus de Eventos
 - 2026-03-13: Fix CRÍTICO journal-entries → /journals, formato entries corregido
 - 2026-03-13: Auditoría Integración Alegra — 64/67 puntos verificados (96%)
+- **2026-03-13 v2.4: SELECTOR DE TIPO DE DOCUMENTO (CHIPS)**
+  - 4 chips aparecen al adjuntar archivo: Auto-detectar, Factura servicio, Compra motos/productos, Pago/Cuota
+  - Cada chip inyecta un hint al AI para enrutar la acción contable correcta sin ambigüedad
+  - Badge de tipo visible en el mensaje enviado (en la burbuja del usuario)
+  - Send button z-index final: 10000 (supera badge Emergent 9999)
 - **2026-03-13 v2.3 (update): FIX P0 FACTURA COMPRA + BOTÓN ENVÍO CHAT**
   - registrar_factura_compra corregido: SOLO productos físicos del catálogo (purchases.items)
   - Para servicios (arrendamiento, honorarios, utilities): AI redirige a crear_causacion
