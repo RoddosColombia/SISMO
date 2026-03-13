@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState, useEffect, useCallback } from "react";
 import {
   Save, TestTube2, RefreshCw, Loader2, ToggleLeft, ToggleRight,

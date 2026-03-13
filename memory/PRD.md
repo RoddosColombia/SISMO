@@ -1,5 +1,5 @@
 # RODDOS Contable IA — Product Requirements Document
-**Versión**: 3.0.0 | **Actualizado**: Febrero 2026
+**Versión**: 3.1.0 | **Actualizado**: Febrero 2026
 
 ---
 
@@ -12,7 +12,7 @@ Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
 
 ## STACK
 - **Backend**: FastAPI + Motor async MongoDB + APScheduler (America/Bogota)
-- **Frontend**: React 19 + TypeScript (migración en curso) + Tailwind + Shadcn/UI
+- **Frontend**: React 19 + TypeScript (migración completa App/Login/AgentChat/Settings) + Tailwind + Shadcn/UI
 - **IA**: Claude Sonnet 4.5 via `emergentintegrations`
 - **ERP**: Alegra API v1
 - **Auth**: JWT + TOTP 2FA
@@ -46,7 +46,9 @@ Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
 
 ### Configuración
 - **Catálogo de Motos** (BUILD 1 ✅): Sport 100, Raider 125 precargados. CRUD completo con edición inline y toggle activo/inactivo
-- **Scheduler DPD + Scores** (BUILD 3 ✅ — TEST BUILD3 10/10+Frontend PASS): migration_v24.py idempotente, 4 CRON jobs (DPD@06:00, Scores@06:30, RADAR@07:00, Resumen@Vie17:00 Bogotá), 4 endpoints /api/radar/*, endpoints gestion/ptp/snapshot, Loanbook.tsx con columnas DPD y Score, migración TypeScript App/Login/AgentChat.tsx
+- **Scheduler DPD + Scores** (BUILD 3 ✅ — TEST BUILD3 10/10+Frontend PASS): migration_v24.py idempotente, 4 CRON jobs (DPD@06:00, Scores@06:30, RADAR@07:00, Resumen@Vie17:00 Bogotá), 4 endpoints /api/radar/*, endpoints gestion/ptp/snapshot, Loanbook.tsx con columnas DPD y Score
+- **TypeScript Migration** (✅ COMPLETADO — Febrero 2026): `// @ts-nocheck` eliminado de App.tsx, Login.tsx, AgentChatPage.tsx, Settings.tsx. Interfaces propias: Message, PendingAction, DocumentProposalData, AttachedFile. Declaraciones `.d.ts` para shadcn/ui. Fork-ts-checker: "No issues found."
+- **TEST 3** (✅ 29/29 PASS): DPD 3A (9/9), Mora 15%EA 3B (3/3), Scores A+→E 3C (6/6), Protocolo+Performance 3D (4/4), Migración 3E (5/5). Fix: `calcular_scores()` ahora incluye estado "recuperacion".
 - Credenciales Alegra, modo demo, cuentas predeterminadas
 - 2FA con Google Authenticator (TOTP)
 - Bot Telegram (infraestructura completa)
@@ -57,37 +59,43 @@ Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
 
 ---
 
-## MIGRACIÓN TYPESCRIPT (en curso)
+## MIGRACIÓN TYPESCRIPT (✅ COMPLETADO)
 Política: Migrar a .tsx/.ts al tocar cada archivo. No migrar en bloque.
-- ✅ Settings.js → Settings.tsx (BUILD 1)
-- Pendiente: App.js, Login.js, AgentChatPage.js, Loanbook.js, Cartera.js, etc.
+- ✅ App.tsx, Login.tsx, AgentChatPage.tsx, Settings.tsx — `// @ts-nocheck` eliminado, tipos propios añadidos
+- ✅ Loanbook.tsx — ya tipado en BUILD 3
+- ✅ Declaraciones .d.ts para componentes shadcn/ui (button, input, label, tabs, textarea)
+- ✅ tsconfig: `exclude: ["src/components/ui/*.jsx"]` para que TypeScript use las .d.ts
+- Pendiente: Cartera.js, Loanbook.js, contextos AuthContext/AlegraContext
 
 ---
 
-## BACKLOG (por prioridad)
+## BACKLOG (por prioridad — orden BUILD fijo)
 
-### P0 — Crítico
-- Pruebas E2E Telegram completas con token real
-- Renombrar módulo cartera → RADAR (radar.py, Radar.tsx, ruta /radar)
+### P0 — BUILD 4: Agente CFO
+- CFO Agent: semáforo financiero, informe mensual automático, plan de acción IA
+- Integración resultados Alegra + loanbook en un solo dashboard
 
-### P1 — Alta prioridad
-- **BUILD 3**: Loanbook mejorado (detección automática de mora, LoanDetail.tsx, CuotaTimeline, MoraCalculator)
-- BUILD 4: RADAR completo (BucketBadge, RadarCard, cola priorizada, scores A+..E)
-- BUILD 5: CRM de clientes (ClientDetail, notas APPEND-ONLY, historial gestiones)
-- Directorio de Terceros (CRUD contactos Alegra desde RODDOS)
-- Integración WhatsApp Mercately (infraestructura en settings lista)
-- Nómina y Prestaciones con cálculo real NIIF Colombia
+### P1 — BUILD 5: WhatsApp Mercately
+- Integración WhatsApp (infraestructura en settings lista, Mercately config en DB)
+- Scheduler Viernes 17:00 → envío automático resumen CEO
 
-### P2 — Media prioridad
-- Dashboard KPIs tiempo real (APScheduler + shared_state.py)
-- CFO Agent (semáforo financiero, informe mensual, plan de acción)
-- Estado de Resultados automático desde Alegra
-- Motor de alertas activo (detección mora automática)
+### P2 — BUILD 6: CRM + RADAR UI
+- CRM clientes: ClientDetail, notas APPEND-ONLY, historial gestiones
+- RADAR UI completo: BucketBadge, RadarCard priorizada, scores A+..E visuales
 
-### P3 — Baja prioridad / Futuro
-- Multi-empresa / roles granulares
-- Integración DIAN para declaración IVA
-- App móvil PWA para vendedores
+### P3 — BUILD 7: Scheduler WhatsApp + alertas
+- Motor de alertas automático (mora día 1, DPD 8, DPD 15, DPD 22)
+- Envío automático notificaciones clientes por WhatsApp
+
+### P4 — BUILD 8: Frontend completo + Dashboard
+- Dashboard KPIs tiempo real
+- Estado de Resultados automático Alegra
+- Renombrar módulo cartera → RADAR (frontend completo)
+
+### Backlog Técnico
+- Migrar Cartera.js, contextos AuthContext/AlegraContext a TypeScript
+- Pruebas E2E Telegram con token real
+- Nómina y Prestaciones NIIF Colombia
 
 ---
 

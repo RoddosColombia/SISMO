@@ -128,7 +128,7 @@ async def calcular_scores() -> None:
         now_iso   = datetime.now(timezone.utc).isoformat()
 
         loans = await db.loanbook.find(
-            {"estado": {"$in": ["activo", "mora"]}},
+            {"estado": {"$in": ["activo", "mora", "recuperacion"]}},
             {"_id": 0, "id": 1, "dpd_actual": 1, "dpd_maximo_historico": 1,
              "cuotas": 1, "gestiones": 1},
         ).to_list(5000)

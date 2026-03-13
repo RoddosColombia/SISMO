@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "./components/ui/sonner";
@@ -28,7 +27,7 @@ import Loanbook from "./pages/Loanbook";
 import Cartera from "./pages/Cartera";
 import "./App.css";
 
-const ProtectedRoute = ({ children }) => {
+const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { token, loading } = useAuth();
   if (loading) return (
     <div className="h-screen flex items-center justify-center bg-[#F8FAFC]">
@@ -38,7 +37,7 @@ const ProtectedRoute = ({ children }) => {
       </div>
     </div>
   );
-  return token ? children : <Navigate to="/login" replace />;
+  return token ? (children as React.ReactElement) : <Navigate to="/login" replace />;
 };
 
 function AppRoutes() {

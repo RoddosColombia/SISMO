@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Bot, Send, Trash2, Paperclip, X, Play,
   CheckCircle2, Loader2, FileText, AlertCircle, Zap,
@@ -10,8 +9,54 @@ import { toast } from "sonner";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
 
+/* ── types ── */
+interface AttachedFileInfo { name: string; type: string; preview: string | null; }
+
+interface Message {
+  role: "user" | "assistant";
+  content: string;
+  timestamp?: string;
+  isInternal?: boolean;
+  isResult?: boolean;
+  file?: AttachedFileInfo | null;
+  docTypeLabel?: string | null;
+}
+
+// TODO: type - payload structure varies by action type (journal entries, bill, invoice, tercero)
+interface PendingAction {
+  type: string;
+  title: string;
+  summary?: Array<{ label: string; value: string }>;
+  payload?: Record<string, any>;
+}
+
+interface DocumentProposalData {
+  tipo_documento?: string;
+  proveedor_cliente?: string;
+  nit?: string;
+  fecha?: string;
+  numero_documento?: string;
+  concepto?: string;
+  subtotal?: number;
+  iva_valor?: number;
+  iva_porcentaje?: number;
+  retefuente_valor?: number;
+  retefuente_tipo?: string;
+  total?: number;
+  cuenta_gasto_id?: string;
+  cuenta_gasto_nombre?: string;
+  campos_faltantes?: string[];
+  es_pago_loanbook?: boolean;
+  loanbook_codigo?: string;
+  ilegible?: boolean;
+  accion_contable?: string;
+}
+
+interface AttachedFile { base64: string; name: string; type: string; preview: string | null; }
+interface MemorySuggestion { tipo?: string; descripcion?: string; monto?: number; }
+
 /* ── constants ── */
-const fmt = (n) => Number(n || 0).toLocaleString("es-CO");
+const fmt = (n: number | string | null | undefined): string => Number(n || 0).toLocaleString("es-CO");
 
 const DOC_TYPE_OPTIONS = [
   {
@@ -62,7 +107,7 @@ const QUICK_PROMPTS = [
 
 /* ── sub-components ── */
 
-function TypingIndicator() {
+function TypingIndicator(): React.ReactElement {
   return (
     <div className="flex justify-start mb-4">
       <div className="w-7 h-7 rounded-xl flex items-center justify-center mr-2 flex-shrink-0 mt-0.5"
@@ -80,7 +125,7 @@ function TypingIndicator() {
   );
 }
 
-function MessageBubble({ msg }) {
+function MessageBubble({ msg }: { msg: Message }): React.ReactElement | null {
   const isUser = msg.role === "user";
   if (msg.isInternal) return null;
 
@@ -157,7 +202,12 @@ function MessageBubble({ msg }) {
   );
 }
 
-function ExecutionCard({ action, onConfirm, onCancel, executing }) {
+function ExecutionCard({ action, onConfirm, onCancel, executing }: {
+  action: PendingAction | null;
+  onConfirm: (action: PendingAction) => void;
+  onCancel: () => void;
+  executing: boolean;
+}): React.ReactElement | null {
   if (!action) return null;
 
   /* ── helpers ── */
@@ -324,7 +374,12 @@ function ExecutionCard({ action, onConfirm, onCancel, executing }) {
   );
 }
 
-function TerceroCard({ action, onConfirm, onCancel, executing }) {
+function TerceroCard({ action, onConfirm, onCancel, executing }: {
+  action: PendingAction | null;
+  onConfirm: (action: PendingAction) => void;
+  onCancel: () => void;
+  executing: boolean;
+}): React.ReactElement | null {
   const p = action?.payload || {};
   const [name, setName] = useState(p.name || p.nameObject?.firstName || "");
   const [nit, setNit] = useState(p.identification || p.identificationObject?.number || "");
@@ -429,9 +484,15 @@ function TerceroCard({ action, onConfirm, onCancel, executing }) {
 }
 
 
-function DocumentProposalCard({ proposal, onConfirm, onCancel, loading }) {
-  const [data, setData] = useState({ ...proposal });
-  const update = (k, v) => setData((p) => ({ ...p, [k]: v }));
+function DocumentProposalCard({ proposal, onConfirm, onCancel, loading }: {
+  proposal: DocumentProposalData;
+  onConfirm: (data: DocumentProposalData & { total: number }) => void;
+  onCancel: () => void;
+  loading: boolean;
+}): React.ReactElement {
+  const [data, setData] = useState<DocumentProposalData>({ ...proposal });
+  // TODO: type - generic key-value updater for dynamic form fields
+  const update = (k: string, v: any) => setData((p) => ({ ...p, [k]: v } as DocumentProposalData));
   const calcTotal = Number(data.subtotal || 0) + Number(data.iva_valor || 0) - Number(data.retefuente_valor || 0);
 
   const fieldCls = "w-full text-xs px-3 py-2 rounded-lg outline-none border border-slate-200 bg-white text-slate-700 focus:ring-2 focus:ring-sky-200 focus:border-sky-400 transition";
@@ -551,22 +612,22 @@ function DocumentProposalCard({ proposal, onConfirm, onCancel, loading }) {
 /* ── main page ── */
 export default function AgentChatPage() {
   const { api, user } = useAuth();
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [executing, setExecuting] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [pendingAction, setPendingAction] = useState(null);
-  const [documentProposal, setDocumentProposal] = useState(null);
-  const [attachedFile, setAttachedFile] = useState(null);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const [documentProposal, setDocumentProposal] = useState<DocumentProposalData | null>(null);
+  const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [memorySuggestions, setMemorySuggestions] = useState([]);
+  const [memorySuggestions, setMemorySuggestions] = useState<MemorySuggestion[]>([]);
   const [docTypeHint, setDocTypeHint] = useState("auto");
 
   const sessionId = useRef(`chat-main-${user?.id || "guest"}`).current;
-  const messagesRef = useRef(null);
-  const inputRef = useRef(null);
-  const fileInputRef = useRef(null);
+  const messagesRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const initialLoadDone = useRef(false);
 
   /* scroll to bottom */
@@ -630,15 +691,15 @@ export default function AgentChatPage() {
   }, [attachedFile]); // eslint-disable-line
 
   /* file helpers */
-  const fileToBase64 = (file) =>
+  const fileToBase64 = (file: File): Promise<string> =>
     new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => resolve(reader.result.split(",")[1]);
+      reader.onload = () => resolve((reader.result as string).split(",")[1]);
       reader.onerror = reject;
       reader.readAsDataURL(file);
     });
 
-  const handleFileAttach = useCallback(async (file) => {
+  const handleFileAttach = useCallback(async (file: File): Promise<void> => {
     const allowed = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp", "application/pdf"];
     if (file.size > 20 * 1024 * 1024) { toast.error("El archivo no puede superar 20MB"); return; }
     if (!allowed.includes(file.type)) { toast.error("Solo imágenes (JPG, PNG, WebP) y PDF"); return; }
@@ -652,9 +713,9 @@ export default function AgentChatPage() {
   }, []);
 
   /* drag & drop */
-  const handleDragOver = (e) => { e.preventDefault(); setIsDragging(true); };
-  const handleDragLeave = (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setIsDragging(false); };
-  const handleDrop = (e) => {
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>): void => { e.preventDefault(); setIsDragging(true); };
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>): void => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragging(false); };
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>): void => {
     e.preventDefault(); setIsDragging(false);
     const file = e.dataTransfer.files[0];
     if (file) handleFileAttach(file);
@@ -779,7 +840,7 @@ export default function AgentChatPage() {
     } catch { toast.error("Error al borrar historial"); }
   };
 
-  const handleKeyDown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } };
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } };
   const showQuickPrompts = messages.length <= 1 && !loading;
 
   return (

@@ -20,5 +20,6 @@
       "@/*": ["*"]
     }
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/components/ui/*.jsx", "src/components/ui/*.js"]
 }

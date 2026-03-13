@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
@@ -6,7 +5,7 @@ import { toast } from "sonner";
 import { Eye, EyeOff, Shield } from "lucide-react";
 
 /* Radar "O" — matches RODDOS logo brand mark */
-function RadarIcon({ size = 56 }) {
+function RadarIcon({ size = 56 }: { size?: number }): React.ReactElement {
   return (
     <svg width={size} height={size} viewBox="0 0 56 56" fill="none">
       <circle cx="28" cy="28" r="4.5"  stroke="#00E5FF" strokeWidth="2.5" />
@@ -36,7 +35,7 @@ export default function Login() {
     if (token) navigate("/agente-contable", { replace: true });
   }, [token, navigate]);
 
-  const handleCredentials = async (e) => {
+  const handleCredentials = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
     if (!form.email || !form.password) { toast.error("Completa todos los campos"); return; }
     setLoading(true);
@@ -49,14 +48,14 @@ export default function Login() {
       } else {
         navigate("/agente-contable", { replace: true });
       }
-    } catch (err) {
+    } catch (err: any) {
       toast.error(err.response?.data?.detail || err.message || "Error de autenticación");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleTwoFA = async (e) => {
+  const handleTwoFA = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
     if (totp.length !== 6) { toast.error("El código debe tener 6 dígitos"); return; }
     setLoading(true);
@@ -69,7 +68,7 @@ export default function Login() {
       if (!res.ok) throw new Error(data.detail || "Código incorrecto");
       setAuth(data.token, data.user);
       navigate("/agente-contable", { replace: true });
-    } catch (err) {
+    } catch (err: any) {
       toast.error(err.message);
       setTotp("");
     } finally {
