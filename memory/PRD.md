@@ -1,7 +1,7 @@
 # RODDOS Contable IA — PRD
 
-**Fecha:** 2026-03-13
-**Versión:** 2.2
+**Fecha:** Febrero 2026
+**Versión:** 2.3
 
 ---
 
@@ -252,3 +252,23 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
   - Drag & drop, clip 📎 y Ctrl+V para adjuntar archivos
   - Detección automática pagos Loanbook
   - System prompt específico para análisis contable de documentos
+
+
+### Fase 4: Mejoras de UX + Correcciones Críticas (Feb 2026)
+- **Selector de tipo de documento**: Chips (Auto/Factura servicio/Compra motos/Pago) al adjuntar archivo. Inyecta pistas específicas al prompt de Claude.
+- **ExecutionCard mejorada**: Tabla débito/crédito antes de confirmar causaciones. Filas items para facturas. Balance check (débitos = créditos).
+- **TerceroCard + Flujo de Nuevo Tercero**: Detecta proveedores/clientes inexistentes en Alegra. Propone crear_contacto con _next_action embebido. Reemplaza __NEW_CONTACT_ID__ con ID real tras creación. Auto-ejecuta acción original.
+- **Corrección crítica**: Servicios → `/journals` (crear_causacion). Productos físicos → `/bills` (registrar_factura_compra). La IA ahora diferencia correctamente.
+- **Fix z-index**: Botón de envío del chat no bloqueado por overlay modal.
+- **Documento de arquitectura**: `/app/memory/ARCHITECTURE.md` generado con mapa completo de módulos, conexiones, flujos y análisis de brechas.
+
+### Backlog Pendiente (por prioridad)
+- P0: Probar Telegram E2E + gestión multi-usuario
+- P0: Renovar resolución DIAN en Alegra (vence 2026-03-06 → facturas en borrador)
+- P1: Dashboard KPIs tiempo real
+- P1: Directorio de Terceros (CRUD contactos Alegra desde RODDOS)
+- P1: Integración WhatsApp (Mercately — infraestructura ya en settings)
+- P1: Nómina y Prestaciones reales
+- P2: Estado de Resultados automático
+- P2: Motor de alertas activo
+- P3: App móvil PWA
