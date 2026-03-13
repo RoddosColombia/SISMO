@@ -325,8 +325,8 @@ function ExecutionCard({ action, onConfirm, onCancel, executing }) {
 
 function TerceroCard({ action, onConfirm, onCancel, executing }) {
   const p = action?.payload || {};
-  const [name, setName] = useState(p.name || "");
-  const [nit, setNit] = useState(p.identification || "");
+  const [name, setName] = useState(p.name || p.nameObject?.firstName || "");
+  const [nit, setNit] = useState(p.identification || p.identificationObject?.number || "");
   const [email, setEmail] = useState(p.email || "");
   if (!action) return null;
   const typeLabel = Array.isArray(p.type)

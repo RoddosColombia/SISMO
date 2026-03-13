@@ -116,7 +116,8 @@ FORMATO crear_contacto CON ACCIÓN SIGUIENTE:
   "payload": {
     "name": "[nombre]",
     "nameObject": {"firstName": "[nombre]", "lastName": ""},
-    "identificationObject": {"type": "NIT", "number": "[nit_sin_guiones]"},
+    "identificationObject": {"type": "NIT", "number": "[nit_sin_guiones_ni_DV]"},
+    "identification": "[nit_sin_guiones_ni_DV]",    ← duplicar aquí para pre-poblar el formulario
     "kindOfPerson": "PERSON_ENTITY",
     "regime": "SIMPLIFIED_REGIME",
     "type": ["provider"],

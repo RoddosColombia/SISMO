@@ -210,6 +210,14 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
   - ExecutionCard mejorado: tabla de items para facturas de compra/venta (cant, precio, subtotal)
   - TerceroCard nuevo componente: aparece cuando action.type='crear_contacto', campos editables (nombre, NIT, email), cuenta contable sugerida, preview de la acción siguiente
   - Flujo secuencial: crear_contacto → retorna next_pending_action → muestra nuevo ExecutionCard automáticamente
+  - Sistema prompt: formato identificationObject para contactos Alegra Colombia + NIT duplicado en 'identification' para pre-poblar formulario
+  - Handler crear_contacto: auto-fix nameObject.lastName vacío, strip campos internos, retorna next_pending_action
+  - Handler crear_causacion: strip campo 'name' de entries antes de llamar Alegra
+- **2026-03-13 v2.5 (update): NIT pre-poblado en TerceroCard + sistema prompt identificationObject**
+  - ExecutionCard mejorado: tabla débito/crédito para causaciones (con totales y validación de balance)
+  - ExecutionCard mejorado: tabla de items para facturas de compra/venta (cant, precio, subtotal)
+  - TerceroCard nuevo componente: aparece cuando action.type='crear_contacto', campos editables (nombre, NIT, email), cuenta contable sugerida, preview de la acción siguiente
+  - Flujo secuencial: crear_contacto → retorna next_pending_action → muestra nuevo ExecutionCard automáticamente
   - Sistema prompt actualizado: formato identificationObject para contactos Alegra Colombia
   - Handler crear_contacto: auto-fix de nameObject.lastName vacío, strip campos internos
   - Handler crear_causacion: strip campo 'name' de entries antes de llamar Alegra
