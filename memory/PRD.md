@@ -46,6 +46,7 @@ Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
 
 ### Configuración
 - **Catálogo de Motos** (BUILD 1 ✅): Sport 100, Raider 125 precargados. CRUD completo con edición inline y toggle activo/inactivo
+- **Bus de Datos y Shared State** (BUILD 2 ✅): 6 funciones async en shared_state.py (caché TTL 30s), APScheduler procesando eventos pendientes cada 60s, emit_state_change como patrón unificado, find_similar_pattern para sugerencias de patrones contables
 - Credenciales Alegra, modo demo, cuentas predeterminadas
 - 2FA con Google Authenticator (TOTP)
 - Bot Telegram (infraestructura completa)
@@ -70,9 +71,9 @@ Política: Migrar a .tsx/.ts al tocar cada archivo. No migrar en bloque.
 - Renombrar módulo cartera → RADAR (radar.py, Radar.tsx, ruta /radar)
 
 ### P1 — Alta prioridad
-- BUILD 2: Módulo RADAR completo (BucketBadge, RadarCard, cola priorizada, scores A+..E)
-- BUILD 3: Loanbook mejorado (LoanDetail.tsx, CuotaTimeline, MoraCalculator)
-- BUILD 4: CRM de clientes (ClientDetail, notas APPEND-ONLY, historial gestiones)
+- **BUILD 3**: Loanbook mejorado (detección automática de mora, LoanDetail.tsx, CuotaTimeline, MoraCalculator)
+- BUILD 4: RADAR completo (BucketBadge, RadarCard, cola priorizada, scores A+..E)
+- BUILD 5: CRM de clientes (ClientDetail, notas APPEND-ONLY, historial gestiones)
 - Directorio de Terceros (CRUD contactos Alegra desde RODDOS)
 - Integración WhatsApp Mercately (infraestructura en settings lista)
 - Nómina y Prestaciones con cálculo real NIIF Colombia
