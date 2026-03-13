@@ -15,6 +15,7 @@ from starlette.middleware.cors import CORSMiddleware
 from auth import hash_password
 from database import db, client
 from routers import auth, settings, alegra, chat, inventory, taxes, budget, dashboard, audit
+from routers import repuestos, loanbook, cartera
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -128,3 +129,6 @@ app.include_router(taxes.router,     prefix=PREFIX)
 app.include_router(budget.router,    prefix=PREFIX)
 app.include_router(dashboard.router, prefix=PREFIX)
 app.include_router(audit.router,     prefix=PREFIX)
+app.include_router(repuestos.router, prefix=PREFIX)
+app.include_router(loanbook.router,  prefix=PREFIX)
+app.include_router(cartera.router,   prefix=PREFIX)

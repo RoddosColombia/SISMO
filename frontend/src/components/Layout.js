@@ -3,7 +3,8 @@ import { Outlet, NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, FileText, ShoppingCart, TrendingUp, TrendingDown,
   Building2, Settings, LogOut, ChevronLeft, Menu, Bell, User,
-  CreditCard, Receipt, Calculator, Users, Gift, BarChart2, Tag, Target, Bike, X
+  CreditCard, Receipt, Calculator, Users, Gift, BarChart2, Tag, Target, Bike, X,
+  Wrench, BookOpen, Wallet
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useAlegra } from "../contexts/AlegraContext";
@@ -18,6 +19,9 @@ const MODULES = [
   { path: "/causacion-egresos",    label: "Causación Egresos",     icon: TrendingDown,    group: "Causaciones" },
   { path: "/conciliacion-bancaria",label: "Conciliación Bancaria", icon: Building2,       group: "Causaciones" },
   { path: "/inventario-auteco",    label: "Inventario Auteco",     icon: Bike,            group: "Inventario" },
+  { path: "/repuestos",            label: "Repuestos",             icon: Wrench,          group: "Inventario" },
+  { path: "/loanbook",             label: "Loanbook",              icon: BookOpen,        group: "Cartera" },
+  { path: "/cartera",              label: "Cartera",               icon: Wallet,          group: "Cartera" },
   { path: "/impuestos",            label: "Impuestos y Alertas",   icon: Receipt,         group: "Fiscal" },
   { path: "/retenciones",          label: "Retenciones",           icon: Calculator,      group: "Fiscal" },
   { path: "/nomina",               label: "Nómina",                icon: Users,           group: "RRHH" },

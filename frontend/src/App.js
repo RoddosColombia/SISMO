@@ -21,6 +21,9 @@ import Prestaciones from "./pages/Prestaciones";
 import EstadoResultados from "./pages/EstadoResultados";
 import EgresosClasificados from "./pages/EgresosClasificados";
 import Presupuesto from "./pages/Presupuesto";
+import Repuestos from "./pages/Repuestos";
+import Loanbook from "./pages/Loanbook";
+import Cartera from "./pages/Cartera";
 import "./App.css";
 
 const ProtectedRoute = ({ children }) => {
@@ -64,6 +67,9 @@ function AppRoutes() {
           <Route path="conciliacion-bancaria" element={<ConciliacionBancaria />} />
           {/* Inventario */}
           <Route path="inventario-auteco" element={<InventarioAuteco />} />
+          <Route path="repuestos" element={<Repuestos />} />
+          <Route path="loanbook" element={<Loanbook />} />
+          <Route path="cartera" element={<Cartera />} />
           {/* Fiscal */}
           <Route path="impuestos" element={<Impuestos />} />
           <Route path="retenciones" element={<Retenciones />} />
