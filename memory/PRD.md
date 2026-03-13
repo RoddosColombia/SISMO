@@ -219,3 +219,7 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
 - 2025-03: Helpers getDocNumber/getVendorName para compatibilidad mock/real Alegra
 - 2025-03: Fix 403 en alegra/accounts → devuelve [] sin crashear frontend
 - 2025-03: Status badges migrados a light-mode (bg-blue-100 text-blue-700)
+- 2025-03: Fix bug searchAccounts — eliminado filtro incorrecto `subAccounts !== undefined` que bloqueaba cuentas hoja de Alegra real
+- 2025-03: AlegraAccountSelector mejora estado vacío: muestra link a Alegra para regenerar token
+- 2025-03: Badge "token_invalid" en header y Settings cuando Alegra retorna 401
+- 2025-03: Instrucciones de token actualizado para apuntar a app.alegra.com/user/profile#token

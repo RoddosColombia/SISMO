@@ -41,6 +41,12 @@ function AlegraStatusBadge({ status }) {
       Alegra conectado
     </span>
   );
+  if (status === "token_invalid") return (
+    <span className="flex items-center gap-1.5 text-xs font-semibold bg-orange-500/10 text-orange-400 border border-orange-500/30 px-2.5 py-1 rounded-full">
+      <span className="w-1.5 h-1.5 rounded-full bg-orange-400" />
+      Token expirado
+    </span>
+  );
   return (
     <span className="flex items-center gap-1.5 text-xs font-semibold bg-red-500/10 text-red-400 border border-red-500/30 px-2.5 py-1 rounded-full">
       <span className="w-1.5 h-1.5 rounded-full bg-red-500" />

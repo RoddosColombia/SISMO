@@ -80,21 +80,27 @@ export function AlegraProvider({ children }) {
       const status = resp.data.status;
       setConnectionStatus(status);
       setIsDemoMode(status === "demo");
-    } catch {
-      setConnectionStatus("error");
+    } catch (err) {
+      const detail = err.response?.data?.detail || "";
+      if (detail.includes("token") || detail.includes("inválid") || err.response?.status === 400) {
+        setConnectionStatus("token_invalid");
+      } else {
+        setConnectionStatus("error");
+      }
     }
   }, [token, api]);
 
   const searchAccounts = useCallback((query, filterType = null, allowedCodes = null) => {
-    let filtered = flatAccounts.filter(acc => acc.subAccounts !== undefined);
+    // Show all flattened accounts (no filter by subAccounts — Alegra leaves don't have that key)
+    let filtered = [...flatAccounts];
 
     if (filterType && filterType !== "all") {
       const typeMap = {
-        income: ["4"],
-        expense: ["5", "6", "7"],
-        asset: ["1"],
+        income:    ["4"],
+        expense:   ["5", "6", "7"],
+        asset:     ["1"],
         liability: ["2"],
-        equity: ["3"],
+        equity:    ["3"],
       };
       const prefixes = typeMap[filterType] || [];
       if (prefixes.length > 0) {

@@ -131,8 +131,8 @@ export default function Settings() {
     toast.success("Cuentas actualizadas");
   };
 
-  const statusColor = connectionStatus === "connected" ? "text-green-600" : connectionStatus === "demo" ? "text-amber-600" : "text-red-600";
-  const statusLabel = connectionStatus === "connected" ? "Conectado" : connectionStatus === "demo" ? "Modo Demo" : "Sin conexión";
+  const statusColor = connectionStatus === "connected" ? "text-green-600" : connectionStatus === "demo" ? "text-amber-600" : connectionStatus === "token_invalid" ? "text-orange-600" : "text-red-600";
+  const statusLabel = connectionStatus === "connected" ? "Conectado" : connectionStatus === "demo" ? "Modo Demo" : connectionStatus === "token_invalid" ? "Token expirado" : "Sin conexión";
 
   return (
     <div className="max-w-4xl space-y-5" data-testid="settings-page">
@@ -153,9 +153,25 @@ export default function Settings() {
         {/* Alegra Connection Tab */}
         <TabsContent value="alegra" className="mt-5 space-y-5">
           {/* Status banner */}
-          <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${connectionStatus === "connected" ? "bg-green-50 border-green-200" : connectionStatus === "demo" ? "bg-amber-50 border-amber-200" : "bg-red-50 border-red-200"}`}>
-            <span className={`w-2.5 h-2.5 rounded-full ${connectionStatus === "connected" ? "bg-green-500" : connectionStatus === "demo" ? "bg-amber-400" : "bg-red-500"}`} />
+          <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${
+            connectionStatus === "connected" ? "bg-green-50 border-green-200"
+            : connectionStatus === "demo" ? "bg-amber-50 border-amber-200"
+            : connectionStatus === "token_invalid" ? "bg-orange-50 border-orange-200"
+            : "bg-red-50 border-red-200"
+          }`}>
+            <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+              connectionStatus === "connected" ? "bg-green-500"
+              : connectionStatus === "demo" ? "bg-amber-400"
+              : connectionStatus === "token_invalid" ? "bg-orange-400"
+              : "bg-red-500"
+            }`} />
             <span className={`text-sm font-semibold ${statusColor}`}>Estado: {statusLabel}</span>
+            {connectionStatus === "token_invalid" && (
+              <a href="https://app.alegra.com/user/profile#token" target="_blank" rel="noreferrer"
+                className="ml-auto text-xs font-bold text-orange-600 hover:underline flex items-center gap-1">
+                Generar nuevo token en Alegra →
+              </a>
+            )}
           </div>
 
           {/* Demo Mode Toggle */}
@@ -183,7 +199,7 @@ export default function Settings() {
           {/* API Credentials */}
           <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5 space-y-4">
             <h3 className="text-sm font-bold text-[#0F2A5C] font-montserrat">Credenciales de la API de Alegra</h3>
-            <p className="text-xs text-slate-500">Obtén tu token en Alegra → Mi Perfil → Token de API</p>
+            <p className="text-xs text-slate-500">Obtén o renueva tu token en <a href="https://app.alegra.com/user/profile#token" target="_blank" rel="noreferrer" className="text-[#0F2A5C] underline">Alegra → Mi Perfil → API</a>. Después de cambiar de plan, genera un nuevo token.</p>
 
             <div>
               <Label className="text-sm font-semibold text-slate-700">Email de tu cuenta Alegra</Label>

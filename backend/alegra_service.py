@@ -52,9 +52,10 @@ class AlegraService:
                     resp = await client.get(url, headers=headers)
 
             if resp.status_code == 401:
-                raise HTTPException(status_code=400, detail="Credenciales de Alegra inválidas. Verifique su email y token en Configuración.")
+                raise HTTPException(status_code=400, detail="Credenciales de Alegra inválidas o token expirado. Ve a Configuración → Integración Alegra y genera un nuevo token.")
             if resp.status_code == 403:
-                return []   # endpoint no disponible para este plan/cuenta — devolver lista vacía
+                # Plan no incluye este endpoint — devolver lista vacía sin error
+                return []
             if resp.status_code == 404:
                 return []
             if resp.status_code == 429:

@@ -118,9 +118,30 @@ export default function AlegraAccountSelector({
 
           <ScrollArea className="h-72">
             {loadingAccounts ? (
-              <div className="p-4 text-center text-sm text-slate-500">Cargando cuentas...</div>
+              <div className="flex flex-col items-center justify-center p-6 gap-2 text-center">
+                <div className="w-5 h-5 border-2 border-[#00A9E0] border-t-transparent rounded-full animate-spin" />
+                <span className="text-sm text-slate-500">Cargando catálogo de cuentas desde Alegra...</span>
+              </div>
+            ) : filteredAccounts.length === 0 && !search ? (
+              <div className="flex flex-col items-center justify-center p-6 gap-3 text-center">
+                <BookOpen size={28} className="text-slate-300" />
+                <div>
+                  <p className="text-sm font-semibold text-slate-600">Catálogo de cuentas no disponible</p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Verifica que tu token de Alegra sea válido en{" "}
+                    <span className="font-medium text-[#00A9E0]">Configuración → Integración Alegra</span>
+                  </p>
+                </div>
+                <a
+                  href="https://app.alegra.com/configuration/api"
+                  target="_blank" rel="noreferrer"
+                  className="flex items-center gap-1 text-xs text-[#00A9E0] hover:underline"
+                >
+                  Obtener nuevo token en Alegra <ExternalLink size={11} />
+                </a>
+              </div>
             ) : filteredAccounts.length === 0 ? (
-              <div className="p-4 text-center text-sm text-slate-500">No se encontraron cuentas</div>
+              <div className="p-4 text-center text-sm text-slate-400">Sin resultados para "{search}"</div>
             ) : (
               <div className="p-2">
                 {Object.entries(grouped).map(([groupKey, accs]) => (
