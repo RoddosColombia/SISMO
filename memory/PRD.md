@@ -248,3 +248,21 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
 - Autocomplete items en facturas desde Alegra
 - Módulo de gestión de usuarios desde UI admin
 - Refactorizar server.py en APIRouters modulares
+
+## Refactoring ejecutado — Feb 2026
+server.py 1.056 líneas → 130 líneas (thin bootstrap)
+Estructura modular:
+  backend/
+  ├── server.py          (130 líneas — bootstrap only)
+  ├── database.py        (13 líneas — MongoDB connection)
+  ├── dependencies.py    (45 líneas — get_current_user, require_admin, log_action)
+  └── routers/
+      ├── auth.py        (85 líneas)
+      ├── settings.py    (94 líneas)
+      ├── alegra.py      (144 líneas)
+      ├── chat.py        (51 líneas)
+      ├── inventory.py   (191 líneas)
+      ├── taxes.py       (161 líneas)
+      ├── budget.py      (53 líneas)
+      ├── dashboard.py   (178 líneas)
+      └── audit.py       (35 líneas)
