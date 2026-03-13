@@ -310,7 +310,7 @@ export default function Layout() {
         {/* Page content */}
         <main
           className={`flex-1 ${isChatPage ? "overflow-hidden" : "p-4 lg:p-6 overflow-auto animate-fadeInUp"}`}
-          style={{ background: isChatPage ? "#0A0A0A" : "#F8FAFC" }}
+          style={{ background: "#F8FAFC" }}
         >
           <Outlet />
         </main>

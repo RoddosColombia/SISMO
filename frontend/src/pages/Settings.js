@@ -149,6 +149,7 @@ export default function Settings() {
           {user?.role === "admin" && <TabsTrigger value="audit" data-testid="tab-audit">Auditoría</TabsTrigger>}
           <TabsTrigger value="webhooks" data-testid="tab-webhooks">Webhooks</TabsTrigger>
           {user?.role === "admin" && <TabsTrigger value="mercately" data-testid="tab-mercately">Mercately (WhatsApp)</TabsTrigger>}
+          {user?.role === "admin" && <TabsTrigger value="telegram" data-testid="tab-telegram">Telegram Bot</TabsTrigger>}
         </TabsList>
 
         {/* Alegra Connection Tab */}
@@ -297,6 +298,9 @@ export default function Settings() {
 
         {/* MERCATELY TAB */}
         {user?.role === "admin" && <MercatelyTab api={api} />}
+
+        {/* TELEGRAM TAB */}
+        {user?.role === "admin" && <TelegramTab api={api} />}
       </Tabs>
     </div>
   );
@@ -703,6 +707,140 @@ function WebhooksTab({ api }) {
         <p className="text-[10px] text-slate-400">
           * Requiere que las credenciales de Alegra estén configuradas y el modo demo esté desactivado.
         </p>
+      </div>
+    </TabsContent>
+  );
+}
+
+
+
+// ─── TELEGRAM TAB ─────────────────────────────────────────────────────────────
+
+function TelegramTab({ api }) {
+  const [token, setToken] = useState("");
+  const [status, setStatus] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [removing, setRemoving] = useState(false);
+
+  useEffect(() => {
+    api.get("/telegram/config")
+      .then(res => setStatus(res.data))
+      .catch(() => {});
+  }, [api]);
+
+  const handleSave = async () => {
+    if (!token.trim()) { toast.error("Pega el token de @BotFather"); return; }
+    setSaving(true);
+    try {
+      const res = await api.post("/telegram/config", { token });
+      toast.success(`Bot @${res.data.bot_username || "bot"} activado y webhook registrado`);
+      setStatus({ ...res.data, token_masked: "********************" + token.slice(-6) });
+      setToken("");
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Error activando el bot");
+    } finally { setSaving(false); }
+  };
+
+  const handleRemove = async () => {
+    setRemoving(true);
+    try {
+      await api.delete("/telegram/config");
+      toast.success("Bot de Telegram desvinculado");
+      setStatus({ configured: false });
+    } catch { toast.error("Error al desconectar"); }
+    finally { setRemoving(false); }
+  };
+
+  return (
+    <TabsContent value="telegram" className="mt-5">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 max-w-lg space-y-5">
+        {/* Header */}
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-xl bg-sky-50 flex items-center justify-center flex-shrink-0">
+            <svg viewBox="0 0 24 24" className="w-5 h-5 fill-sky-500" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.447 1.394c-.16.16-.295.295-.605.295l.213-3.053 5.56-5.023c.242-.213-.054-.333-.373-.12l-6.871 4.326-2.962-.924c-.643-.204-.657-.643.136-.953l11.57-4.461c.537-.194 1.006.131.833.941z"/>
+            </svg>
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-[#0F2A5C]">Telegram Bot — Recibos desde el celular</h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Envía fotos de recibos o PDFs de facturas al bot y se registran automáticamente en Alegra.
+            </p>
+          </div>
+        </div>
+
+        {/* Status */}
+        {status?.configured ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+              <Check size={15} className="text-emerald-600 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-emerald-700">
+                  Bot activo{status.bot_username ? `: @${status.bot_username}` : ""}
+                </p>
+                {status.webhook_set && <p className="text-[11px] text-emerald-600">Webhook registrado</p>}
+                {status.token_masked && <p className="text-[10px] text-slate-400 font-mono mt-0.5">Token: {status.token_masked}</p>}
+              </div>
+            </div>
+            {status.linked_chat_id && (
+              <div className="flex items-center gap-2 text-xs text-slate-500 px-1">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                Chat ID vinculado: <span className="font-mono font-semibold text-slate-700">{status.linked_chat_id}</span>
+              </div>
+            )}
+            <Button onClick={handleRemove} disabled={removing} variant="outline"
+              className="text-xs h-8 px-3 border-red-200 text-red-500 hover:bg-red-50"
+              data-testid="telegram-remove-btn">
+              {removing ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : null}
+              Desvincular bot
+            </Button>
+          </div>
+        ) : (
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700">
+            No hay bot configurado. Sigue los pasos para activarlo.
+          </div>
+        )}
+
+        {/* Instructions */}
+        <div className="bg-[#F8FAFF] rounded-xl p-4 text-xs space-y-2 border border-slate-100">
+          <p className="font-semibold text-[#0F2A5C] mb-1">Cómo activar el bot</p>
+          <p className="text-slate-600">
+            1. Abre <span className="font-semibold">@BotFather</span> en Telegram
+          </p>
+          <p className="text-slate-600">2. Envía <code className="bg-slate-200 px-1 rounded">/newbot</code> y sigue las instrucciones</p>
+          <p className="text-slate-600">3. Copia el token que te da BotFather y pégalo aquí</p>
+          <p className="text-slate-600">4. Envía <code className="bg-slate-200 px-1 rounded">/start</code> al bot para vincularlo</p>
+        </div>
+
+        {/* Token input */}
+        <div className="space-y-3">
+          <div>
+            <Label className="text-sm font-semibold text-slate-700">Token del Bot (de @BotFather)</Label>
+            <Input
+              type="password"
+              placeholder="123456789:AAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              value={token}
+              onChange={e => setToken(e.target.value)}
+              className="mt-1.5 font-mono text-xs"
+              data-testid="telegram-token-input"
+            />
+          </div>
+          <Button onClick={handleSave} disabled={saving || !token.trim()}
+            className="w-full h-10 text-sm font-semibold disabled:opacity-40"
+            style={{ background: "linear-gradient(135deg, #00C4D4, #00C853)", color: "#fff" }}
+            data-testid="telegram-save-btn">
+            {saving ? <><Loader2 size={14} className="mr-2 animate-spin" />Activando...</> : "Activar Bot y registrar Webhook"}
+          </Button>
+        </div>
+
+        {/* How to use */}
+        <div className="bg-sky-50 rounded-xl p-4 text-xs space-y-1.5 border border-sky-100">
+          <p className="font-semibold text-sky-700 mb-1">Cómo usar el bot</p>
+          <p className="text-sky-600">📷 Envía una <b>foto del recibo</b> — el bot extrae todos los datos</p>
+          <p className="text-sky-600">📄 Envía un <b>PDF de factura</b> — el bot lo analiza y propone el registro</p>
+          <p className="text-sky-600">✅ Responde <b>/si</b> para confirmar, <b>/no</b> para cancelar</p>
+          <p className="text-sky-600">💬 También puedes hacer <b>preguntas contables</b> normales</p>
+        </div>
       </div>
     </TabsContent>
   );

@@ -205,7 +205,15 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
 - 2026-03-13: Sprint Agente Contable — Cartera mobile, Loanbook, post_action_sync, Bus de Eventos
 - 2026-03-13: Fix CRÍTICO journal-entries → /journals, formato entries corregido
 - 2026-03-13: Auditoría Integración Alegra — 64/67 puntos verificados (96%)
-- **2026-03-13 v2.2: REDISEÑO CHAT IA + PROCESAMIENTO DOCUMENTOS**
+- **2026-03-13 v2.2 (update): FONDOS BLANCOS + TELEGRAM BOT**
+  - Chat IA rediseñado a tema claro: fondo #F8FAFC, burbujas blancas, texto oscuro — consistente con el resto de la app
+  - Markdown en chat: strong azul, tablas con bordes, code blocks con fondo gris claro
+  - Telegram Bot: router `/app/backend/routers/telegram.py` nuevo
+    - Webhook: POST /api/telegram/webhook (público, sin JWT)
+    - Config: GET/POST/DELETE /api/telegram/config (protegido)
+    - Flujo: foto/PDF → download de Telegram → análisis Claude → propuesta formateada en HTML → /si ejecuta en Alegra
+    - Texto libre también funciona (ruta al agente contable principal)
+  - Settings → tab "Telegram Bot": instrucciones + token input + estado webhook + guía de uso
   - Chat de IA transformado a página full-screen (`/agente-contable`) — botón flotante eliminado
   - Login redirige a `/agente-contable` como pantalla principal
   - Sidebar: "Agente Contable" como primer ítem con badge verde parpadeante
