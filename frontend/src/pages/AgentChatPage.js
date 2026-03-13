@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   Bot, Send, Trash2, Paperclip, X, Play,
-  CheckCircle2, Loader2, FileText, AlertCircle, Zap
+  CheckCircle2, Loader2, FileText, AlertCircle, Zap,
+  Bike, CreditCard, Receipt, ScanLine
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { useAuth } from "../contexts/AuthContext";
@@ -11,6 +12,37 @@ import { Textarea } from "../components/ui/textarea";
 
 /* ── constants ── */
 const fmt = (n) => Number(n || 0).toLocaleString("es-CO");
+
+const DOC_TYPE_OPTIONS = [
+  {
+    value: "auto",
+    label: "Auto-detectar",
+    icon: ScanLine,
+    hint: "",
+    color: null,
+  },
+  {
+    value: "servicio",
+    label: "Factura servicio",
+    icon: Receipt,
+    hint: "TIPO_DOCUMENTO_INDICADO: Factura de servicio (honorarios, arrendamiento, utilities, asesoría). Acción correcta: crear_causacion con asiento débito cuenta gasto + crédito cuentas por pagar + retenciones aplicables.\n",
+    color: "#7C3AED",
+  },
+  {
+    value: "producto",
+    label: "Compra motos/productos",
+    icon: Bike,
+    hint: "TIPO_DOCUMENTO_INDICADO: Factura de compra de productos físicos o motos del inventario. Acción correcta: registrar_factura_compra con purchases.items usando IDs del catálogo Alegra.\n",
+    color: "#0369A1",
+  },
+  {
+    value: "pago",
+    label: "Pago / Cuota",
+    icon: CreditCard,
+    hint: "TIPO_DOCUMENTO_INDICADO: Comprobante de pago o transferencia bancaria. Detectar si es cuota de Loanbook RODDOS. Acción correcta: registrar_pago o registrar cuota de Loanbook.\n",
+    color: "#047857",
+  },
+];
 
 const TIPO_LABELS = {
   factura_compra: "Factura de Compra",
@@ -78,6 +110,12 @@ function MessageBubble({ msg }) {
               : <FileText size={14} style={{ color: isUser ? "#fff" : "#00C4D4" }} />
             }
             <span className="text-xs font-medium truncate max-w-[180px]">{msg.file.name}</span>
+            {msg.docTypeLabel && (
+              <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0"
+                style={{ background: "rgba(255,255,255,0.25)", color: isUser ? "#fff" : "#0369A1" }}>
+                {msg.docTypeLabel}
+              </span>
+            )}
           </div>
         )}
 
@@ -291,6 +329,7 @@ export default function AgentChatPage() {
   const [attachedFile, setAttachedFile] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [memorySuggestions, setMemorySuggestions] = useState([]);
+  const [docTypeHint, setDocTypeHint] = useState("auto");
 
   const sessionId = useRef(`chat-main-${user?.id || "guest"}`).current;
   const messagesRef = useRef(null);
@@ -375,6 +414,7 @@ export default function AgentChatPage() {
       const base64 = await fileToBase64(file);
       const preview = file.type.startsWith("image/") ? URL.createObjectURL(file) : null;
       setAttachedFile({ base64, name: file.name, type: file.type, preview });
+      setDocTypeHint("auto");
       inputRef.current?.focus();
     } catch { toast.error("Error al procesar el archivo"); }
   }, []);
@@ -394,17 +434,22 @@ export default function AgentChatPage() {
 
     const sentInput = input.trim();
     const sentFile = attachedFile;
+    const selectedType = DOC_TYPE_OPTIONS.find((o) => o.value === docTypeHint);
+    const typeHint = sentFile && selectedType ? selectedType.hint : "";
+
     setMessages((prev) => [...prev, {
       role: "user", content: sentInput || "Analizar este documento", timestamp: new Date().toISOString(),
       file: sentFile ? { name: sentFile.name, type: sentFile.type, preview: sentFile.preview } : null,
+      docTypeLabel: sentFile && selectedType?.value !== "auto" ? selectedType.label : null,
     }]);
-    setInput(""); setAttachedFile(null); setLoading(true);
+    setInput(""); setAttachedFile(null); setDocTypeHint("auto"); setLoading(true);
     setDocumentProposal(null); setPendingAction(null);
 
     try {
+      const baseMessage = sentInput || "Analiza este comprobante contable y extrae los datos para su registro en Alegra.";
       const payload = {
         session_id: sessionId,
-        message: sentInput || "Analiza este comprobante contable y extrae los datos para su registro en Alegra.",
+        message: typeHint + baseMessage,
         ...(sentFile ? { file_content: sentFile.base64, file_name: sentFile.name, file_type: sentFile.type } : {}),
       };
       const resp = await api.post("/chat/message", payload);
@@ -596,20 +641,47 @@ export default function AgentChatPage() {
 
       {/* Input area */}
       <div className="flex-shrink-0 bg-white relative" style={{ borderTop: "1px solid #E2E8F0", zIndex: 10000 }}>
-        {/* File preview */}
+        {/* File preview + type selector */}
         {attachedFile && (
-          <div className="px-4 pt-3 pb-1">
-            <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-sky-50 border border-sky-200"
-              data-testid="file-preview-strip">
-              {attachedFile.preview
-                ? <img src={attachedFile.preview} alt={attachedFile.name} className="w-8 h-8 rounded object-cover" />
-                : <FileText size={16} className="text-sky-500" />
-              }
-              <span className="text-xs font-medium max-w-[200px] truncate text-slate-700">{attachedFile.name}</span>
-              <button onClick={() => setAttachedFile(null)} className="hover:opacity-60 transition text-slate-400"
-                data-testid="remove-file-btn">
-                <X size={13} />
-              </button>
+          <div className="px-4 pt-3 pb-2">
+            {/* File row */}
+            <div className="flex items-center gap-2 mb-2.5">
+              <div className="flex items-center gap-2 flex-1 min-w-0 px-3 py-2 rounded-xl bg-sky-50 border border-sky-200"
+                data-testid="file-preview-strip">
+                {attachedFile.preview
+                  ? <img src={attachedFile.preview} alt={attachedFile.name} className="w-7 h-7 rounded object-cover flex-shrink-0" />
+                  : <FileText size={15} className="text-sky-500 flex-shrink-0" />
+                }
+                <span className="text-xs font-medium truncate text-slate-700 flex-1">{attachedFile.name}</span>
+                <button onClick={() => { setAttachedFile(null); setDocTypeHint("auto"); }}
+                  className="hover:opacity-60 transition text-slate-400 flex-shrink-0 ml-1"
+                  data-testid="remove-file-btn">
+                  <X size={13} />
+                </button>
+              </div>
+            </div>
+
+            {/* Type chips */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Tipo:</span>
+              {DOC_TYPE_OPTIONS.map((opt) => {
+                const isSelected = docTypeHint === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    onClick={() => setDocTypeHint(opt.value)}
+                    className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full font-semibold border transition-all"
+                    style={isSelected
+                      ? { background: opt.color || "linear-gradient(135deg, #00C4D4, #00C853)", color: "#fff", borderColor: opt.color || "#00C4D4" }
+                      : { background: "#fff", color: "#64748B", borderColor: "#E2E8F0" }
+                    }
+                    data-testid={`doc-type-chip-${opt.value}`}
+                  >
+                    <opt.icon size={10} />
+                    {opt.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
