@@ -1,274 +1,101 @@
-# RODDOS Contable IA — PRD
-
-**Fecha:** Febrero 2026
-**Versión:** 2.3
+# RODDOS Contable IA — Product Requirements Document
+**Versión**: 3.0.0 | **Actualizado**: Febrero 2026
 
 ---
 
-## Problema
+## PROBLEMA ORIGINAL
+ERP contable asistido por IA para RODDOS Colombia SAS — concesionario Auteco en Bogotá.
+Venta de motos a crédito (pagos semanales los miércoles). Integración con Alegra ERP.
 
-Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente que automatice el registro de transacciones contables, reduzca errores en la selección de cuentas NIIF, y acelere el trabajo diario a través de un asistente de IA.
+## ARQUITECTURA ACTUAL
+Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
 
----
+## STACK
+- **Backend**: FastAPI + Motor async MongoDB + APScheduler (America/Bogota)
+- **Frontend**: React 19 + TypeScript (migración en curso) + Tailwind + Shadcn/UI
+- **IA**: Claude Sonnet 4.5 via `emergentintegrations`
+- **ERP**: Alegra API v1
+- **Auth**: JWT + TOTP 2FA
 
-## Usuarios
-
-- **Administrador (contabilidad@roddos.com):** Acceso total, configura credenciales Alegra, cuentas predeterminadas, modo demo.
-- **Contador (compras@roddos.com):** Acceso a módulos, puede cambiar cuentas en cada formulario.
-
----
-
-## Arquitectura
-
-- **Frontend:** React 18 + Tailwind CSS + shadcn/ui · React Router v7 · react-markdown
-- **Backend:** FastAPI (Python) + MongoDB · Puerto 8001
-- **IA:** Claude Sonnet 4.5 via emergentintegrations (EMERGENT_LLM_KEY)
-- **Integración:** Alegra REST API (Basic Auth) — modo Demo con mock data NIIF Colombia
-- **PDF Parsing:** pdfplumber + Claude AI para extracción de facturas Auteco
-
----
-
-## Módulos Implementados (v2.2)
-
-### 1. Autenticación
-- Login con JWT (bcrypt + PyJWT)
-- Roles admin/user
-- Botones demo en login
-- **Sitio completamente privado** — todas las rutas requieren autenticación
-
-### 2. Dashboard Financiero
-- 4 KPIs: Ventas, Gastos, Flujo de caja, Por cobrar
-- **Filtro por fechas** (desde/hasta) — default mes actual
-- Subtítulo dinámico con período seleccionado
-- Gráfico de área (AreaChart recharts) — Ingresos vs Gastos 6 meses **con datos reales de Alegra**
-- Tablas: Últimas facturas de venta y compra del período seleccionado
-
-### 3. Facturación de Venta (Módulo 1)
-- Lista de facturas con **filtro por fechas** (default mes actual)
-- Nueva factura con: **Plan de pago** (Contado/P39S/P52S/P78S), auto-cálculo fecha finalización
-- **Diálogo de confirmación** antes de anular factura
-- Preview asiento contable en tiempo real (JournalEntryPreview)
-- POST /invoices → Alegra
-
-### 4. Facturación de Compra (Módulo 2)
-- Lista de facturas de proveedor con **filtro por fechas**
-- Nueva factura de compra con: **Plazo de pago** (Contado/30/60/80/90 días), auto-cálculo fecha pago
-- POST /bills → Alegra
-
-### 5. Registro de Cuotas (Módulo 3)
-- Lista facturas abiertas desde Alegra — **solo desde marzo 2026**
-- Banner informativo integración con módulo Loanbook
-- Formulario de pago con selección de cuenta bancaria
-- POST /payments → Alegra
-
-### 6. Causación de Ingresos (Módulo 4)
-- **Panel "Manual de uso"** con guía completa e integración IA
-- Causación con tipo de ingreso (operacional, no operacional, etc.)
-- Auto-carga cuenta de ingreso según tipo
-- Preview asiento completo con validación débitos = créditos
-- POST /journal-entries → Alegra
-
-### 7. Causación de Egresos (Módulo 5)
-- Causación con tipo de egreso (arrendamiento, honorarios, personal, etc.)
-- Validación de cuentas NIIF
-- POST /journal-entries → Alegra
-
-### 8. Conciliación Bancaria (Módulo 8)
-- Selector de cuenta bancaria
-- Tabla de movimientos con checkbox
-- POST /bank-accounts/{id}/reconciliations → Alegra
-
-### 9. Motos (Módulo 9)
-- **Upload de factura PDF de Auteco** → Claude AI extrae datos de motos
-- Tabla de inventario: Placa, Marca, Versión, Color, Año, Motor, Chasis, Costo, IVA, IPOC, Total, Estado, Ubicación
-- **Registro automático de cada moto como ítem en Alegra** (POST /items)
-- Estados: Disponible, Vendida, Entregada
-- CRUD completo en MongoDB (inventory_service.py)
-
-### 10. Impuestos y Alertas (Módulo 6)
-- **IVA configurable**: periodicidad (bimestral/cuatrimestral/anual) + períodos personalizados
-- **Saldo a favor DIAN**: campo configurable
-- **Estado en tiempo real desde Alegra**: IVA cobrado acumulado, IVA descontable, proyección
-- **Sugerencias inteligentes** para reducir IVA
-- Calendario fiscal dinámico basado en configuración guardada
-
-### 11. Retenciones (Módulo 7)
-- Calculadora ReteFuente según tipo de transacción (tabla DIAN 2025)
-- Cálculo ReteIVA y ReteICA por ciudad
-
-### 12. Nómina (Módulo 9)
-- Liquidación de nómina para múltiples empleados
-- SMLMV 2025: $1,423,500 | Aux. Transporte: $200,000
-- Deducciones empleado + aportes patronales
-- Causación automática → POST /journal-entries Alegra
-
-### 13. Prestaciones Sociales (Módulo 10)
-- Calculadora cesantías, intereses cesantías, prima, vacaciones
-
-### 14. Estado de Resultados (Módulo 11)
-- Ingresos vs egresos del período
-- Gráfico BarChart por mes
-
-### 15. Egresos Clasificados (Módulo 12)
-- Clasificación automática fijos vs variables
-- PieChart de distribución
-- Top proveedores con barra de progreso
-
-### 16. Presupuesto (Módulo 13)
-- Plan presupuestal mensual almacenado en MongoDB
-- Comparación vs ingresos reales de Alegra
-
-### 17. Configuración (Settings)
-- Tab "Integración Alegra": email + token + botón probar conexión
-- Toggle modo demo (activo por defecto)
-- Tab "Cuentas Predeterminadas"
-- Tab "Mercately" (admin-only)
-
-### 18. Asistente IA Chat — PANTALLA COMPLETA (v2.2)
-- **Primera pantalla tras login**: chat full-screen a `/agente-contable`
-- **Sidebar**: "Agente Contable" como PRIMER ítem con badge verde parpadeante
-- **Botón flotante ELIMINADO**: chat integrado como página principal
-- **Mensaje de bienvenida** personalizado al iniciar sesión
-- **Function calling real**: Claude detecta intención → genera payload JSON → tarjeta confirmación → ejecuta en Alegra
-- **Respuestas en Markdown**: bold, listas, tablas, código renderizados correctamente
-- **Chat persistente**: historial cargado desde MongoDB por `session_id` estable
-- Acciones soportadas: crear_factura_venta, registrar_factura_compra, crear_causacion, registrar_pago, crear_contacto, registrar_entrega
-
-### 19. Procesamiento de Documentos PDF/Imagen (v2.2 — NUEVO)
-- **Adjuntar archivos**: ícono 📎, drag & drop sobre chat, Ctrl+V portapapeles
-- **Vista previa** del archivo en barra de entrada antes de enviar
-- **Análisis multimodal**: backend envía archivo a Claude Sonnet vía FileContent (emergentintegrations)
-- **System prompt específico** para extracción de: tipo documento, proveedor, NIT, montos, fecha, concepto, retenciones
-- **Tarjeta de propuesta editable**: todos los campos editables inline antes de confirmar
-- **Detección Loanbook**: identifica pagos de cuotas de Loanbook RODDOS
-- **Manejo documentos ilegibles**: muestra campos faltantes con advertencia
-- **Flujo confirm**: datos confirmados → Claude construye payload → ejecución automática en Alegra
-- Solo imágenes (JPG, PNG, WebP) y PDF soportados, máx 20MB
+## REGLAS DE NEGOCIO CRÍTICAS
+- Cobro SIEMPRE miércoles. Primer cobro = primer miércoles >= (entrega + 7 días)
+- Planes: P39S (39 sem) / P52S (52 sem) / P78S (78 sem)
+- Mora: 15% EA. Día 1 mora = jueves
+- Máximo sin pago: 21 días. DPD=22 activa recuperación
+- Módulo cobranza = RADAR (ruta /radar). NUNCA llamar 'cartera' o 'cola de cobranza'
+- Alegra: SIEMPRE /categories. NUNCA /accounts (devuelve 403)
 
 ---
 
-## Configuración .env Backend
-- MONGO_URL: Local MongoDB
-- DB_NAME: roddos_contable
-- JWT_SECRET: configurado
-- EMERGENT_LLM_KEY: configurado (Claude Sonnet 4.5)
+## LO QUE EXISTE Y FUNCIONA ✅
+
+### Core IA
+- Agente IA conversacional (texto + documentos con Claude Sonnet)
+- Flujo venta moto → Loanbook automático
+- Entrega física → generación fechas cuotas (regla miércoles)
+- Causaciones con tabla débito/crédito (ExecutionCard)
+- TerceroCard: detecta proveedores nuevos, crea en Alegra, reanuda acción original
+- Selector de tipo de documento (chips al adjuntar archivo)
+
+### Módulos Operativos
+- Loanbook: CRUD, registro de pagos y entrega, KPIs
+- Cartera/RADAR: cola remota URGENTE/HOY/PREVENTIVO, vistas semanal/mensual
+- Inventario motos con carga PDFs Auteco
+- Repuestos: catálogo, stock, facturación
+- Control IVA cuatrimestral
+
+### Configuración
+- **Catálogo de Motos** (BUILD 1 ✅): Sport 100, Raider 125 precargados. CRUD completo con edición inline y toggle activo/inactivo
+- Credenciales Alegra, modo demo, cuentas predeterminadas
+- 2FA con Google Authenticator (TOTP)
+- Bot Telegram (infraestructura completa)
+
+### Seguridad / Datos
+- Mutex anti-doble venta en loanbook (BUILD 1 ✅)
+- Resolución DIAN verificada y funcional (ID 17, vigente hasta 2027-03-06)
 
 ---
 
-## Colecciones MongoDB
-- **users**: id, email, password_hash, name, role, is_active, created_at
-- **alegra_credentials**: id, email, token, is_demo_mode
-- **default_accounts**: operation_type, account_id, account_code, account_name
-- **chat_messages**: id, session_id, role, content, timestamp, user_id
-- **audit_logs**: id, user_id, user_email, endpoint, method, request_body, response_status, timestamp
-- **inventario_motos**: id, marca, version, color, ano_modelo, motor, chasis, costo, iva_compra, ipoconsumo, total, estado, placa, ubicacion, alegra_item_id, archivo_origen, created_at
-- **presupuesto**: id, mes, ano, categoria, concepto, valor_presupuestado, cuenta_alegra_id, updated_at
-- **loanbook**: id, codigo, cliente_nombre, factura_alegra_id, plan, num_cuotas, saldo_pendiente, estado, cuotas[]
-- **agent_memory**: id, user_id, tipo, descripcion, payload_alegra, cuentas_usadas, frecuencia_count
+## MIGRACIÓN TYPESCRIPT (en curso)
+Política: Migrar a .tsx/.ts al tocar cada archivo. No migrar en bloque.
+- ✅ Settings.js → Settings.tsx (BUILD 1)
+- Pendiente: App.js, Login.js, AgentChatPage.js, Loanbook.js, Cartera.js, etc.
 
 ---
 
-## Backlog Priorizado
+## BACKLOG (por prioridad)
 
 ### P0 — Crítico
-- Ninguno pendiente (registrar_factura_compra corregido 2026-03-13)
+- Pruebas E2E Telegram completas con token real
+- Renombrar módulo cartera → RADAR (radar.py, Radar.tsx, ruta /radar)
 
 ### P1 — Alta prioridad
-- Verificación E2E procesamiento documentos con comprobantes reales
-- Dashboard rediseño con feed de eventos en tiempo real
-- Sincronización Loanbook ↔ Cartera verificación E2E
-- Notificaciones de facturas próximas a vencer
+- BUILD 2: Módulo RADAR completo (BucketBadge, RadarCard, cola priorizada, scores A+..E)
+- BUILD 3: Loanbook mejorado (LoanDetail.tsx, CuotaTimeline, MoraCalculator)
+- BUILD 4: CRM de clientes (ClientDetail, notas APPEND-ONLY, historial gestiones)
+- Directorio de Terceros (CRUD contactos Alegra desde RODDOS)
+- Integración WhatsApp Mercately (infraestructura en settings lista)
+- Nómina y Prestaciones con cálculo real NIIF Colombia
 
-### P2 — Mejoras
-- Integración Mercately (WhatsApp) — requiere credenciales del usuario
-- Módulo ventas motos (vinculado al inventario)
-- Log de auditoría visible en UI
-- Autocomplete items en facturas
-- Módulo gestión de usuarios desde UI admin
-- Webhooks de Alegra (invoice.created, payment.created)
+### P2 — Media prioridad
+- Dashboard KPIs tiempo real (APScheduler + shared_state.py)
+- CFO Agent (semáforo financiero, informe mensual, plan de acción)
+- Estado de Resultados automático desde Alegra
+- Motor de alertas activo (detección mora automática)
+
+### P3 — Baja prioridad / Futuro
+- Multi-empresa / roles granulares
+- Integración DIAN para declaración IVA
+- App móvil PWA para vendedores
 
 ---
 
-## Credenciales de prueba
-- Admin: contabilidad@roddos.com / Admin@RODDOS2025!
-- Usuario: compras@roddos.com / Contador@2025!
+## COLECCIONES MONGODB (nombres exactos — no crear variantes)
+loanbook · cartera_pagos · crm_clientes · inventario_motos · catalogo_motos
+roddos_events · agent_memory · cfo_informes · cfo_alertas
+mercately_sessions · mercately_config · presupuesto · alegra_credentials
+users · audit_logs
 
----
-
-## Changelog
-- 2025-03: Login bug P0 corregido
-- 2025-03: Exportación PDF + Excel en Estado de Resultados, Facturación Venta/Compra, Inventario
-- 2025-03: Rediseño Dark Mode según brandbook RODDOS: #121212, #00E5FF, #00C853
-- 2025-03: Conexión real Alegra activada — RODDOS SAS
-- 2026-02: Fix /api/alegra/accounts → GET /categories (233 cuentas reales NIIF)
-- 2026-02: AI Chat — gather_accounts_context() + sistema aprendizaje patrones
-- 2026-03-13: Sprint Agente Contable — Cartera mobile, Loanbook, post_action_sync, Bus de Eventos
-- 2026-03-13: Fix CRÍTICO journal-entries → /journals, formato entries corregido
-- 2026-03-13: Auditoría Integración Alegra — 64/67 puntos verificados (96%)
-- **2026-03-13 v2.5: MINI-RESUMEN VISUAL + DETECCIÓN NUEVO TERCERO**
-  - ExecutionCard mejorado: tabla débito/crédito para causaciones (con totales y validación de balance)
-  - ExecutionCard mejorado: tabla de items para facturas de compra/venta (cant, precio, subtotal)
-  - TerceroCard nuevo componente: aparece cuando action.type='crear_contacto', campos editables (nombre, NIT, email), cuenta contable sugerida, preview de la acción siguiente
-  - Flujo secuencial: crear_contacto → retorna next_pending_action → muestra nuevo ExecutionCard automáticamente
-  - Sistema prompt: formato identificationObject para contactos Alegra Colombia + NIT duplicado en 'identification' para pre-poblar formulario
-  - Handler crear_contacto: auto-fix nameObject.lastName vacío, strip campos internos, retorna next_pending_action
-  - Handler crear_causacion: strip campo 'name' de entries antes de llamar Alegra
-- **2026-03-13 v2.5 (update): NIT pre-poblado en TerceroCard + sistema prompt identificationObject**
-  - ExecutionCard mejorado: tabla débito/crédito para causaciones (con totales y validación de balance)
-  - ExecutionCard mejorado: tabla de items para facturas de compra/venta (cant, precio, subtotal)
-  - TerceroCard nuevo componente: aparece cuando action.type='crear_contacto', campos editables (nombre, NIT, email), cuenta contable sugerida, preview de la acción siguiente
-  - Flujo secuencial: crear_contacto → retorna next_pending_action → muestra nuevo ExecutionCard automáticamente
-  - Sistema prompt actualizado: formato identificationObject para contactos Alegra Colombia
-  - Handler crear_contacto: auto-fix de nameObject.lastName vacío, strip campos internos
-  - Handler crear_causacion: strip campo 'name' de entries antes de llamar Alegra
-- **2026-03-13 v2.4: SELECTOR DE TIPO DE DOCUMENTO (CHIPS)**
-  - 4 chips aparecen al adjuntar archivo: Auto-detectar, Factura servicio, Compra motos/productos, Pago/Cuota
-  - Cada chip inyecta un hint al AI para enrutar la acción contable correcta sin ambigüedad
-  - Badge de tipo visible en el mensaje enviado (en la burbuja del usuario)
-  - Send button z-index final: 10000 (supera badge Emergent 9999)
-- **2026-03-13 v2.3 (update): FIX P0 FACTURA COMPRA + BOTÓN ENVÍO CHAT**
-  - registrar_factura_compra corregido: SOLO productos físicos del catálogo (purchases.items)
-  - Para servicios (arrendamiento, honorarios, utilities): AI redirige a crear_causacion
-  - gather_context ahora carga items_catalogo de Alegra para escenarios de compra
-  - Botón Send del chat: z-index aumentado a 10000 (superando insignia Emergent 9999)
-  - AIChatWidget.js eliminado del repositorio
-  - System prompt aclarado con regla crítica de dos tipos de factura de compra
-- **2026-03-13 v2.2 (update): FONDOS BLANCOS + TELEGRAM BOT**
-  - Chat IA rediseñado a tema claro: fondo #F8FAFC, burbujas blancas, texto oscuro — consistente con el resto de la app
-  - Markdown en chat: strong azul, tablas con bordes, code blocks con fondo gris claro
-  - Telegram Bot: router `/app/backend/routers/telegram.py` nuevo
-    - Webhook: POST /api/telegram/webhook (público, sin JWT)
-    - Config: GET/POST/DELETE /api/telegram/config (protegido)
-    - Flujo: foto/PDF → download de Telegram → análisis Claude → propuesta formateada en HTML → /si ejecuta en Alegra
-    - Texto libre también funciona (ruta al agente contable principal)
-  - Settings → tab "Telegram Bot": instrucciones + token input + estado webhook + guía de uso
-  - Chat de IA transformado a página full-screen (`/agente-contable`) — botón flotante eliminado
-  - Login redirige a `/agente-contable` como pantalla principal
-  - Sidebar: "Agente Contable" como primer ítem con badge verde parpadeante
-  - react-markdown integrado: respuestas con bold, listas, tablas, código renderizados
-  - Historial de chat persistente por sesión (cargado desde MongoDB)
-  - Procesamiento multimodal PDF/Imagen: FileContent de emergentintegrations
-  - Tarjeta de propuesta editable con campos inline (proveedor, NIT, fecha, montos)
-  - Drag & drop, clip 📎 y Ctrl+V para adjuntar archivos
-  - Detección automática pagos Loanbook
-  - System prompt específico para análisis contable de documentos
-
-
-### Fase 4: Mejoras de UX + Correcciones Críticas (Feb 2026)
-- **Selector de tipo de documento**: Chips (Auto/Factura servicio/Compra motos/Pago) al adjuntar archivo. Inyecta pistas específicas al prompt de Claude.
-- **ExecutionCard mejorada**: Tabla débito/crédito antes de confirmar causaciones. Filas items para facturas. Balance check (débitos = créditos).
-- **TerceroCard + Flujo de Nuevo Tercero**: Detecta proveedores/clientes inexistentes en Alegra. Propone crear_contacto con _next_action embebido. Reemplaza __NEW_CONTACT_ID__ con ID real tras creación. Auto-ejecuta acción original.
-- **Corrección crítica**: Servicios → `/journals` (crear_causacion). Productos físicos → `/bills` (registrar_factura_compra). La IA ahora diferencia correctamente.
-- **Fix z-index**: Botón de envío del chat no bloqueado por overlay modal.
-- **Documento de arquitectura**: `/app/memory/ARCHITECTURE.md` generado con mapa completo de módulos, conexiones, flujos y análisis de brechas.
-
-### Backlog Pendiente (por prioridad)
-- P0: Probar Telegram E2E + gestión multi-usuario
-- P0: Renovar resolución DIAN en Alegra (vence 2026-03-06 → facturas en borrador)
-- P1: Dashboard KPIs tiempo real
-- P1: Directorio de Terceros (CRUD contactos Alegra desde RODDOS)
-- P1: Integración WhatsApp (Mercately — infraestructura ya en settings)
-- P1: Nómina y Prestaciones reales
-- P2: Estado de Resultados automático
-- P2: Motor de alertas activo
-- P3: App móvil PWA
+## ENDPOINTS (no inventar variantes)
+Ver `/app/memory/ARCHITECTURE.md` sección 3.6 para lista completa.
+NUNCA crear /api/cartera/* — la ruta correcta es /api/radar/*
