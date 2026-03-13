@@ -205,6 +205,14 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
 - 2026-03-13: Sprint Agente Contable — Cartera mobile, Loanbook, post_action_sync, Bus de Eventos
 - 2026-03-13: Fix CRÍTICO journal-entries → /journals, formato entries corregido
 - 2026-03-13: Auditoría Integración Alegra — 64/67 puntos verificados (96%)
+- **2026-03-13 v2.5: MINI-RESUMEN VISUAL + DETECCIÓN NUEVO TERCERO**
+  - ExecutionCard mejorado: tabla débito/crédito para causaciones (con totales y validación de balance)
+  - ExecutionCard mejorado: tabla de items para facturas de compra/venta (cant, precio, subtotal)
+  - TerceroCard nuevo componente: aparece cuando action.type='crear_contacto', campos editables (nombre, NIT, email), cuenta contable sugerida, preview de la acción siguiente
+  - Flujo secuencial: crear_contacto → retorna next_pending_action → muestra nuevo ExecutionCard automáticamente
+  - Sistema prompt actualizado: formato identificationObject para contactos Alegra Colombia
+  - Handler crear_contacto: auto-fix de nameObject.lastName vacío, strip campos internos
+  - Handler crear_causacion: strip campo 'name' de entries antes de llamar Alegra
 - **2026-03-13 v2.4: SELECTOR DE TIPO DE DOCUMENTO (CHIPS)**
   - 4 chips aparecen al adjuntar archivo: Auto-detectar, Factura servicio, Compra motos/productos, Pago/Cuota
   - Cada chip inyecta un hint al AI para enrutar la acción contable correcta sin ambigüedad
