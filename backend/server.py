@@ -92,6 +92,20 @@ async def startup():
             "is_demo_mode": True, "updated_at": datetime.now(timezone.utc).isoformat()
         })
 
+    # Create indexes for performance
+    try:
+        await db.agent_memory.create_index([("user_id", 1), ("tipo", 1)])
+        await db.agent_memory.create_index([("frecuencia_count", -1)])
+        await db.agent_memory.create_index([("ultima_ejecucion", -1)])
+        await db.audit_logs.create_index([("timestamp", -1)])
+        await db.audit_logs.create_index([("user_email", 1), ("timestamp", -1)])
+        await db.chat_messages.create_index([("session_id", 1), ("timestamp", 1)])
+        await db.inventario_motos.create_index([("estado", 1)])
+        await db.inventario_motos.create_index([("chasis", 1)], unique=True, sparse=True)
+        logger.info("MongoDB indexes ensured")
+    except Exception as e:
+        logger.warning(f"Index creation warning (non-fatal): {e}")
+
 
 @app.on_event("shutdown")
 async def shutdown():
@@ -197,6 +211,7 @@ async def get_credentials(current_user=Depends(require_admin)):
 @api_router.post("/settings/credentials")
 async def save_credentials(req: SaveCredentialsRequest, current_user=Depends(require_admin)):
     await db.alegra_credentials.update_one({}, {"$set": {"email": req.email, "token": req.token, "updated_at": datetime.now(timezone.utc).isoformat()}}, upsert=True)
+    AlegraService(db).invalidate_settings_cache()
     return {"message": "Credenciales guardadas correctamente"}
 
 
@@ -355,7 +370,11 @@ async def create_reconciliation(account_id: str, body: dict, current_user=Depend
 
 @api_router.post("/chat/message")
 async def chat_message(req: ChatMessageRequest, current_user=Depends(get_current_user)):
-    return await process_chat(req.session_id, req.message, db, current_user)
+    try:
+        return await process_chat(req.session_id, req.message, db, current_user)
+    except Exception as e:
+        logger.error(f"Chat error for user {current_user.get('email')}: {e}")
+        raise HTTPException(status_code=503, detail="El asistente IA no está disponible momentáneamente. Por favor intenta de nuevo en unos segundos.")
 
 
 class ExecuteActionRequest(BaseModel):
@@ -385,11 +404,7 @@ async def clear_chat(session_id: str, current_user=Depends(get_current_user)):
 
 
 # ─── AUDIT LOGS ───────────────────────────────────────────────────────────────
-
-@api_router.get("/audit-logs")
-async def get_audit_logs(current_user=Depends(require_admin)):
-    logs = await db.audit_logs.find({}, {"_id": 0}).sort("timestamp", -1).limit(100).to_list(100)
-    return logs
+# Note: Full implementation with pagination/filters is below at /audit-logs (line ~932)
 
 
 # ─── INVENTARIO AUTECO ────────────────────────────────────────────────────────
@@ -985,9 +1000,18 @@ async def get_webhook_status(current_user=Depends(require_admin)):
     return cfg or {"webhook_id": None, "url": None, "registered_at": None}
 
 
-# Public endpoint — no auth — receives events from Alegra
+# Public endpoint — receives events from Alegra
+# Protected by a shared secret in the X-Alegra-Secret header (configure in Alegra webhook settings)
 @app.post("/api/webhook/alegra")
 async def receive_webhook(request: Request):
+    # Basic secret validation (optional but recommended — set WEBHOOK_SECRET in .env)
+    webhook_secret = os.environ.get("WEBHOOK_SECRET", "")
+    if webhook_secret:
+        incoming = request.headers.get("X-Alegra-Secret", "") or request.headers.get("Authorization", "")
+        if incoming != webhook_secret:
+            # Log the attempt but return 200 to not reveal the endpoint exists
+            logger.warning(f"Webhook: invalid secret from {request.client.host if request.client else 'unknown'}")
+            return {"ok": True}
     try:
         body = await request.json()
     except Exception:

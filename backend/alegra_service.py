@@ -1,7 +1,7 @@
 import base64
 import uuid
 import httpx
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from fastapi import HTTPException
 from mock_data import (
     MOCK_ACCOUNTS, MOCK_CONTACTS, MOCK_ITEMS, MOCK_TAXES, MOCK_RETENTIONS,
@@ -11,14 +11,34 @@ from mock_data import (
 
 ALEGRA_BASE_URL = "https://api.alegra.com/api/v1"
 
+# In-memory TTL caches (per-token)
+_settings_cache: dict = {}   # {key: (expires_at, data)}
+_accounts_cache: dict = {}   # {key: (expires_at, data)}
+_SETTINGS_TTL = 60           # 1 minute
+_ACCOUNTS_TTL = 300          # 5 minutes
+
 
 class AlegraService:
     def __init__(self, db):
         self.db = db
 
     async def get_settings(self):
+        """Return Alegra credentials with 60s in-memory cache to avoid repeated MongoDB reads."""
+        cache_key = id(self.db)
+        now = datetime.now(timezone.utc)
+        if cache_key in _settings_cache:
+            expires_at, cached = _settings_cache[cache_key]
+            if now < expires_at:
+                return cached
         settings = await self.db.alegra_credentials.find_one({}, {"_id": 0})
-        return settings or {"email": "", "token": "", "is_demo_mode": True}
+        result = settings or {"email": "", "token": "", "is_demo_mode": True}
+        _settings_cache[cache_key] = (now + timedelta(seconds=_SETTINGS_TTL), result)
+        return result
+
+    def invalidate_settings_cache(self):
+        """Call after updating credentials."""
+        _settings_cache.pop(id(self.db), None)
+        _accounts_cache.pop(id(self.db), None)
 
     async def is_demo_mode(self):
         s = await self.get_settings()
@@ -122,14 +142,22 @@ class AlegraService:
         return {}
 
     async def get_accounts_from_categories(self):
-        """Fetch complete account tree via /categories (available on Alegra Contabilidad plan).
-        Replaces the blocked /accounts endpoint."""
+        """Fetch complete account tree via /categories with 5-minute in-memory cache.
+        Uses /categories endpoint (available on Alegra Contabilidad plan) instead of blocked /accounts."""
         if await self.is_demo_mode():
             return MOCK_ACCOUNTS
+        cache_key = f"accounts_{id(self.db)}"
+        now = datetime.now(timezone.utc)
+        if cache_key in _accounts_cache:
+            expires_at, cached = _accounts_cache[cache_key]
+            if now < expires_at:
+                return cached
         cats = await self.request("categories")
         if not cats or not isinstance(cats, list):
             return []
-        return self._transform_categories(cats)
+        result = self._transform_categories(cats)
+        _accounts_cache[cache_key] = (now + timedelta(seconds=_ACCOUNTS_TTL), result)
+        return result
 
     def _transform_categories(self, cats):
         """Recursively map Alegra /categories format → internal account tree (uses subAccounts key)."""
