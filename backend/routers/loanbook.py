@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from alegra_service import AlegraService
 from database import db
 from dependencies import get_current_user, require_admin, log_action
+from event_bus import emit_event
 
 router = APIRouter(prefix="/loanbook", tags=["loanbook"])
 
@@ -393,4 +394,18 @@ async def register_pago(loan_id: str, req: PagoRequest, current_user=Depends(get
     await log_action(current_user, f"/loanbook/{loan_id}/pago", "POST", {
         "cuota": req.cuota_numero, "valor": req.valor_pagado, "comprobante": comprobante_num
     })
+
+    # Emit event to bus
+    await emit_event(db, "loanbook", "pago.cuota.registrado", {
+        "loanbook_id": loan_id,
+        "codigo": loan["codigo"],
+        "cuota_numero": req.cuota_numero,
+        "total_cuotas": loan["num_cuotas"],
+        "valor_pagado": req.valor_pagado,
+        "metodo_pago": req.metodo_pago,
+        "cliente_nombre": loan["cliente_nombre"],
+        "comprobante": comprobante_num,
+        "registrado_por": current_user.get("email"),
+    })
+
     return {**loan, "comprobante": comprobante_num, "alegra_payment_id": alegra_payment_id}

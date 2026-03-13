@@ -1,4 +1,4 @@
-"""Dashboard router — proactive alerts, agent memory, notifications."""
+"""Dashboard router — proactive alerts, agent memory, notifications, events feed."""
 import uuid
 from datetime import datetime, timezone, date, timedelta
 from typing import Optional
@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from alegra_service import AlegraService
 from database import db
 from dependencies import get_current_user
+from event_bus import get_recent_events
 
 router = APIRouter(tags=["dashboard"])
 
@@ -176,3 +177,37 @@ async def mark_notification_read(notif_id: str, current_user=Depends(get_current
 async def mark_all_read(current_user=Depends(get_current_user)):
     await db.notifications.update_many({"read": False}, {"$set": {"read": True}})
     return {"ok": True}
+
+
+# ─── Events Feed ───────────────────────────────────────────────────────────────
+
+@router.get("/events/recent")
+async def get_events(limit: int = 20, current_user=Depends(get_current_user)):
+    """Return recent events from roddos_events bus (all modules)."""
+    events = await get_recent_events(db, limit=min(limit, 50))
+    return events
+
+
+@router.get("/events/stats")
+async def get_events_stats(current_user=Depends(get_current_user)):
+    """Return aggregate event counts for Dashboard KPIs."""
+    today_s = date.today().isoformat()
+    today_start = f"{today_s}T00:00:00"
+    today_end = f"{today_s}T23:59:59"
+
+    pipeline = [
+        {"$match": {"timestamp": {"$gte": today_start, "$lte": today_end}}},
+        {"$group": {"_id": "$event_type", "count": {"$sum": 1}}},
+    ]
+    raw = await db.roddos_events.aggregate(pipeline).to_list(50)
+    counts = {r["_id"]: r["count"] for r in raw}
+
+    total_events = await db.roddos_events.count_documents({})
+    total_today = sum(counts.values())
+
+    return {
+        "total_events": total_events,
+        "total_today": total_today,
+        "by_type": counts,
+        "fecha": today_s,
+    }

@@ -165,15 +165,23 @@ export default function AIChatWidget() {
         payload: action.payload,
       });
       const docId = resp.data.id || resp.data.result?.id || resp.data.result?.number || "";
-      const successMsg = `✅ ${action.title} ejecutado en Alegra${docId ? ` — ID: ${docId}` : ""}`;
+      const syncMessages = resp.data.sync?.sync_messages || [];
+
+      // Build rich result message: base + all sync messages
+      const baseMsg = `✅ **${action.title}** ejecutado en Alegra${docId ? ` — ID: ${docId}` : ""}`;
+      const fullContent = syncMessages.length > 0
+        ? `${baseMsg}\n\n**Módulos actualizados:**\n${syncMessages.join("\n")}`
+        : baseMsg;
+
       setMessages((prev) => [...prev, {
         role: "assistant",
-        content: successMsg,
+        content: fullContent,
         timestamp: new Date().toISOString(),
         isResult: true,
+        syncMessages,
       }]);
       setPendingAction(null);
-      toast.success(successMsg);
+      toast.success(`${action.title} ejecutado correctamente`);
     } catch (e) {
       const errMsg = e.response?.data?.detail || "Error al ejecutar en Alegra";
       setMessages((prev) => [...prev, {

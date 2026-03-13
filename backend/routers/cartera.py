@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 
 from database import db
 from dependencies import get_current_user
+from event_bus import emit_event
 from routers.loanbook import _update_overdue
 
 router = APIRouter(prefix="/cartera", tags=["cartera"])
@@ -215,3 +216,81 @@ async def get_cliente_record(cliente_id: str, current_user=Depends(get_current_u
         ).sort("fecha_pago", -1).to_list(500)
 
     return {"loans": loans, "historial_pagos": pagos}
+
+
+@router.get("/ruta-hoy")
+async def get_ruta_hoy(current_user=Depends(get_current_user)):
+    """Return today's field collection route: ALL overdue cuotas + today's cuotas.
+
+    Sorted by urgency: most-overdue first, then today.
+    Includes cliente_telefono for quick-call / WhatsApp actions.
+    """
+    today = date.today()
+    today_s = today.isoformat()
+
+    loans = await db.loanbook.find(
+        {"estado": {"$in": ["activo", "mora", "pendiente_entrega"]}}, {"_id": 0}
+    ).to_list(2000)
+
+    ruta: list[dict] = []
+    for loan in loans:
+        cuotas = _update_overdue(loan.get("cuotas", []))
+        for c in cuotas:
+            fv = c.get("fecha_vencimiento", "")
+            estado = c.get("estado", "")
+            # Only include unpaid cuotas due today or overdue
+            if estado in ("vencida", "pendiente") and fv <= today_s:
+                dias_vencida = (today - date.fromisoformat(fv)).days if fv else 0
+                ruta.append({
+                    "loanbook_id": loan["id"],
+                    "codigo": loan["codigo"],
+                    "factura_alegra_id": loan.get("factura_alegra_id", ""),
+                    "cliente_id": loan.get("cliente_id", ""),
+                    "cliente_nombre": loan["cliente_nombre"],
+                    "cliente_nit": loan.get("cliente_nit", ""),
+                    "cliente_telefono": loan.get("cliente_telefono", ""),
+                    "moto": loan.get("moto_descripcion", ""),
+                    "plan": loan["plan"],
+                    "cuota_numero": c["numero"],
+                    "fecha_vencimiento": fv,
+                    "valor": c["valor"],
+                    "estado": estado,
+                    "dias_vencida": dias_vencida,
+                    "es_hoy": fv == today_s,
+                    "fecha_pago": c.get("fecha_pago"),
+                    "valor_pagado": c.get("valor_pagado", 0),
+                    "comprobante": c.get("comprobante"),
+                    "total_cuotas": loan["num_cuotas"],
+                })
+
+    # Sort: most overdue first (dias_vencida DESC), then by client name
+    ruta.sort(key=lambda x: (-x["dias_vencida"], x["cliente_nombre"]))
+
+    # Cobrado hoy from cartera_pagos
+    pagos_hoy = await db.cartera_pagos.find({"fecha_pago": today_s}, {"_id": 0}).to_list(5000)
+    cobrado_hoy = sum(p.get("valor_pagado", 0) for p in pagos_hoy)
+
+    return {
+        "fecha": today_s,
+        "ruta": ruta,
+        "resumen": {
+            "total_por_cobrar": len(ruta),
+            "total_esperado": sum(c["valor"] for c in ruta),
+            "cobrado_hoy": cobrado_hoy,
+            "vencidas": sum(1 for c in ruta if c["dias_vencida"] > 0),
+            "para_hoy": sum(1 for c in ruta if c["dias_vencida"] == 0),
+        },
+    }
+
+
+@router.post("/{loanbook_id}/pago-rapido")
+async def pago_rapido(loanbook_id: str, body: dict, current_user=Depends(get_current_user)):
+    """Fast payment registration from Cartera mobile — delegates to loanbook router logic."""
+    from routers.loanbook import PagoRequest, register_pago
+    req = PagoRequest(
+        cuota_numero=body["cuota_numero"],
+        valor_pagado=float(body["valor_pagado"]),
+        metodo_pago=body.get("metodo_pago", "efectivo"),
+        notas=body.get("notas", ""),
+    )
+    return await register_pago(loanbook_id, req, current_user)

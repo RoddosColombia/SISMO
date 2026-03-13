@@ -395,17 +395,15 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
     endpoint, method = ACTION_MAP[action_type]
     result = await service.request(endpoint, method, payload)
 
-    # Save execution to audit
-    await db.audit_logs.insert_one({
-        "id": str(uuid.uuid4()),
-        "user_id": user.get("id"),
-        "user_email": user.get("email"),
-        "endpoint": f"/chat/execute/{action_type}",
-        "method": method,
-        "request_body": payload,
-        "response_status": 200,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    })
+    # POST ACTION SYNC — updates internal modules and emits events
+    from post_action_sync import post_action_sync
+    sync_result = await post_action_sync(
+        action_type,
+        result if isinstance(result, dict) else {},
+        payload,
+        db,
+        user,
+    )
 
     if isinstance(result, dict):
         doc_id = result.get("id") or result.get("number") or ""
@@ -455,4 +453,5 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
         "result": result,
         "id": doc_id,
         "message": "Ejecutado en Alegra exitosamente",
+        "sync": sync_result,
     }
