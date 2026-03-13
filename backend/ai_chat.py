@@ -185,9 +185,19 @@ El sistema calculará automáticamente:
 ═══════════════════════════════════════════════════
 FLUJO — FACTURA DE COMPRA (PROVEEDOR)
 ═══════════════════════════════════════════════════
-Si la compra incluye motos para inventario, incluye en el payload:
+⚠️ REGLA CRÍTICA — DOS TIPOS DE "FACTURA DE COMPRA":
 
-FORMATO EXACTO PARA REGISTRAR_FACTURA_COMPRA (Alegra API v1):
+1. COMPRA DE PRODUCTOS FÍSICOS (motos, inventario, mercancía):
+   → Usa: registrar_factura_compra → POST /bills
+   → REQUIERE: el item DEBE existir en el catálogo de Alegra (ver ITEMS_CATALOGO_ALEGRA en el contexto)
+   → Si no hay items del catálogo disponibles, NO puedes usar esta acción
+
+2. FACTURAS DE SERVICIOS (arrendamiento, honorarios, servicios públicos, asesorías):
+   → USA SIEMPRE: crear_causacion → POST /journals (NO registrar_factura_compra)
+   → Razón: Alegra no acepta servicios en bills — solo productos físicos del catálogo
+   → Registra el gasto con asiento contable: Débito Gasto + Crédito Proveedor + Retenciones
+
+FORMATO EXACTO PARA REGISTRAR_FACTURA_COMPRA (solo productos del catálogo):
 {
   "date": "YYYY-MM-DD",
   "dueDate": "YYYY-MM-DD",
@@ -196,7 +206,7 @@ FORMATO EXACTO PARA REGISTRAR_FACTURA_COMPRA (Alegra API v1):
   "purchases": {
     "items": [
       {
-        "id": "[item_id]",
+        "id": "[id_item_catalogo]",  ← OBLIGATORIO: ID numérico del catálogo de Alegra
         "quantity": [cant],
         "price": [precio_unitario_sin_iva],
         "tax": [{"id": "4"}]
@@ -206,8 +216,10 @@ FORMATO EXACTO PARA REGISTRAR_FACTURA_COMPRA (Alegra API v1):
 }
 
 NUNCA uses "items" en el nivel raíz para bills — SIEMPRE usa "purchases.items".
+NUNCA uses un item de servicio (type=service) en bills — solo type=product.
 NUNCA omitas dueDate ni paymentForm.
 
+Solo para compras de motos/inventario, incluye _metadata para auto-registro en inventario:
 {
   "_metadata": {
     "proveedor_nombre": "[nombre]",
@@ -388,6 +400,22 @@ async def gather_context(user_message: str, alegra_service, db) -> dict:
 
     # Pull IVA status for cuatrimestral context
     msg_lower = user_message.lower()
+
+    # ── Inject catalog items for compra/bill scenarios ──────────────────────
+    compra_kws = ["compra", "factura compra", "factura de compra", "bill", "proveedor",
+                  "moto", "inventario", "comprar", "adquisición", "adquisicion"]
+    if any(kw in msg_lower for kw in compra_kws):
+        try:
+            catalog_items = await alegra_service.request("items")
+            if isinstance(catalog_items, list):
+                context["items_catalogo"] = [
+                    {"id": it["id"], "name": it["name"], "type": it.get("type", ""),
+                     "status": it.get("status", "active")}
+                    for it in catalog_items
+                    if it.get("status") == "active" and it.get("type") == "product"
+                ]
+        except Exception:
+            pass
 
     # ── Inject available inventory context for moto sale scenarios ─────────
     sale_kws = ["vende", "venta", "moto", "cb", "fz", "tvs", "kawas", "akt", "chasis",
@@ -773,8 +801,12 @@ async def process_chat(
     else:
         iva_context_str = "Pregunta sobre IVA para obtener el estado actualizado del período cuatrimestral."
 
-    # Append inventory / loanbook context if injected
+    # Append inventory / loanbook / catalog items context if injected
     extra_context = ""
+    if context_data.get("items_catalogo"):
+        items_list = context_data["items_catalogo"]
+        lines = [f"  • [{it['id']}] {it['name']} (type={it['type']})" for it in items_list]
+        extra_context += "\n\nITEMS_CATALOGO_ALEGRA (IDs válidos para registrar_factura_compra → purchases.items):\n" + "\n".join(lines)
     if context_data.get("inventario_disponible"):
         motos_list = context_data["inventario_disponible"]
         lines = [f"  • [{m.get('id','')}] {m.get('marca','')} {m.get('version','')} {m.get('color','')} — Chasis: {m.get('chasis','')} Motor: {m.get('motor','')} Precio: ${m.get('total',0):,.0f}" for m in motos_list[:20]]

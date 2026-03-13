@@ -595,7 +595,7 @@ export default function AgentChatPage() {
       )}
 
       {/* Input area */}
-      <div className="flex-shrink-0 bg-white" style={{ borderTop: "1px solid #E2E8F0" }}>
+      <div className="flex-shrink-0 bg-white relative" style={{ borderTop: "1px solid #E2E8F0", zIndex: 50 }}>
         {/* File preview */}
         {attachedFile && (
           <div className="px-4 pt-3 pb-1">
