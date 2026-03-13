@@ -46,7 +46,7 @@ Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
 
 ### Configuración
 - **Catálogo de Motos** (BUILD 1 ✅): Sport 100, Raider 125 precargados. CRUD completo con edición inline y toggle activo/inactivo
-- **Bus de Datos y Shared State** (BUILD 2 ✅ — TEST 2 11/11 PASSED): 6 funciones async en shared_state.py (caché TTL 30s), APScheduler procesando eventos pendientes cada 60s con validación de event_type, emit_state_change como patrón unificado (DB + evento + caché), find_similar_pattern Jaccard ≥80% para sugerencias contables
+- **Scheduler DPD + Scores** (BUILD 3 ✅ — TEST BUILD3 10/10+Frontend PASS): migration_v24.py idempotente, 4 CRON jobs (DPD@06:00, Scores@06:30, RADAR@07:00, Resumen@Vie17:00 Bogotá), 4 endpoints /api/radar/*, endpoints gestion/ptp/snapshot, Loanbook.tsx con columnas DPD y Score, migración TypeScript App/Login/AgentChat.tsx
 - Credenciales Alegra, modo demo, cuentas predeterminadas
 - 2FA con Google Authenticator (TOTP)
 - Bot Telegram (infraestructura completa)
