@@ -142,6 +142,11 @@ export default function Dashboard() {
             <span style={{ color: "#444" }}>—</span>
             <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
               className="bg-transparent outline-none text-xs" style={{ color: "#CCC", width: 130 }} data-testid="dashboard-date-to" />
+            <button onClick={loadData}
+              className="ml-1 text-xs font-bold px-2.5 py-0.5 rounded-md transition"
+              style={{ background: "#00E5FF", color: "#000" }} data-testid="dashboard-apply-btn">
+              Aplicar
+            </button>
           </div>
           <button onClick={loadData}
             className="flex items-center gap-2 text-xs font-semibold px-3 py-2 rounded-lg transition"

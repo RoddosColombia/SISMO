@@ -125,20 +125,36 @@ class AlegraService:
             if method == "POST":
                 new_id = f"inv-{uuid.uuid4().hex[:6]}"
                 return {"id": new_id, "number": f"FV-2025-0{len(MOCK_INVOICES)+1:02d}", "status": "open", **body}
-            return MOCK_INVOICES
+            data = list(MOCK_INVOICES)
+            p = params or {}
+            if p.get("date_afterOrNow"):
+                data = [x for x in data if (x.get("date") or "9999") >= p["date_afterOrNow"]]
+            if p.get("date_beforeOrNow"):
+                data = [x for x in data if (x.get("date") or "0000") <= p["date_beforeOrNow"]]
+            if p.get("status"):
+                data = [x for x in data if x.get("status") == p["status"]]
+            return data
         if "bills" in endpoint:
             if method == "POST":
                 new_id = f"bill-{uuid.uuid4().hex[:6]}"
                 return {"id": new_id, "number": f"FC-2025-0{len(MOCK_BILLS)+1:02d}", "status": "open", **body}
-            return MOCK_BILLS
-        if "payments" in endpoint:
-            if method == "POST":
-                return {"id": f"pago-{uuid.uuid4().hex[:6]}", "status": "paid", **body}
-            return []
+            data = list(MOCK_BILLS)
+            p = params or {}
+            if p.get("date_afterOrNow"):
+                data = [x for x in data if (x.get("date") or "9999") >= p["date_afterOrNow"]]
+            if p.get("date_beforeOrNow"):
+                data = [x for x in data if (x.get("date") or "0000") <= p["date_beforeOrNow"]]
+            return data
         if "journal-entries" in endpoint:
             if method == "POST":
                 return {"id": f"ce-{uuid.uuid4().hex[:6]}", "number": f"CE-2025-0{len(MOCK_JOURNAL_ENTRIES)+1:02d}", **body}
-            return MOCK_JOURNAL_ENTRIES
+            data = list(MOCK_JOURNAL_ENTRIES)
+            p = params or {}
+            if p.get("date_afterOrNow"):
+                data = [x for x in data if (x.get("date") or "9999") >= p["date_afterOrNow"]]
+            if p.get("date_beforeOrNow"):
+                data = [x for x in data if (x.get("date") or "0000") <= p["date_beforeOrNow"]]
+            return data
         return {}
 
     async def get_accounts_from_categories(self):

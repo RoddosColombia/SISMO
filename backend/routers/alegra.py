@@ -64,9 +64,14 @@ async def get_invoices(
     status: Optional[str] = None,
     current_user=Depends(get_current_user),
 ):
-    return await AlegraService(db).request(
-        "invoices", params={"date_start": date_start, "date_end": date_end, "status": status}
-    )
+    params: dict = {"limit": 30}
+    if date_start:
+        params["date_afterOrNow"] = date_start
+    if date_end:
+        params["date_beforeOrNow"] = date_end
+    if status:
+        params["status"] = status
+    return await AlegraService(db).request("invoices", params=params)
 
 
 @router.post("/invoices")
@@ -88,7 +93,12 @@ async def get_bills(
     date_end: Optional[str] = None,
     current_user=Depends(get_current_user),
 ):
-    return await AlegraService(db).request("bills", params={"date_start": date_start, "date_end": date_end})
+    params: dict = {"limit": 30}
+    if date_start:
+        params["date_afterOrNow"] = date_start
+    if date_end:
+        params["date_beforeOrNow"] = date_end
+    return await AlegraService(db).request("bills", params=params)
 
 
 @router.post("/bills")
@@ -118,9 +128,12 @@ async def get_journal_entries(
     date_end: Optional[str] = None,
     current_user=Depends(get_current_user),
 ):
-    return await AlegraService(db).request(
-        "journal-entries", params={"date_start": date_start, "date_end": date_end}
-    )
+    params: dict = {"limit": 30}
+    if date_start:
+        params["date_afterOrNow"] = date_start
+    if date_end:
+        params["date_beforeOrNow"] = date_end
+    return await AlegraService(db).request("journal-entries", params=params)
 
 
 @router.post("/journal-entries")

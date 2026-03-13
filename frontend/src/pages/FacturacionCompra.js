@@ -203,6 +203,11 @@ export default function FacturacionCompra() {
           <span className="text-slate-300">—</span>
           <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
             className="outline-none text-xs text-slate-700" data-testid="bill-date-to" />
+          <button onClick={loadBills}
+            className="ml-1 bg-[#0F2A5C] text-white text-xs px-2.5 py-1 rounded-md hover:bg-[#163A7A] transition font-semibold"
+            data-testid="bill-filter-btn">
+            Buscar
+          </button>
         </div>
         <div className="relative flex-1 min-w-[200px]">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
