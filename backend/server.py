@@ -15,8 +15,10 @@ from starlette.middleware.cors import CORSMiddleware
 from auth import hash_password
 from database import db, client
 from routers import auth, settings, alegra, chat, inventory, taxes, budget, dashboard, audit
-from routers import repuestos, loanbook, cartera, telegram
+from routers import repuestos, loanbook, cartera, telegram, radar as radar_router
 from services.scheduler import start_scheduler, stop_scheduler
+from services.loanbook_scheduler import start_loanbook_scheduler, stop_loanbook_scheduler
+from migration_v24 import run_migration_v24
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -125,15 +127,20 @@ async def startup():
         await db.inventario_motos.create_index([("chasis", 1)], unique=True, sparse=True)
         await db.catalogo_motos.create_index([("activo", 1)])
         await db.roddos_events.create_index([("estado", 1), ("timestamp", -1)])
+        await db.loanbook.create_index([("dpd_bucket", 1)])
+        await db.loanbook.create_index([("score_pago", 1)])
         logger.info("MongoDB indexes ensured")
     except Exception as e:
         logger.warning(f"Index creation (non-fatal): {e}")
 
+    await run_migration_v24(db)
     start_scheduler()
+    start_loanbook_scheduler()
 
 
 @app.on_event("shutdown")
 async def shutdown():
+    stop_loanbook_scheduler()
     stop_scheduler()
     client.close()
 
@@ -176,7 +183,8 @@ app.include_router(taxes.router,     prefix=PREFIX)
 app.include_router(budget.router,    prefix=PREFIX)
 app.include_router(dashboard.router, prefix=PREFIX)
 app.include_router(audit.router,     prefix=PREFIX)
-app.include_router(repuestos.router, prefix=PREFIX)
-app.include_router(loanbook.router,  prefix=PREFIX)
-app.include_router(cartera.router,   prefix=PREFIX)
-app.include_router(telegram.router,  prefix=PREFIX)
+app.include_router(repuestos.router,     prefix=PREFIX)
+app.include_router(loanbook.router,      prefix=PREFIX)
+app.include_router(cartera.router,       prefix=PREFIX)
+app.include_router(telegram.router,      prefix=PREFIX)
+app.include_router(radar_router.router,  prefix=PREFIX)

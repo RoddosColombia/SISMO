@@ -27,6 +27,9 @@ KNOWN_EVENT_TYPES: frozenset[str] = frozenset({
     "factura.compra.creada",
     "repuesto.vendido",
     "loanbook.activado",
+    "loanbook.bucket_change",
+    "protocolo_recuperacion",
+    "ptp.registrado",
 })
 
 

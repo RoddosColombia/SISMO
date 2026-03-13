@@ -53,6 +53,22 @@ _STATE_RULES: dict[str, dict] = {
         "state_field": "estado",
         "invalidate": ["loanbook:", "portfolio_health", "daily_queue:"],
     },
+    "loanbook.bucket_change": {
+        "col": "loanbook",
+        "id_field": "id",
+        "state_field": "dpd_bucket",
+        "invalidate": ["loanbook:", "portfolio_health", "daily_queue:"],
+    },
+    "protocolo_recuperacion": {
+        "col": "loanbook",
+        "id_field": "id",
+        "state_field": "estado",
+        "invalidate": ["loanbook:", "portfolio_health", "daily_queue:"],
+    },
+    "ptp.registrado": {
+        "col": None,
+        "invalidate": ["loanbook:", "daily_queue:"],
+    },
     "factura.venta.creada": {
         "col": "inventario_motos",
         "id_field": "chasis",
@@ -116,6 +132,9 @@ _EVENT_LABELS: dict[str, str] = {
     "factura.venta.anulada":      "Factura de venta anulada",
     "pago.cuota.registrado":      "Pago de cuota registrado",
     "loanbook.activado":          "Loanbook activado — fechas de cuota asignadas",
+    "loanbook.bucket_change":     "Loanbook — cambio de bucket DPD",
+    "protocolo_recuperacion":     "Protocolo de recuperación activado (DPD ≥ 22)",
+    "ptp.registrado":             "Compromiso de pago (PTP) registrado",
     "inventario.moto.entrada":    "Moto ingresada al inventario",
     "inventario.moto.baja":       "Moto dada de baja",
     "cliente.mora.detectada":     "Cliente en mora detectado",
@@ -166,6 +185,13 @@ async def get_loanbook_snapshot(db, loanbook_id: str) -> dict:
             "fecha_entrega":        loan.get("fecha_entrega"),
             "proxima_cuota":        proxima,
             "cuotas_pendientes_count": len(pendientes),
+            # BUILD 3 — DPD y Score
+            "dpd_actual":              loan.get("dpd_actual", 0),
+            "dpd_bucket":              loan.get("dpd_bucket", "0"),
+            "dpd_maximo_historico":    loan.get("dpd_maximo_historico", 0),
+            "score_pago":              loan.get("score_pago", "A+"),
+            "estrella_nivel":          loan.get("estrella_nivel", 5),
+            "interes_mora_acumulado":  loan.get("interes_mora_acumulado", 0.0),
         }
 
     _cache_set(key, result)

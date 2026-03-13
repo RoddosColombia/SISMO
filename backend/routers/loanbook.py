@@ -42,6 +42,19 @@ class PagoRequest(BaseModel):
     metodo_pago: str = "efectivo"  # efectivo | transferencia | tarjeta
     notas: Optional[str] = ""
 
+class GestionRequest(BaseModel):
+    tipo: str        # llamada | mensaje | visita | otro
+    canal: str       # telefono | whatsapp | presencial
+    resultado: str   # contactó | no_contestó | prometió_pago | negó_pago | buzón
+    notas: Optional[str] = ""
+    ptp_fue_cumplido: Optional[bool] = None
+    gestion_por: Optional[str] = None
+
+class PtpRequest(BaseModel):
+    ptp_fecha: str   # ISO date
+    ptp_monto: float
+    registrado_por: Optional[str] = None
+
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -484,3 +497,91 @@ async def register_pago(loan_id: str, req: PagoRequest, current_user=Depends(get
     })
 
     return {**loan, "comprobante": comprobante_num, "alegra_payment_id": alegra_payment_id}
+
+
+# ─── BUILD 3 Endpoints ────────────────────────────────────────────────────────
+
+@router.post("/{loan_id}/gestion")
+async def register_gestion(loan_id: str, req: GestionRequest, current_user=Depends(get_current_user)):
+    """Registra una gestión de cobro → append a gestiones[] + update CRM."""
+    loan = await db.loanbook.find_one({"id": loan_id}, {"_id": 0})
+    if not loan:
+        raise HTTPException(status_code=404, detail="Plan no encontrado")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    gestion = {
+        "id":              str(uuid.uuid4()),
+        "fecha":           now_iso,
+        "tipo":            req.tipo,
+        "canal":           req.canal,
+        "resultado":       req.resultado,
+        "notas":           req.notas or "",
+        "ptp_fue_cumplido": req.ptp_fue_cumplido,
+        "gestion_por":     req.gestion_por or current_user.get("email"),
+    }
+
+    await db.loanbook.update_one(
+        {"id": loan_id},
+        {"$push": {"gestiones": gestion}, "$set": {"updated_at": now_iso}},
+    )
+
+    # Actualizar ultima_interaccion en CRM
+    crm_filter = (
+        {"id": loan["cliente_id"]} if loan.get("cliente_id")
+        else {"telefono_principal": loan.get("cliente_telefono", "")}
+    )
+    await db.crm_clientes.update_one(
+        crm_filter,
+        {"$set": {"ultima_interaccion": now_iso, "updated_at": now_iso}},
+    )
+
+    await log_action(current_user, f"/loanbook/{loan_id}/gestion", "POST",
+                     {"resultado": req.resultado, "canal": req.canal})
+    return {"id": loan_id, "gestion": gestion, "message": "Gestión registrada"}
+
+
+@router.post("/{loan_id}/ptp")
+async def register_ptp(loan_id: str, req: PtpRequest, current_user=Depends(get_current_user)):
+    """Registra un compromiso de pago (PTP) + emite evento al bus."""
+    from services.shared_state import emit_state_change
+
+    loan = await db.loanbook.find_one({"id": loan_id}, {"_id": 0})
+    if not loan:
+        raise HTTPException(status_code=404, detail="Plan no encontrado")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.loanbook.update_one(
+        {"id": loan_id},
+        {"$set": {
+            "ptp_fecha":          req.ptp_fecha,
+            "ptp_monto":          req.ptp_monto,
+            "ptp_registrado_por": req.registrado_por or current_user.get("email"),
+            "updated_at":         now_iso,
+        }},
+    )
+
+    await emit_state_change(
+        db, "ptp.registrado", loan_id, "ptp_activo", current_user.get("email"),
+        {"ptp_fecha": req.ptp_fecha, "ptp_monto": req.ptp_monto,
+         "codigo": loan.get("codigo")},
+    )
+
+    await log_action(current_user, f"/loanbook/{loan_id}/ptp", "POST",
+                     {"ptp_fecha": req.ptp_fecha, "ptp_monto": req.ptp_monto})
+    return {
+        "id":        loan_id,
+        "ptp_fecha": req.ptp_fecha,
+        "ptp_monto": req.ptp_monto,
+        "message":   "PTP registrado",
+    }
+
+
+@router.get("/{loan_id}/snapshot")
+async def get_snapshot(loan_id: str, current_user=Depends(get_current_user)):
+    """Snapshot del loanbook desde shared_state (caché TTL 30 s)."""
+    from services.shared_state import get_loanbook_snapshot
+
+    snapshot = await get_loanbook_snapshot(db, loan_id)
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="Loanbook no encontrado")
+    return snapshot
