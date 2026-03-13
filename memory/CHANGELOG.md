@@ -1,6 +1,22 @@
 # RODDOS Contable IA — Changelog
 
-## 2026-03-13 — Mejoras Funcionales (Sesión actual)
+## 2026-03-13 — Refactorización Estructural: Bus de Eventos + Cartera Mobile-First
+
+### Backend — Arquitectura de Eventos
+- `post_action_sync.py`: Sync completo tras acciones del Agente IA → actualiza loanbook cuotas, inserta en cartera_pagos, emite eventos
+- `ai_chat.py`: Integra post_action_sync; respuesta incluye `sync.sync_messages` mostrando qué módulos fueron actualizados
+- `AIChatWidget.js`: Muestra sync_messages en el chat después de ejecutar cada acción
+- `routers/cartera.py`: Nuevo `GET /api/cartera/ruta-hoy` — vencidas + hoy con info de contacto
+- `routers/dashboard.py`: Nuevos `GET /api/events/recent` y `GET /api/events/stats`
+- `routers/loanbook.py`: Emite evento `pago.cuota.registrado` al bus tras registrar un pago
+
+### Frontend — Cartera Mobile-First
+- Rediseño completo de Cartera.js para cobrador de campo
+- Header dark con stats en tiempo real y barra de progreso de cobro del día
+- Tab "Ruta de Hoy": cuotas vencidas + para hoy con tarjetas coloreadas por urgencia
+- Botones COBRAR (verde), Llamar y WhatsApp en cada tarjeta
+- PagoBottomSheet: flujo de 3 toques para registrar un cobro, genera PDF automáticamente
+
 
 ### Dashboard
 - Filtro por fechas (desde/hasta) — default: mes actual

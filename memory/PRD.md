@@ -240,22 +240,36 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
 
 ## Backlog Priorizado
 
-### P0 — Crítico
-- Ninguno pendiente ✅
+### P0 — Próximas implementaciones (sesión anterior completó: Bus de Eventos + Cartera Mobile)
+
+**BLOQUE 1: Conexión Inventario ↔ Facturación**
+- Verificar stock antes de permitir facturación de motos
+- Descargar/revertir inventario al crear/anular factura de venta
+- Alertas de stock bajo → evento al bus
+
+**BLOQUE 4: Rediseño del Dashboard**
+- Consumir /api/events/recent para feed en tiempo real
+- KPIs críticos: cartera activa, mora, cuotas semana
+- Panel de alertas activas
+
+**BLOQUE 5: Sincronización Loanbook ↔ Cartera (verificación)**
+- E2E con datos reales de producción
+
+**BLOQUE 3B: Integración Mercately (WhatsApp)**
+- UI de configuración en Settings (tokens API)
+- Scaffold de envío de notificaciones
+- (requiere credenciales del usuario)
 
 ### P1 — Alta prioridad
-- Prueba end-to-end módulos contables (Causación Ingresos/Egresos, Nómina) con cuentas reales
-- Prueba creación de factura de venta real desde la aplicación
+- Prueba end-to-end módulos contables con cuentas reales
 - Notificaciones de facturas próximas a vencer
-- Módulo de ventas de motos Auteco (vinculado al inventario)
 
 ### P2 — Mejoras
-- Webhooks de Alegra (invoice.created, payment.created)
-- 2FA para administradores
+- Webhooks de Alegra
 - Log de auditoría visible en UI
-- Autocomplete items en facturas desde Alegra
-- Módulo de gestión de usuarios desde UI admin
-- Refactorizar server.py en APIRouters modulares
+- Autocomplete items en facturas
+- Módulo gestión de usuarios desde UI admin
+
 
 ## Refactoring ejecutado — Feb 2026
 server.py 1.056 líneas → 130 líneas (thin bootstrap)
