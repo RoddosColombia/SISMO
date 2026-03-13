@@ -146,7 +146,7 @@ export default function Settings() {
           <TabsTrigger value="alegra" data-testid="tab-alegra">Integración Alegra</TabsTrigger>
           <TabsTrigger value="accounts" data-testid="tab-accounts">Cuentas Predeterminadas</TabsTrigger>
           {user?.role === "admin" && <TabsTrigger value="security" data-testid="tab-security">Seguridad</TabsTrigger>}
-          <TabsTrigger value="audit" data-testid="tab-audit">Auditoría</TabsTrigger>
+          {user?.role === "admin" && <TabsTrigger value="audit" data-testid="tab-audit">Auditoría</TabsTrigger>}
           <TabsTrigger value="webhooks" data-testid="tab-webhooks">Webhooks</TabsTrigger>
           {user?.role === "admin" && <TabsTrigger value="mercately" data-testid="tab-mercately">Mercately (WhatsApp)</TabsTrigger>}
         </TabsList>
@@ -422,7 +422,7 @@ function AuditTab({ api }) {
       const res = await api.get("/audit-logs", { params: { ...filters, limit: 50 } });
       setLogs(res.data.logs || []);
       setTotal(res.data.total || 0);
-    } catch { toast.error("Error cargando auditoría"); }
+    } catch(err) { if (err?.response?.status !== 403) toast.error("Error cargando auditoría"); }
     finally { setLoading(false); }
   }, [api, filters]);
 

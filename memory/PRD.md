@@ -237,6 +237,17 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
 - **2026-02: AI Chat — gather_accounts_context() carga plan de cuentas real en contexto del agente**
 - **2026-02: AI Chat — sistema de aprendizaje de patrones RODDOS: cuentas_usadas + frecuencia_count en agent_memory**
 - **2026-02: AI Chat — modo automático activo cuando patrón tiene 5+ usos**
+- **2026-03-13 (SPRINT AGENTE CONTABLE):**
+  - FIX CRÍTICO: SyntaxError en cartera.py (walrus operator `:=` inválido en dict literal)
+  - FIX CRÍTICO: `execute_chat_action` — `registrar_entrega` fallaba con ValueError porque el check `ACTION_MAP` estaba antes del case especial. Restructurado para ejecutar cases especiales primero.
+  - NUEVO: `post_action_sync.py` — sincronización completa post-acción IA (Inventario, Loanbook, Cartera, Eventos)
+  - NUEVO: `routers/loanbook.py` — flujo 3 momentos (Facturación→Entrega→Cobro), cuotas siempre miércoles
+  - NUEVO: `routers/cartera.py` — Cola de Gestión Remota (llamadas/WhatsApp), eliminada lógica de visitas en campo
+  - NUEVO: `ai_chat.py` — system prompt completo con 6 flujos, extracción _metadata, patrones aprendidos
+  - NUEVO: `Cartera.js` — UI mobile-first de cobranza remota reescrita completamente
+  - NUEVO: `AIChatWidget.js` — muestra sync_messages de módulos actualizados tras cada acción
+  - NUEVO: UI Mercately en Settings (tab admin-only): campos API Key/Secret + backend endpoints
+  - FIX: Tab Auditoría solo visible para admins (evita toast de error 403 para usuarios normales)
 
 ## Backlog Priorizado
 
