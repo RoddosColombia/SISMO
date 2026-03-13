@@ -53,6 +53,10 @@ class AlegraService:
 
             if resp.status_code == 401:
                 raise HTTPException(status_code=400, detail="Credenciales de Alegra inválidas. Verifique su email y token en Configuración.")
+            if resp.status_code == 403:
+                return []   # endpoint no disponible para este plan/cuenta — devolver lista vacía
+            if resp.status_code == 404:
+                return []
             if resp.status_code == 429:
                 raise HTTPException(status_code=429, detail="Límite de requests de Alegra excedido. Intente en un momento.")
             if resp.status_code >= 500:

@@ -116,8 +116,8 @@ export default function EstadoResultados() {
             { key: "total", label: "Total", width: 18 },
           ],
           rows: bills.map(bill => ({
-            numero: bill.numberTemplate?.fullNumber || bill.number || bill.id,
-            proveedor: bill.vendor?.name || "—",
+            numero: getDocNumber(bill),
+            proveedor: getVendorName(bill),
             fecha: bill.date || "—",
             total: parseFloat(bill.total || 0),
           })),
@@ -246,8 +246,8 @@ export default function EstadoResultados() {
                   <tbody>
                     {bills.map((bill, i) => (
                       <tr key={bill.id} className={`border-b border-slate-50 ${i % 2 === 0 ? "" : "bg-slate-50/50"}`}>
-                        <td className="px-3 py-2 font-mono">{bill.numberTemplate?.fullNumber || bill.number || bill.id}</td>
-                        <td className="px-3 py-2">{bill.vendor?.name || "—"}</td>
+                        <td className="px-3 py-2 font-mono">{getDocNumber(bill)}</td>
+                        <td className="px-3 py-2">{getVendorName(bill)}</td>
                         <td className="px-3 py-2 text-right font-medium text-red-700">{formatCOP(bill.total)}</td>
                       </tr>
                     ))}
