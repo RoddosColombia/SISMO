@@ -3,6 +3,7 @@ import {
   Bot, Send, Trash2, Paperclip, X, Play,
   CheckCircle2, Loader2, FileText, AlertCircle, Zap
 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
 import { Button } from "../components/ui/button";
@@ -91,7 +92,35 @@ function MessageBubble({ msg }) {
             <span className="text-xs font-medium truncate max-w-[180px]">{msg.file.name}</span>
           </div>
         )}
-        <div className="whitespace-pre-wrap">{msg.content}</div>
+        {isUser ? (
+          <div className="whitespace-pre-wrap">{msg.content}</div>
+        ) : (
+          <ReactMarkdown
+            components={{
+              p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+              strong: ({ children }) => <strong className="font-bold" style={{ color: "#00E5FF" }}>{children}</strong>,
+              em: ({ children }) => <em className="italic" style={{ color: "#aaa" }}>{children}</em>,
+              ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-0.5">{children}</ul>,
+              ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-0.5">{children}</ol>,
+              li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+              h1: ({ children }) => <p className="font-bold text-sm mb-1" style={{ color: "#00E5FF" }}>{children}</p>,
+              h2: ({ children }) => <p className="font-bold text-xs mb-1 uppercase tracking-wide" style={{ color: "#00E5FF" }}>{children}</p>,
+              h3: ({ children }) => <p className="font-semibold text-xs mb-1" style={{ color: "#aaa" }}>{children}</p>,
+              pre: ({ children }) => <pre className="p-2 rounded text-[11px] font-mono overflow-x-auto mt-1 mb-2" style={{ background: "#0A0A0A", color: "#E8E8E8" }}>{children}</pre>,
+              code: ({ children }) => <code className="px-1 py-0.5 rounded text-[11px] font-mono" style={{ background: "#2A2A2A", color: "#00C853" }}>{children}</code>,
+              table: ({ children }) => (
+                <div className="overflow-x-auto my-2">
+                  <table className="w-full text-xs border-collapse" style={{ borderColor: "#2A2A2A" }}>{children}</table>
+                </div>
+              ),
+              th: ({ children }) => <th className="px-2 py-1 text-left font-semibold" style={{ background: "#1A1A1A", color: "#888", borderBottom: "1px solid #2A2A2A" }}>{children}</th>,
+              td: ({ children }) => <td className="px-2 py-1" style={{ borderBottom: "1px solid #1E1E1E", color: "#E8E8E8" }}>{children}</td>,
+              blockquote: ({ children }) => <blockquote className="border-l-2 pl-3 my-2 italic" style={{ borderColor: "#00E5FF", color: "#888" }}>{children}</blockquote>,
+            }}
+          >
+            {msg.content}
+          </ReactMarkdown>
+        )}
         <div className="text-[10px] mt-1.5" style={{ color: isUser ? "rgba(13,13,13,0.55)" : "#444" }}>
           {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" }) : ""}
         </div>

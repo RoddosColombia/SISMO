@@ -1,7 +1,7 @@
 # RODDOS Contable IA — PRD
 
 **Fecha:** 2026-03-13
-**Versión:** 2.1
+**Versión:** 2.2
 
 ---
 
@@ -13,14 +13,14 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
 
 ## Usuarios
 
-- **Administrador (admin@roddos.com):** Acceso total, configura credenciales Alegra, cuentas predeterminadas, modo demo.
-- **Contador (contador@roddos.com):** Acceso a módulos, puede cambiar cuentas en cada formulario.
+- **Administrador (contabilidad@roddos.com):** Acceso total, configura credenciales Alegra, cuentas predeterminadas, modo demo.
+- **Contador (compras@roddos.com):** Acceso a módulos, puede cambiar cuentas en cada formulario.
 
 ---
 
 ## Arquitectura
 
-- **Frontend:** React 18 + Tailwind CSS + shadcn/ui · React Router v7
+- **Frontend:** React 18 + Tailwind CSS + shadcn/ui · React Router v7 · react-markdown
 - **Backend:** FastAPI (Python) + MongoDB · Puerto 8001
 - **IA:** Claude Sonnet 4.5 via emergentintegrations (EMERGENT_LLM_KEY)
 - **Integración:** Alegra REST API (Basic Auth) — modo Demo con mock data NIIF Colombia
@@ -28,7 +28,7 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
 
 ---
 
-## Módulos Implementados (v2.0)
+## Módulos Implementados (v2.2)
 
 ### 1. Autenticación
 - Login con JWT (bcrypt + PyJWT)
@@ -45,16 +45,13 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
 
 ### 3. Facturación de Venta (Módulo 1)
 - Lista de facturas con **filtro por fechas** (default mes actual)
-- Columna "Vencimiento" renombrada a **"Finalización"**
 - Nueva factura con: **Plan de pago** (Contado/P39S/P52S/P78S), auto-cálculo fecha finalización
 - **Diálogo de confirmación** antes de anular factura
 - Preview asiento contable en tiempo real (JournalEntryPreview)
 - POST /invoices → Alegra
 
 ### 4. Facturación de Compra (Módulo 2)
-- Lista de facturas de proveedor con **filtro por fechas** (default mes actual)
-- Columna "Descripción" renombrada a **"Fecha de pago"** (muestra dueDate calculado)
-- Columna "Estado" renombrada a **"Estado pago"** (aclara que es estado del pago)
+- Lista de facturas de proveedor con **filtro por fechas**
 - Nueva factura de compra con: **Plazo de pago** (Contado/30/60/80/90 días), auto-cálculo fecha pago
 - POST /bills → Alegra
 
@@ -81,27 +78,23 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
 - Tabla de movimientos con checkbox
 - POST /bank-accounts/{id}/reconciliations → Alegra
 
-### 9. Motos (ex Inventario Auteco — Módulo 9)
+### 9. Motos (Módulo 9)
 - **Upload de factura PDF de Auteco** → Claude AI extrae datos de motos
 - Tabla de inventario: Placa, Marca, Versión, Color, Año, Motor, Chasis, Costo, IVA, IPOC, Total, Estado, Ubicación
 - **Registro automático de cada moto como ítem en Alegra** (POST /items)
 - Estados: Disponible, Vendida, Entregada
-- KPIs: Total motos, Disponibles, Inversión total
 - CRUD completo en MongoDB (inventory_service.py)
 
-### 10. Impuestos y Alertas (Módulo 6 — actualizado v2.1)
-- **IVA configurable**: periodicidad (bimestral/cuatrimestral/anual) + períodos personalizados + fecha límite ajustable
-- **Saldo a favor DIAN**: campo configurable con fecha y nota — se aplica automáticamente al IVA a pagar
-- **Estado en tiempo real desde Alegra**: IVA cobrado acumulado, IVA descontable, IVA bruto, proyección al cierre del período
-- **Sugerencias inteligentes** para reducir IVA (urgentes si quedan <45 días)
-- **AI Chat actualizado**: incluye estado IVA cuatrimestral en contexto cuando el usuario pregunta por IVA
+### 10. Impuestos y Alertas (Módulo 6)
+- **IVA configurable**: periodicidad (bimestral/cuatrimestral/anual) + períodos personalizados
+- **Saldo a favor DIAN**: campo configurable
+- **Estado en tiempo real desde Alegra**: IVA cobrado acumulado, IVA descontable, proyección
+- **Sugerencias inteligentes** para reducir IVA
 - Calendario fiscal dinámico basado en configuración guardada
-- Tabla de tarifas vigentes Colombia 2025
 
 ### 11. Retenciones (Módulo 7)
 - Calculadora ReteFuente según tipo de transacción (tabla DIAN 2025)
 - Cálculo ReteIVA y ReteICA por ciudad
-- Tabla de tarifas ReteFuente y ReteICA
 
 ### 12. Nómina (Módulo 9)
 - Liquidación de nómina para múltiples empleados
@@ -111,13 +104,10 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
 
 ### 13. Prestaciones Sociales (Módulo 10)
 - Calculadora cesantías, intereses cesantías, prima, vacaciones
-- Provisión mensual recomendada
-- Fórmulas según CST Colombia
 
 ### 14. Estado de Resultados (Módulo 11)
 - Ingresos vs egresos del período
 - Gráfico BarChart por mes
-- KPIs: Ingresos, Egresos, Utilidad Bruta, Margen Bruto
 
 ### 15. Egresos Clasificados (Módulo 12)
 - Clasificación automática fijos vs variables
@@ -127,26 +117,33 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
 ### 16. Presupuesto (Módulo 13)
 - Plan presupuestal mensual almacenado en MongoDB
 - Comparación vs ingresos reales de Alegra
-- Variación presupuesto vs ejecución
 
 ### 17. Configuración (Settings)
 - Tab "Integración Alegra": email + token + botón probar conexión
 - Toggle modo demo (activo por defecto)
-- Sincronizar cuentas
-- Tab "Cuentas Predeterminadas": AlegraAccountSelector para 15 tipos
+- Tab "Cuentas Predeterminadas"
+- Tab "Mercately" (admin-only)
 
-### 18. Asistente IA Chat (Ejecutor Real)
-- Botón flotante en todas las páginas
-- **Function calling real**: Claude detecta intención → genera payload JSON → muestra tarjeta de confirmación
-- Flujo: mensaje → resumen en tarjeta → "Confirmar y ejecutar en Alegra" → resultado en Alegra
-- Acciones soportadas: crear_factura_venta, registrar_factura_compra, crear_causacion, registrar_pago, crear_contacto
-- Log de auditoría de acciones ejecutadas
+### 18. Asistente IA Chat — PANTALLA COMPLETA (v2.2)
+- **Primera pantalla tras login**: chat full-screen a `/agente-contable`
+- **Sidebar**: "Agente Contable" como PRIMER ítem con badge verde parpadeante
+- **Botón flotante ELIMINADO**: chat integrado como página principal
+- **Mensaje de bienvenida** personalizado al iniciar sesión
+- **Function calling real**: Claude detecta intención → genera payload JSON → tarjeta confirmación → ejecuta en Alegra
+- **Respuestas en Markdown**: bold, listas, tablas, código renderizados correctamente
+- **Chat persistente**: historial cargado desde MongoDB por `session_id` estable
+- Acciones soportadas: crear_factura_venta, registrar_factura_compra, crear_causacion, registrar_pago, crear_contacto, registrar_entrega
 
----
-
-## Plan de Cuentas NIIF Colombia (Mock Data)
-- 60+ cuentas: Activos (1), Pasivos (2), Patrimonio (3), Ingresos (4), Gastos (5/52/53/54), Costos (6)
-- 10 contactos, 5 facturas venta/compra, 2 cuentas bancarias
+### 19. Procesamiento de Documentos PDF/Imagen (v2.2 — NUEVO)
+- **Adjuntar archivos**: ícono 📎, drag & drop sobre chat, Ctrl+V portapapeles
+- **Vista previa** del archivo en barra de entrada antes de enviar
+- **Análisis multimodal**: backend envía archivo a Claude Sonnet vía FileContent (emergentintegrations)
+- **System prompt específico** para extracción de: tipo documento, proveedor, NIT, montos, fecha, concepto, retenciones
+- **Tarjeta de propuesta editable**: todos los campos editables inline antes de confirmar
+- **Detección Loanbook**: identifica pagos de cuotas de Loanbook RODDOS
+- **Manejo documentos ilegibles**: muestra campos faltantes con advertencia
+- **Flujo confirm**: datos confirmados → Claude construye payload → ejecución automática en Alegra
+- Solo imágenes (JPG, PNG, WebP) y PDF soportados, máx 20MB
 
 ---
 
@@ -166,30 +163,8 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
 - **audit_logs**: id, user_id, user_email, endpoint, method, request_body, response_status, timestamp
 - **inventario_motos**: id, marca, version, color, ano_modelo, motor, chasis, costo, iva_compra, ipoconsumo, total, estado, placa, ubicacion, alegra_item_id, archivo_origen, created_at
 - **presupuesto**: id, mes, ano, categoria, concepto, valor_presupuestado, cuenta_alegra_id, updated_at
-
----
-
-## Lo que funciona (v2.0)
-- [x] Auth JWT con roles admin/usuario + sitio completamente privado
-- [x] Dashboard con KPIs + gráfica + tablas
-- [x] Facturación de Venta (crear + listar + anular)
-- [x] Facturación de Compra (crear + listar)
-- [x] Registro de Cuotas (listar facturas + pagar)
-- [x] Causación de Ingresos (con preview asiento)
-- [x] Causación de Egresos (con preview asiento + validaciones)
-- [x] Conciliación Bancaria (marcar movimientos)
-- [x] Inventario Auteco (PDF upload + AI parse + tabla + registro Alegra)
-- [x] Impuestos y Alertas (calendario + calculadora IVA)
-- [x] Retenciones (calculadora DIAN 2025)
-- [x] Nómina (liquidación + causación Alegra)
-- [x] Prestaciones Sociales (cesantías + prima + vacaciones)
-- [x] Estado de Resultados (P&L desde Alegra)
-- [x] Egresos Clasificados (fijos vs variables + análisis)
-- [x] Presupuesto (MongoDB + comparación real Alegra)
-- [x] Settings (credenciales Alegra + cuentas predeterminadas + demo mode)
-- [x] AI Chat Ejecutor (Claude Sonnet 4.5 + function calling + confirmación + ejecución Alegra)
-- [x] AlegraAccountSelector en todos los módulos relevantes
-- [x] Modo Demo (datos mock NIIF Colombia)
+- **loanbook**: id, codigo, cliente_nombre, factura_alegra_id, plan, num_cuotas, saldo_pendiente, estado, cuotas[]
+- **agent_memory**: id, user_id, tipo, descripcion, payload_alegra, cuentas_usadas, frecuencia_count
 
 ---
 
@@ -199,16 +174,18 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
 - Ninguno pendiente
 
 ### P1 — Alta prioridad
-- ~~Exportar facturas/causaciones a PDF/Excel~~ ✅ COMPLETADO
+- Verificación E2E procesamiento documentos con comprobantes reales
+- Dashboard rediseño con feed de eventos en tiempo real
+- Sincronización Loanbook ↔ Cartera verificación E2E
 - Notificaciones de facturas próximas a vencer
-- Módulo de ventas de motos Auteco (vinculado al inventario)
 
 ### P2 — Mejoras
-- Webhooks de Alegra (invoice.created, payment.created)
-- 2FA para administradores
+- Integración Mercately (WhatsApp) — requiere credenciales del usuario
+- Módulo ventas motos (vinculado al inventario)
 - Log de auditoría visible en UI
-- Autocomplete items en facturas desde Alegra
-- Módulo de gestión de usuarios desde UI admin
+- Autocomplete items en facturas
+- Módulo gestión de usuarios desde UI admin
+- Webhooks de Alegra (invoice.created, payment.created)
 
 ---
 
@@ -216,118 +193,26 @@ Los contadores colombianos que usan Alegra ERP necesitan una capa inteligente qu
 - Admin: contabilidad@roddos.com / Admin@RODDOS2025!
 - Usuario: compras@roddos.com / Contador@2025!
 
+---
 
 ## Changelog
-- 2025-03: Login bug P0 corregido (useNavigate faltante)
-- 2025-03: Credenciales actualizadas: contabilidad@roddos.com / compras@roddos.com
-- 2025-03: Exportación PDF + Excel en Estado de Resultados, Facturación Venta/Compra, Inventario Auteco
-- 2025-03: Rediseño completo Dark Mode según brandbook RODDOS: #121212 negro base, #00E5FF cyan, #00C853 verde, fonts Montserrat/Raleway
-- 2025-03: Diseño híbrido: contenido blanco (#F8FAFC) + sidebar/header dark RODDOS
-- 2025-03: Conexión real Alegra activada — RODDOS SAS (contabilidad@roddos.com)
-- 2025-03: Helpers getDocNumber/getVendorName para compatibilidad mock/real Alegra
-- 2025-03: Fix 403 en alegra/accounts → devuelve [] sin crashear frontend
-- 2025-03: Status badges migrados a light-mode (bg-blue-100 text-blue-700)
-- 2025-03: Fix bug searchAccounts — eliminado filtro incorrecto subAccounts !== undefined
-- 2025-03: AlegraAccountSelector mejora estado vacío: muestra link a Alegra para regenerar token
-- 2025-03: Badge token_invalid en header y Settings cuando Alegra retorna 401
-- 2025-03: Instrucciones de token actualizado para apuntar a app.alegra.com/user/profile#token
-- **2026-02: FIX P0 — /api/alegra/accounts ahora usa GET /categories de Alegra (233 cuentas reales NIIF)**
-- **2026-02: AlegraAccountSelector actualizado para NIIF sin códigos PUC — agrupa por tipo (asset/liability/income/expense/cost)**
-- **2026-02: searchAccounts usa campo type en lugar de prefijos de código PUC**
-- **2026-02: AI Chat — gather_accounts_context() carga plan de cuentas real en contexto del agente**
-- **2026-02: AI Chat — sistema de aprendizaje de patrones RODDOS: cuentas_usadas + frecuencia_count en agent_memory**
-- **2026-02: AI Chat — modo automático activo cuando patrón tiene 5+ usos**
-- **2026-03-13 (SPRINT AGENTE CONTABLE):**
-  - FIX CRÍTICO: SyntaxError en cartera.py (walrus operator `:=` inválido en dict literal)
-  - FIX CRÍTICO: `execute_chat_action` — `registrar_entrega` fallaba con ValueError porque el check `ACTION_MAP` estaba antes del case especial. Restructurado para ejecutar cases especiales primero.
-  - NUEVO: `post_action_sync.py` — sincronización completa post-acción IA (Inventario, Loanbook, Cartera, Eventos)
-  - NUEVO: `routers/loanbook.py` — flujo 3 momentos (Facturación→Entrega→Cobro), cuotas siempre miércoles
-  - NUEVO: `routers/cartera.py` — Cola de Gestión Remota (llamadas/WhatsApp), eliminada lógica de visitas en campo
-  - NUEVO: `ai_chat.py` — system prompt completo con 6 flujos, extracción _metadata, patrones aprendidos
-  - NUEVO: `Cartera.js` — UI mobile-first de cobranza remota reescrita completamente
-  - NUEVO: `AIChatWidget.js` — muestra sync_messages de módulos actualizados tras cada acción
-  - NUEVO: UI Mercately en Settings (tab admin-only): campos API Key/Secret + backend endpoints
-  - FIX: Tab Auditoría solo visible para admins (evita toast de error 403 para usuarios normales)
-
-## Backlog Priorizado
-
-### P0 — Próximas implementaciones (sesión anterior completó: Bus de Eventos + Cartera Mobile)
-
-**BLOQUE 1: Conexión Inventario ↔ Facturación**
-- Verificar stock antes de permitir facturación de motos
-- Descargar/revertir inventario al crear/anular factura de venta
-- Alertas de stock bajo → evento al bus
-
-**BLOQUE 4: Rediseño del Dashboard**
-- Consumir /api/events/recent para feed en tiempo real
-- KPIs críticos: cartera activa, mora, cuotas semana
-- Panel de alertas activas
-
-**BLOQUE 5: Sincronización Loanbook ↔ Cartera (verificación)**
-- E2E con datos reales de producción
-
-**BLOQUE 3B: Integración Mercately (WhatsApp)**
-- UI de configuración en Settings (tokens API)
-- Scaffold de envío de notificaciones
-- (requiere credenciales del usuario)
-
-### P1 — Alta prioridad
-- Prueba end-to-end módulos contables con cuentas reales
-- Notificaciones de facturas próximas a vencer
-
-### P2 — Mejoras
-- Webhooks de Alegra
-- Log de auditoría visible en UI
-- Autocomplete items en facturas
-- Módulo gestión de usuarios desde UI admin
-
-
-## Refactoring ejecutado — Feb 2026
-server.py 1.056 líneas → 130 líneas (thin bootstrap)
-Estructura modular:
-  backend/
-  ├── server.py          (130 líneas — bootstrap only)
-  ├── database.py        (13 líneas — MongoDB connection)
-  ├── dependencies.py    (45 líneas — get_current_user, require_admin, log_action)
-  └── routers/
-      ├── auth.py        (85 líneas)
-      ├── settings.py    (94 líneas)
-      ├── alegra.py      (144 líneas)
-      ├── chat.py        (51 líneas)
-      ├── inventory.py   (191 líneas)
-      ├── taxes.py       (161 líneas)
-      ├── budget.py      (53 líneas)
-      ├── dashboard.py   (178 líneas)
-      └── audit.py       (35 líneas)
-
-
-## Auditoría Integración Alegra — 2026-03-13
-### 9 bugs corregidos, 64/67 puntos verificados (96%)
-- FIX CRÍTICO: paymentForm + dueDate obligatorios en invoice (system prompt)
-- FIX CRÍTICO: POST 403 Alegra ahora lanza HTTPException (no silencio)
-- FIX CRÍTICO: crear_contacto Colombia: nameObject + kindOfPerson + regime
-- FIX ALTO: registrar_factura_compra usa purchases.items (no items raíz)
-- FIX ALTO: Guard anti-doble-venta en execute_chat_action
-- FIX ALTO: HTTP 400 Alegra → HTTPException con mensaje claro
-- FIX MEDIO: execute-action captura HTTPException explícitamente
-- HALLAZGO: journal-entries 403 → plan Alegra sin módulo Contabilidad (Flujos 3+5 bloqueados)
-- HALLAZGO: Facturas API → "draft" (DIAN firma) → pagos solo contra facturas "open"
-- VERIFICADO: Ciclo 3 momentos operativo | 305 cuentas NIIF | Cuotas miércoles OK
-
-
-## Fix journal-entries → journals — 2026-03-13
-### Diagnóstico y corrección del BUG CRÍTICO endpoint causaciones
-- ROOT CAUSE 1: Endpoint INCORRECTO — código usaba `/journal-entries` (403) → correcto es `/journals` (201)
-- ROOT CAUSE 2: Formato entries INCORRECTO — código usaba `{"account":{"id":X}}` → correcto es `{"id":X,"debit":N,"credit":N}`
-- ROOT CAUSE 3: Cuentas padre no aceptan movimientos (ej: 5206 "Servicios públicos" es padre)
-- FIX: ACTION_MAP actualizado: "crear_causacion" → ("journals", "POST")
-- FIX: Mock service actualizado para "journals" 
-- FIX: System prompt actualizado con formato EXACTO de entries
-- FIX: MAPA DE CUENTAS RODDOS añadido al system prompt (IDs reales de todas las cuentas hoja)
-- FIX: agent_memory extrae IDs de entries con nuevo formato `entry.get("id")`
-- FIX: post_action_sync detecta factura en "draft" y avisa al usuario
-- HALLAZGO CRÍTICO: Resolución DIAN FE414-FE500 VENCIDA el 2026-03-06
-  → Todas las facturas creadas después de esa fecha quedan en "draft"
-  → ACCIÓN: RODDOS debe renovar resolución DIAN en Alegra → Configuración → Numeraciones
-- VERIFICADO: POST /journals HTTP 201, status:open, arrendamiento $100.000 con ReteFuente 3.5% ✅
-- Flujos 1,2,3,4,6 operativos | Flujo 3+5 causaciones: AHORA OPERATIVOS ✅
+- 2025-03: Login bug P0 corregido
+- 2025-03: Exportación PDF + Excel en Estado de Resultados, Facturación Venta/Compra, Inventario
+- 2025-03: Rediseño Dark Mode según brandbook RODDOS: #121212, #00E5FF, #00C853
+- 2025-03: Conexión real Alegra activada — RODDOS SAS
+- 2026-02: Fix /api/alegra/accounts → GET /categories (233 cuentas reales NIIF)
+- 2026-02: AI Chat — gather_accounts_context() + sistema aprendizaje patrones
+- 2026-03-13: Sprint Agente Contable — Cartera mobile, Loanbook, post_action_sync, Bus de Eventos
+- 2026-03-13: Fix CRÍTICO journal-entries → /journals, formato entries corregido
+- 2026-03-13: Auditoría Integración Alegra — 64/67 puntos verificados (96%)
+- **2026-03-13 v2.2: REDISEÑO CHAT IA + PROCESAMIENTO DOCUMENTOS**
+  - Chat de IA transformado a página full-screen (`/agente-contable`) — botón flotante eliminado
+  - Login redirige a `/agente-contable` como pantalla principal
+  - Sidebar: "Agente Contable" como primer ítem con badge verde parpadeante
+  - react-markdown integrado: respuestas con bold, listas, tablas, código renderizados
+  - Historial de chat persistente por sesión (cargado desde MongoDB)
+  - Procesamiento multimodal PDF/Imagen: FileContent de emergentintegrations
+  - Tarjeta de propuesta editable con campos inline (proveedor, NIT, fecha, montos)
+  - Drag & drop, clip 📎 y Ctrl+V para adjuntar archivos
+  - Detección automática pagos Loanbook
+  - System prompt específico para análisis contable de documentos
