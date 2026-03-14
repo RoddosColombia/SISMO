@@ -216,10 +216,13 @@ async def generar_cola_radar() -> None:
 
 # ─── CRON 4: Viernes 17:00 — Resumen semanal ─────────────────────────────────
 
+async def _get_mercately_config() -> dict:
+    from database import db
+    return await db.mercately_config.find_one({}, {"_id": 0}) or {}
+
+
 async def resumen_semanal() -> None:
-    """Calcula cobrado vs esperado de la semana.
-    BUILD 5: envío automático al CEO por WhatsApp (Mercately) — pendiente conexión.
-    """
+    """Calcula cobrado vs esperado de la semana y envía resumen por WhatsApp."""
     from database import db
 
     try:
@@ -251,12 +254,39 @@ async def resumen_semanal() -> None:
 
         logger.info(
             "[LoanScheduler] RESUMEN SEMANAL %s→%s | "
-            "Esperado: %d cuotas $%.0f | Cobrado: %d cuotas $%.0f (%.1f%%) | "
-            "[BUILD 5: pendiente envío WhatsApp CEO via Mercately]",
+            "Esperado: %d cuotas $%.0f | Cobrado: %d cuotas $%.0f (%.1f%%)",
             lunes_str, viernes_str,
             cuotas_esperadas, valor_esperado,
             int(cuotas_pagadas), valor_cobrado, pct,
         )
+
+        # ── WhatsApp: enviar a destinatarios_resumen ──────────────────────────
+        config = await _get_mercately_config()
+        destinatarios = list(config.get("destinatarios_resumen", []))
+        if not destinatarios and config.get("ceo_number"):
+            destinatarios = [config["ceo_number"]]
+
+        if destinatarios and config.get("api_key"):
+            from routers.mercately import enviar_whatsapp
+            def _fmt(n: float) -> str:
+                return f"${int(n):,}".replace(",", ".")
+
+            resumen_texto = (
+                f"📊 *Resumen RODDOS — {lunes_str} → {viernes_str}*\n"
+                f"🎯 Esperado: {cuotas_esperadas} cuotas · {_fmt(valor_esperado)}\n"
+                f"✅ Cobrado:  {int(cuotas_pagadas)} cuotas · {_fmt(valor_cobrado)}\n"
+                f"📈 Recaudo: *{pct}%*"
+            )
+            for numero in destinatarios:
+                ok = await enviar_whatsapp(numero, resumen_texto)
+                logger.info(
+                    "[LoanScheduler] Resumen WA → %s: %s",
+                    numero, "OK" if ok else "FAIL (check Mercately config)",
+                )
+        else:
+            logger.info(
+                "[LoanScheduler] Resumen semanal calculado — sin destinatarios configurados, omitiendo WhatsApp."
+            )
 
     except Exception as e:
         logger.error("[LoanScheduler] resumen_semanal error: %s", e)

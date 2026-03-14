@@ -105,20 +105,30 @@ async def get_mercately_credentials(current_user=Depends(require_admin)):
     cfg = await db.mercately_config.find_one({}, {"_id": 0})
     if not cfg:
         return {"has_credentials": False, "api_key_masked": "", "phone_number": "",
-                "whitelist": [], "ceo_number": "", "configured_at": ""}
+                "whitelist": [], "ceo_number": "", "destinatarios_resumen": [], "configured_at": ""}
     ak = cfg.get("api_key", "")
+    # Backwards-compat: ensure ceo_number appears in destinatarios_resumen
+    destinatarios = list(cfg.get("destinatarios_resumen", []))
+    ceo = cfg.get("ceo_number", "")
+    if ceo and ceo not in destinatarios:
+        destinatarios = [ceo] + destinatarios
     return {
         "has_credentials": bool(ak),
         "api_key_masked": ("*" * 8 + ak[-4:]) if len(ak) > 4 else ("*" * len(ak)),
         "phone_number": cfg.get("phone_number", ""),
         "whitelist": cfg.get("whitelist", []),
-        "ceo_number": cfg.get("ceo_number", ""),
+        "ceo_number": ceo,
+        "destinatarios_resumen": destinatarios,
         "configured_at": cfg.get("updated_at", ""),
     }
 
 
 @router.post("/mercately")
 async def save_mercately_credentials(req: MercatelyCredentialsRequest, current_user=Depends(require_admin)):
+    # Backwards-compat: auto-add ceo_number to destinatarios_resumen if not present
+    destinatarios = list(req.destinatarios_resumen)
+    if req.ceo_number and req.ceo_number not in destinatarios:
+        destinatarios = [req.ceo_number] + destinatarios
     await db.mercately_config.update_one(
         {},
         {"$set": {
@@ -126,6 +136,7 @@ async def save_mercately_credentials(req: MercatelyCredentialsRequest, current_u
             "phone_number": req.phone_number,
             "whitelist": req.whitelist,
             "ceo_number": req.ceo_number,
+            "destinatarios_resumen": destinatarios,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }, "$unset": {"api_secret": ""}},
         upsert=True,

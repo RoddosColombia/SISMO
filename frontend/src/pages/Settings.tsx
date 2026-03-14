@@ -1045,6 +1045,8 @@ function MercatelyTab({ api }: { api: any }) {
   const [ceoNumber, setCeoNumber] = useState("");
   const [whitelist, setWhitelist] = useState<string[]>([]);
   const [wlInput, setWlInput] = useState("");
+  const [destinatarios, setDestinatarios] = useState<string[]>([]);
+  const [destInput, setDestInput] = useState("");
   const [status, setStatus] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -1058,6 +1060,7 @@ function MercatelyTab({ api }: { api: any }) {
       setPhoneNumber(d.phone_number || "");
       setCeoNumber(d.ceo_number || "");
       setWhitelist(d.whitelist || []);
+      setDestinatarios(d.destinatarios_resumen || []);
     }).catch(() => {});
   }, [api]);
 
@@ -1072,13 +1075,15 @@ function MercatelyTab({ api }: { api: any }) {
         phone_number: phoneNumber.trim(),
         whitelist,
         ceo_number: ceoNumber.trim(),
+        destinatarios_resumen: destinatarios,
       };
       // If apiKey is empty and we have existing credentials, keep the existing key
       if (!apiKey.trim() && status?.has_credentials) payload.api_key = "";
       await api.post("/settings/mercately", payload);
       toast.success("Configuración Mercately guardada");
       setStatus((p: any) => ({
-        ...p, has_credentials: true, phone_number: phoneNumber, ceo_number: ceoNumber, whitelist,
+        ...p, has_credentials: true, phone_number: phoneNumber, ceo_number: ceoNumber,
+        whitelist, destinatarios_resumen: destinatarios,
         configured_at: new Date().toISOString(),
       }));
       setApiKey("");
@@ -1103,6 +1108,14 @@ function MercatelyTab({ api }: { api: any }) {
     const norm = num.startsWith("+") ? num : `+${num}`;
     if (!whitelist.includes(norm)) setWhitelist(prev => [...prev, norm]);
     setWlInput("");
+  };
+
+  const addToDestinatarios = () => {
+    const num = destInput.trim();
+    if (!num) return;
+    const norm = num.startsWith("+") ? num : `+${num}`;
+    if (!destinatarios.includes(norm)) setDestinatarios(prev => [...prev, norm]);
+    setDestInput("");
   };
 
   return (
@@ -1211,6 +1224,34 @@ function MercatelyTab({ api }: { api: any }) {
                     <span className="font-mono">{num}</span>
                     <button onClick={() => setWhitelist(prev => prev.filter(n => n !== num))}
                       className="text-slate-400 hover:text-red-500 ml-0.5" data-testid={`whitelist-remove-${num}`}>
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <Label className="text-sm font-semibold text-slate-700">Números que reciben el resumen del viernes</Label>
+            <p className="text-xs text-slate-400 mb-1.5">Formato +57xxx. El número CEO se agrega automáticamente.</p>
+            <div className="flex gap-2">
+              <Input type="tel" placeholder="+573001234567" value={destInput}
+                onChange={e => setDestInput(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && addToDestinatarios()}
+                className="flex-1" data-testid="mercately-dest-input" />
+              <Button variant="outline" size="sm" onClick={addToDestinatarios}
+                data-testid="mercately-dest-add-btn">
+                Agregar
+              </Button>
+            </div>
+            {destinatarios.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {destinatarios.map(num => (
+                  <span key={num} className="flex items-center gap-1 text-xs bg-blue-50 border border-blue-200 rounded-full px-2.5 py-1">
+                    <span className="font-mono">{num}</span>
+                    <button onClick={() => setDestinatarios(prev => prev.filter(n => n !== num))}
+                      className="text-slate-400 hover:text-red-500 ml-0.5" data-testid={`dest-remove-${num}`}>
                       ×
                     </button>
                   </span>

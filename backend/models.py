@@ -72,3 +72,4 @@ class MercatelyCredentialsRequest(BaseModel):
     phone_number: str = ""      # formato +57xxx — número WhatsApp RODDOS
     whitelist: list[str] = []   # teléfonos empleados internos
     ceo_number: str = ""        # número CEO exclusivo para alertas CFO
+    destinatarios_resumen: list[str] = []  # números que reciben el resumen del viernes
