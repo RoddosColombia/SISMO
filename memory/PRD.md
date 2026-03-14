@@ -49,7 +49,7 @@ Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
 - **Scheduler DPD + Scores** (BUILD 3 ✅ — TEST BUILD3 10/10+Frontend PASS): migration_v24.py idempotente, 4 CRON jobs (DPD@06:00, Scores@06:30, RADAR@07:00, Resumen@Vie17:00 Bogotá), 4 endpoints /api/radar/*, endpoints gestion/ptp/snapshot, Loanbook.tsx con columnas DPD y Score
 - **TypeScript Migration** (✅ COMPLETADO — Febrero 2026): `// @ts-nocheck` eliminado de App.tsx, Login.tsx, AgentChatPage.tsx, Settings.tsx. Interfaces propias: Message, PendingAction, DocumentProposalData, AttachedFile. Declaraciones `.d.ts` para shadcn/ui. Fork-ts-checker: "No issues found."
 - **TEST 3** (✅ 29/29 PASS): DPD 3A (9/9), Mora 15%EA 3B (3/3), Scores A+→E 3C (6/6), Protocolo+Performance 3D (4/4), Migración 3E (5/5). Fix: `calcular_scores()` ahora incluye estado "recuperacion".
-- **BUILD 4 — Agente CFO** (✅ 18/18 PASS — Febrero 2026): services/cfo_agent.py (6 funciones), routers/cfo.py (8 endpoints), CFO page /cfo (5 secciones + botón flotante), Settings tab "Agente CFO", scheduler mensual día 1 08:00 AM Bogotá, CFO intent detection en chat, LineChart 8 semanas.
+- **BUILD 4 — Agente CFO (COMPLETADO FULL ✅ 53/53 PASS — Febrero 2026)**: 6 funciones originales + 4 nuevas (`analizar_exposicion_tributaria` IVA/retenciones/ICA 11.04‰/alertas DIAN, `analizar_flujo_caja` cartera_pagos+proyectado+bills, `analizar_inventario` días en stock/alerta >60 días, `analizar_kpis_comerciales` meta ventas/mix planes/tasa pago puntual). Semáforo `impuestos` ahora dinámico (ya no hardcodeado VERDE). Test suite: `/app/backend/tests/test4_suite.py` (53 casos, 7 bloques: 4A–4G).
 - Credenciales Alegra, modo demo, cuentas predeterminadas
 - 2FA con Google Authenticator (TOTP)
 - Bot Telegram (infraestructura completa)
