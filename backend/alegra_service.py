@@ -87,14 +87,18 @@ class AlegraService:
                     # Plan no incluye este endpoint en lectura — devolver lista vacía sin error
                     return []
                 else:
-                    # POST con 403 → permisos insuficientes
-                    raise HTTPException(
-                        status_code=403,
-                        detail=(
-                            f"Tu usuario no tiene permisos de Contabilidad en Alegra para ejecutar '{endpoint}'. "
-                            "Verifica en Alegra → Configuración → Usuarios que el módulo Contabilidad esté habilitado."
-                        )
+                    # POST con 403 — mostrar mensaje real de la API si está disponible
+                    error_data = {}
+                    try:
+                        error_data = resp.json() if resp.content else {}
+                    except Exception:
+                        pass
+                    real_msg = error_data.get("message") or error_data.get("error") or ""
+                    detail = real_msg if real_msg else (
+                        f"Sin permisos en Alegra para ejecutar '{endpoint}'. "
+                        "Verifica en Alegra → Configuración → Usuarios."
                     )
+                    raise HTTPException(status_code=403, detail=detail)
             if resp.status_code == 404:
                 return []
             if resp.status_code == 429:

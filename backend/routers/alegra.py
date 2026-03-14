@@ -133,13 +133,13 @@ async def get_journal_entries(
         params["date_afterOrNow"] = date_start
     if date_end:
         params["date_beforeOrNow"] = date_end
-    return await AlegraService(db).request("journal-entries", params=params)
+    return await AlegraService(db).request("journals", params=params)
 
 
 @router.post("/journal-entries")
 async def create_journal_entry(body: dict, current_user=Depends(get_current_user)):
     service = AlegraService(db)
-    result = await service.request("journal-entries", "POST", body)
+    result = await service.request("journals", "POST", body)
     await log_action(current_user, "/alegra/journal-entries", "POST", body)
     return result
 

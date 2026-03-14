@@ -65,7 +65,7 @@ TIPOS DE ACCIÓN DISPONIBLES:
 ═══════════════════════════════════════════════════
 • crear_factura_venta   → POST /invoices
 • registrar_factura_compra → POST /bills
-• crear_causacion       → POST /journal-entries  ⚠ Requiere plan Alegra con módulo Contabilidad
+• crear_causacion       → POST /journals  (endpoint correcto en Alegra API)
 • registrar_pago        → POST /payments
 • crear_contacto        → POST /contacts
 • registrar_entrega     → ACCIÓN INTERNA (activa plan de cuotas)

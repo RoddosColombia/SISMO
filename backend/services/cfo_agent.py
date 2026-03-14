@@ -101,7 +101,7 @@ async def consolidar_datos_financieros(db) -> dict:
     journals_items: list = []
     try:
         resp = await alegra.request(
-            "journal-entries",
+            "journals",
             params={"date_afterOrNow": mes_inicio, "date_beforeOrNow": mes_fin},
         )
         if isinstance(resp, list):
