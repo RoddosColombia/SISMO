@@ -1041,32 +1041,74 @@ function AuditTab({ api }: { api: any }) {
 
 function MercatelyTab({ api }: { api: any }) {
   const [apiKey, setApiKey] = useState("");
-  const [apiSecret, setApiSecret] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [ceoNumber, setCeoNumber] = useState("");
+  const [whitelist, setWhitelist] = useState<string[]>([]);
+  const [wlInput, setWlInput] = useState("");
   const [status, setStatus] = useState<any>(null);
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+
+  const webhookUrl = `${process.env.REACT_APP_BACKEND_URL}/api/mercately/webhook`;
 
   useEffect(() => {
-    api.get("/settings/mercately").then((res: any) => setStatus(res.data)).catch(() => {});
+    api.get("/settings/mercately").then((res: any) => {
+      const d = res.data;
+      setStatus(d);
+      setPhoneNumber(d.phone_number || "");
+      setCeoNumber(d.ceo_number || "");
+      setWhitelist(d.whitelist || []);
+    }).catch(() => {});
   }, [api]);
 
   const handleSave = async () => {
-    if (!apiKey.trim() || !apiSecret.trim()) {
-      toast.error("Ingresa la API Key y el API Secret de Mercately"); return;
+    if (!apiKey.trim() && !status?.has_credentials) {
+      toast.error("Ingresa la API Key de Mercately"); return;
     }
     setSaving(true);
     try {
-      await api.post("/settings/mercately", { api_key: apiKey, api_secret: apiSecret });
-      toast.success("Credenciales Mercately guardadas correctamente");
-      setStatus({ has_credentials: true, api_key_masked: "*".repeat(8) + apiKey.slice(-4), configured_at: new Date().toISOString() });
-      setApiKey(""); setApiSecret("");
+      const payload: any = {
+        api_key: apiKey.trim() || "__keep__",
+        phone_number: phoneNumber.trim(),
+        whitelist,
+        ceo_number: ceoNumber.trim(),
+      };
+      // If apiKey is empty and we have existing credentials, keep the existing key
+      if (!apiKey.trim() && status?.has_credentials) payload.api_key = "";
+      await api.post("/settings/mercately", payload);
+      toast.success("Configuración Mercately guardada");
+      setStatus((p: any) => ({
+        ...p, has_credentials: true, phone_number: phoneNumber, ceo_number: ceoNumber, whitelist,
+        configured_at: new Date().toISOString(),
+      }));
+      setApiKey("");
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || "Error guardando credenciales");
+      toast.error(err.response?.data?.detail || "Error guardando configuración");
     } finally { setSaving(false); }
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    try {
+      const res = await api.post("/settings/mercately/test");
+      toast.success(res.data.message || "Conexión exitosa ✓");
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || "No se pudo conectar con Mercately");
+    } finally { setTesting(false); }
+  };
+
+  const addToWhitelist = () => {
+    const num = wlInput.trim();
+    if (!num) return;
+    const norm = num.startsWith("+") ? num : `+${num}`;
+    if (!whitelist.includes(norm)) setWhitelist(prev => [...prev, norm]);
+    setWlInput("");
   };
 
   return (
     <TabsContent value="mercately" className="mt-5">
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 max-w-lg space-y-5">
+        {/* Header */}
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center flex-shrink-0">
             <MessageCircle size={18} className="text-green-600" />
@@ -1074,11 +1116,12 @@ function MercatelyTab({ api }: { api: any }) {
           <div>
             <h3 className="text-base font-bold text-[#0F2A5C]">Mercately — WhatsApp Business API</h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Conecta con Mercately para enviar notificaciones automáticas de cobro por WhatsApp.
+              Canal WhatsApp para registro de pagos y notificaciones automáticas a clientes.
             </p>
           </div>
         </div>
 
+        {/* Status badge */}
         {status?.has_credentials ? (
           <div className="flex items-center gap-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
             <Check size={15} className="text-emerald-600 flex-shrink-0" />
@@ -1092,34 +1135,105 @@ function MercatelyTab({ api }: { api: any }) {
           </div>
         ) : (
           <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700">
-            No hay credenciales configuradas. Ingresa las credenciales de tu cuenta Mercately.
+            No hay credenciales configuradas. Ingresa tu API Key de Mercately.
           </div>
         )}
 
-        <div className="bg-[#F8FAFF] rounded-xl p-4 text-xs space-y-1.5 border border-slate-100">
-          <p className="font-semibold text-[#0F2A5C] mb-2">¿Cómo obtener las credenciales?</p>
-          <p className="text-slate-600">1. Accede a <a href="https://app.mercately.com" target="_blank" rel="noreferrer" className="text-[#0F2A5C] underline font-medium">app.mercately.com</a></p>
-          <p className="text-slate-600">2. Ve a Configuración → API Keys</p>
-          <p className="text-slate-600">3. Copia tu API Key y API Secret</p>
+        {/* Webhook URL */}
+        <div className="bg-[#F0F7FF] rounded-xl p-3 border border-blue-100">
+          <p className="text-xs font-semibold text-[#0F2A5C] mb-1">URL del Webhook (configurar en Mercately)</p>
+          <div className="flex items-center gap-2">
+            <code className="text-[11px] text-blue-700 bg-white border border-blue-200 rounded px-2 py-1 flex-1 truncate">
+              {webhookUrl}
+            </code>
+            <button
+              onClick={() => { navigator.clipboard.writeText(webhookUrl); toast.success("URL copiada"); }}
+              className="text-[11px] text-blue-600 hover:text-blue-800 font-medium whitespace-nowrap"
+              data-testid="copy-webhook-url-btn"
+            >
+              Copiar
+            </button>
+          </div>
         </div>
 
+        {/* Help */}
+        <div className="bg-[#F8FAFF] rounded-xl p-4 text-xs space-y-1.5 border border-slate-100">
+          <p className="font-semibold text-[#0F2A5C] mb-2">¿Cómo configurar?</p>
+          <p className="text-slate-600">1. Accede a <a href="https://app.mercately.com" target="_blank" rel="noreferrer" className="text-[#0F2A5C] underline font-medium">app.mercately.com</a> → Configuración → API Keys</p>
+          <p className="text-slate-600">2. Copia tu API Key y pégala abajo</p>
+          <p className="text-slate-600">3. En Mercately → Webhooks → agrega la URL de arriba</p>
+        </div>
+
+        {/* Fields */}
         <div className="space-y-4">
           <div>
-            <Label className="text-sm font-semibold text-slate-700">API Key de Mercately</Label>
-            <Input type="password" placeholder="mercately_api_key_..." value={apiKey}
-              onChange={e => setApiKey(e.target.value)} className="mt-1.5" data-testid="mercately-api-key-input" />
+            <Label className="text-sm font-semibold text-slate-700">
+              API Key de Mercately {status?.has_credentials && <span className="text-xs text-slate-400 font-normal">(deja vacío para mantener la actual)</span>}
+            </Label>
+            <Input type="password" placeholder="mercately_api_key_..."
+              value={apiKey} onChange={e => setApiKey(e.target.value)}
+              className="mt-1.5" data-testid="mercately-api-key-input" />
           </div>
+
           <div>
-            <Label className="text-sm font-semibold text-slate-700">API Secret de Mercately</Label>
-            <Input type="password" placeholder="mercately_api_secret_..." value={apiSecret}
-              onChange={e => setApiSecret(e.target.value)} className="mt-1.5" data-testid="mercately-api-secret-input" />
+            <Label className="text-sm font-semibold text-slate-700">Número WhatsApp RODDOS</Label>
+            <p className="text-xs text-slate-400 mb-1.5">Número desde el que envía mensajes el sistema</p>
+            <Input type="tel" placeholder="+573001234567"
+              value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)}
+              className="mt-0.5" data-testid="mercately-phone-input" />
           </div>
-          <Button onClick={handleSave} disabled={saving || !apiKey.trim() || !apiSecret.trim()}
-            className="w-full bg-green-600 hover:bg-green-700 text-white flex items-center justify-center gap-2"
-            data-testid="save-mercately-btn">
-            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-            Guardar credenciales Mercately
-          </Button>
+
+          <div>
+            <Label className="text-sm font-semibold text-slate-700">Número CEO (alertas CFO)</Label>
+            <p className="text-xs text-slate-400 mb-1.5">Exclusivo para informes CFO. No lo agregues a la whitelist.</p>
+            <Input type="tel" placeholder="+573009876543"
+              value={ceoNumber} onChange={e => setCeoNumber(e.target.value)}
+              className="mt-0.5" data-testid="mercately-ceo-input" />
+          </div>
+
+          <div>
+            <Label className="text-sm font-semibold text-slate-700">Whitelist Empleados Internos</Label>
+            <p className="text-xs text-slate-400 mb-1.5">Teléfonos que pueden enviar facturas de proveedor</p>
+            <div className="flex gap-2">
+              <Input type="tel" placeholder="+573001234567" value={wlInput}
+                onChange={e => setWlInput(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && addToWhitelist()}
+                className="flex-1" data-testid="mercately-whitelist-input" />
+              <Button variant="outline" size="sm" onClick={addToWhitelist}
+                data-testid="mercately-whitelist-add-btn">
+                Agregar
+              </Button>
+            </div>
+            {whitelist.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {whitelist.map(num => (
+                  <span key={num} className="flex items-center gap-1 text-xs bg-slate-100 border border-slate-200 rounded-full px-2.5 py-1">
+                    <span className="font-mono">{num}</span>
+                    <button onClick={() => setWhitelist(prev => prev.filter(n => n !== num))}
+                      className="text-slate-400 hover:text-red-500 ml-0.5" data-testid={`whitelist-remove-${num}`}>
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            <Button onClick={handleTest} disabled={testing || !status?.has_credentials}
+              variant="outline"
+              className="flex-1 border-green-300 text-green-700 hover:bg-green-50 flex items-center justify-center gap-2"
+              data-testid="test-mercately-btn">
+              {testing ? <Loader2 size={14} className="animate-spin" /> : <MessageCircle size={14} />}
+              Probar Conexión
+            </Button>
+            <Button onClick={handleSave} disabled={saving}
+              className="flex-1 bg-green-600 hover:bg-green-700 text-white flex items-center justify-center gap-2"
+              data-testid="save-mercately-btn">
+              {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              Guardar
+            </Button>
+          </div>
         </div>
       </div>
     </TabsContent>

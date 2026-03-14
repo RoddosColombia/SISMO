@@ -69,4 +69,6 @@ class SaveDefaultAccountsRequest(BaseModel):
 
 class MercatelyCredentialsRequest(BaseModel):
     api_key: str
-    api_secret: str
+    phone_number: str = ""      # formato +57xxx — número WhatsApp RODDOS
+    whitelist: list[str] = []   # teléfonos empleados internos
+    ceo_number: str = ""        # número CEO exclusivo para alertas CFO

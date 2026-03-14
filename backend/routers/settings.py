@@ -1,6 +1,7 @@
 """Settings router — Alegra credentials, demo mode, default accounts, webhooks, catalogo."""
 import os
 import uuid
+import httpx
 from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
@@ -103,11 +104,15 @@ async def get_webhook_status(current_user=Depends(require_admin)):
 async def get_mercately_credentials(current_user=Depends(require_admin)):
     cfg = await db.mercately_config.find_one({}, {"_id": 0})
     if not cfg:
-        return {"has_credentials": False, "api_key_masked": "", "configured_at": ""}
+        return {"has_credentials": False, "api_key_masked": "", "phone_number": "",
+                "whitelist": [], "ceo_number": "", "configured_at": ""}
     ak = cfg.get("api_key", "")
     return {
-        "has_credentials": bool(ak and cfg.get("api_secret")),
+        "has_credentials": bool(ak),
         "api_key_masked": ("*" * 8 + ak[-4:]) if len(ak) > 4 else ("*" * len(ak)),
+        "phone_number": cfg.get("phone_number", ""),
+        "whitelist": cfg.get("whitelist", []),
+        "ceo_number": cfg.get("ceo_number", ""),
         "configured_at": cfg.get("updated_at", ""),
     }
 
@@ -118,12 +123,36 @@ async def save_mercately_credentials(req: MercatelyCredentialsRequest, current_u
         {},
         {"$set": {
             "api_key": req.api_key,
-            "api_secret": req.api_secret,
+            "phone_number": req.phone_number,
+            "whitelist": req.whitelist,
+            "ceo_number": req.ceo_number,
             "updated_at": datetime.now(timezone.utc).isoformat(),
-        }},
+        }, "$unset": {"api_secret": ""}},
         upsert=True,
     )
-    return {"message": "Credenciales Mercately guardadas. Lista para integración WhatsApp."}
+    return {"message": "Configuración Mercately guardada correctamente."}
+
+
+@router.post("/mercately/test")
+async def test_mercately_connection(current_user=Depends(require_admin)):
+    cfg = await db.mercately_config.find_one({}, {"_id": 0})
+    if not cfg or not cfg.get("api_key"):
+        raise HTTPException(status_code=400, detail="No hay API Key configurada. Guarda primero las credenciales.")
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                "https://api.mercately.com/api/v1/agent",
+                headers={"Authorization": f"Bearer {cfg['api_key']}"},
+            )
+        if resp.status_code == 200:
+            return {"ok": True, "message": "Conexión exitosa con Mercately ✓"}
+        if resp.status_code == 401:
+            raise HTTPException(status_code=400, detail="API Key inválida — verifica tus credenciales en Mercately.")
+        raise HTTPException(status_code=400, detail=f"Mercately respondió HTTP {resp.status_code}.")
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=503, detail="Mercately no responde (timeout 10 s). Verifica tu conexión.")
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=503, detail=f"Error de red al contactar Mercately: {e}")
 
 
 # ─── Catálogo de Motos ────────────────────────────────────────────────────────

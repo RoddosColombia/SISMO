@@ -16,6 +16,7 @@ from auth import hash_password
 from database import db, client
 from routers import auth, settings, alegra, chat, inventory, taxes, budget, dashboard, audit
 from routers import repuestos, loanbook, cartera, telegram, radar as radar_router, cfo as cfo_router
+from routers import mercately as mercately_router
 from services.scheduler import start_scheduler, stop_scheduler
 from services.loanbook_scheduler import start_loanbook_scheduler, stop_loanbook_scheduler
 from migration_v24 import run_migration_v24
@@ -189,3 +190,4 @@ app.include_router(cartera.router,       prefix=PREFIX)
 app.include_router(telegram.router,      prefix=PREFIX)
 app.include_router(radar_router.router,  prefix=PREFIX)
 app.include_router(cfo_router.router,    prefix=PREFIX)
+app.include_router(mercately_router.router, prefix=PREFIX)
