@@ -1,0 +1,61 @@
+{
+  "summary": "Full BUILD 6 testing — RADAR + CRM modules. All 13 backend API tests passed. All frontend tests passed including RADAR queue, GestionModal, CRM list, CRM 360° profile, gestion registration E2E, and PTP registration E2E.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "CRMList.tsx score filter",
+        "issues": ["Console warning: <span> cannot be child of <option> — React dev toolbar injects span inside option elements causing HTML hydration warning. Minor, does not affect functionality."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_build6_radar_crm.py",
+    "/app/test_reports/pytest/pytest_build6.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "CRMCliente.tsx GestionModal select has no data-testid (unlike Radar.tsx modal). Minor testability issue.",
+    "CRMCliente.tsx PTP modal inputs have no data-testid. Minor testability issue.",
+    "The <option> elements in CRMList.tsx score filter render a <span> wrapper (from React dev tools) causing console warning — not a code issue per se."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_build6_radar_crm.py"
+  ],
+  "success_rate": {
+    "backend": "100% (13/13)",
+    "frontend": "100% (all BUILD 6 tests passed)"
+  },
+  "test_results_detail": {
+    "6A-1": "PASS — /api/radar/queue responds in < 200ms",
+    "6A-2": "PASS — queue items have all required fields: loanbook_id, cliente_nombre, bucket, dpd_actual, total_a_pagar, dias_para_protocolo, whatsapp_link",
+    "6A-3": "PASS — queue ordered RECUPERACION → CRITICO → URGENTE → ACTIVO",
+    "6A-4": "PASS — /api/radar/semana returns esperadas, pagadas, pendientes, nuevas_moras",
+    "6A-5": "PASS — /api/radar/roll-rate returns roll_rate_pct in [0,100]",
+    "6B-1": "PASS — PUT /api/crm/{id}/datos updates telefono_alternativo",
+    "6B-2": "PASS — POST /api/crm/{id}/nota adds note with texto and id",
+    "6B-3": "PASS — POST gestion appears in gestiones[] of CRM profile",
+    "6B-4": "PASS — POST gestion with prometió_fecha sets ptp_fecha",
+    "6C-1": "PASS — GET /api/cartera/queue returns 404",
+    "6C-2": "PASS — GET /api/radar/queue returns 200",
+    "6C-3": "PASS — Sidebar shows RADAR and CRM under COBRANZA group",
+    "6C-4": "PASS — /radar loads with KPI bar and RadarCards",
+    "6C-5": "PASS — /cartera redirects to /agente-contable (no old cartera content)",
+    "6D-1": "PASS — /radar loads without 500 errors, no browser console errors",
+    "6D-2": "PASS — RadarCards show score badge (stars + letter), colored bucket badge, WhatsApp direct link button",
+    "6D-3": "PASS — GestionModal opens, has canal buttons, resultado dropdown, nota textarea, PTP date field visible only when resultado includes 'prometió'",
+    "6D-4": "PASS — /crm loads client list with bucket and score filters working",
+    "6D-5": "PASS — /crm/{id} loads 360° profile with crm-header, gestiones-timeline, gestion-btn, ptp-btn",
+    "6E-1": "PASS — Register gestion from /crm/{id} appears in timeline after submit (fetchData called)",
+    "6E-2": "PASS — Register PTP from /crm/{id} shows 'PTP registrado' toast and page reloads"
+  },
+  "seed_data_creation": "Used existing test loans (test3-lb001, test3-lb005) from previous builds",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "BUILD 6 all tests pass. RADAR at /radar, CRM at /crm and /crm/{id}. Old /api/cartera/* routes return 404. Backend tests in /app/backend/tests/test_build6_radar_crm.py. Minor: CRMCliente.tsx gestion/PTP modal inputs lack data-testid attributes."
+}
