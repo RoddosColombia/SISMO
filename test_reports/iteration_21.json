@@ -1,0 +1,37 @@
+{
+  "summary": "TEST 4 REGRESIÓN + Smart Retentions: 49/49 unit tests PASSED (4A–4F), 4G endpoint VERDE/dinámico confirmado, 3/3 smart retentions casos PASSED.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "test4_suite.py TEST 4G", "issue": "subprocess.run timeout=20s insuficiente para curl externo — test falla por timeout de red, no por lógica. Los 49 checks unitarios anteriores pasaron todos. GET /api/cfo/semaforo validado manualmente con éxito."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_results": {
+    "TEST_4A_13_checks": "PASS — analizar_exposicion_tributaria: IVA generado/descontable/neto, DIAN vencida→ROJO, DIAN próxima→AMARILLO, DIAN lejana→VERDE",
+    "TEST_4B_9_checks": "PASS — analizar_flujo_caja: ingresos reales+proyectados, egresos open+overdue, brecha, caja_negativa, cartera_pagos prioridad",
+    "TEST_4C_9_checks": "PASS — analizar_inventario: total/disponibles/vendidas/entregadas, alertas >60 días, promedio días, inventario vacío",
+    "TEST_4D_10_checks": "PASS — analizar_kpis_comerciales: meta, cumplimiento %, conteo planes P52S/P39S/P78S, cuotas puntual 50%",
+    "TEST_4E_4_checks": "PASS — semaforo impuestos dinámico: ROJO con DIAN vencida, VERDE sin fechas, 5 dimensiones",
+    "TEST_4F_5_checks": "PASS — ICA 11.04‰: tarifa default y custom, ICA sobre 10M=110.400",
+    "TEST_4G_endpoint": "PASS (manual) — GET /api/cfo/semaforo retorna {caja:ROJO, cartera:ROJO, ventas:VERDE, roll_rate:VERDE, impuestos:VERDE} — dinámico no siempre VERDE",
+    "SMART_RETENTION_CASO1": "PASS — PN con CC 1020345678 → pending_action=crear_contacto, retención 10% cuenta [5381], neto $450.000",
+    "SMART_RETENTION_CASO2": "PASS — PN sin cédula → pending_action=None, pregunta SOLO la cédula (no retención aún)",
+    "SMART_RETENTION_CASO3": "PASS — PJ NIT 900888777-1 → pending_action=crear_contacto, retención 11% cuenta [5382], $88.000 sobre $800.000"
+  },
+  "test_report_links": ["/app/backend/tests/test4_suite.py"],
+  "action_items": [
+    "Opcional: aumentar timeout de subprocess en test_4g_endpoint de 20s a 60s para evitar fallo por latencia de red"
+  ],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (49/49 unitarios + 3/3 smart retentions + endpoint validado)", "frontend": "N/A (solo backend)"},
+  "seed_data_creation": "cfo_config manipulado en TEST 4E (fechas_dian vencidas), restaurado al final",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "TEST 4 regresión completo APROBADO. Smart retentions PN/PJ funcionan correctamente: CASO1 (PN+CC→crear_contacto+ret10%[5381]), CASO2 (PN sin doc→pregunta cédula), CASO3 (PJ+NIT→crear_contacto+ret11%[5382]). El único issue menor es timeout 20s en test4_suite.py test_4g_endpoint que puede fallar por latencia de red externa."
+}

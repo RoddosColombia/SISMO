@@ -17,6 +17,11 @@ _PJ_SUFFIXES = (
 _PN_PATTERN = re.compile(
     r'\b[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}\b'
 )
+# Detecta "CC 1020345678", "cédula: 1020345678", "NIT 900.888.777-1", etc.
+_ID_PATTERN = re.compile(
+    r'\b(?:cc|cédula|cedula|nit|c\.c\.)\s*[:\#]?\s*([\d.]{6,12}(?:-\d)?)',
+    re.IGNORECASE,
+)
 
 
 def _detectar_tipo_proveedor(msg: str) -> str:
@@ -30,6 +35,15 @@ def _detectar_tipo_proveedor(msg: str) -> str:
     if _PN_PATTERN.search(msg):
         return "PN"
     return "UNCLEAR"
+
+
+def _detectar_identificacion(msg: str) -> str | None:
+    """Detecta si hay un número de CC o NIT explícito en el mensaje.
+
+    Returns: número como string, o None si no hay.
+    """
+    m = _ID_PATTERN.search(msg)
+    return m.group(1) if m else None
 
 AGENT_SYSTEM_PROMPT = """Eres el Agente Contable IA de RODDOS Colombia — actúas como un contador experto en NIIF Colombia.
 Tienes acceso DIRECTO a Alegra ERP y EJECUTAS acciones reales, no solo sugieres.
@@ -512,12 +526,36 @@ ASIENTOS TÍPICOS DE RODDOS:
 • Pago cuota loanbook:   DEB banco                  | CRED [5327] Créditos Directos | CRED [5456] Interés mora
 • Software/licencia:     DEB [5484] Sistemas        | CRED proveedor
 
-REGLA CRÍTICA — RETENCIONES EN HONORARIOS:
-Si el nombre del proveedor NO tiene SAS/Ltda/SA/Corp/Sociedad/Empresa/Consultora → es PERSONA NATURAL → retención 10% [5381] 23651501
-Si el nombre tiene SAS/Ltda/SA/Corp/Sociedad o similar → es PERSONA JURÍDICA → retención 11% [5382] 23651502
-Si el tipo NO está claro en el mensaje → PREGUNTA SIEMPRE: "¿El proveedor es persona natural o empresa?" — NO propongas el asiento sin saber el tipo.
+REGLA CRÍTICA — RETENCIONES EN HONORARIOS (3 casos, SEGUIR EN ORDEN):
+
+CASO 1 — Tipo detectado Y número de CC/NIT disponible en el mensaje:
+  La sección "CUENTAS REALES DE RODDOS" muestra "PROVEEDOR DETECTADO: PERSONA NATURAL" Y hay CC en el mensaje
+  → ACCIÓN: Genera el bloque <action> crear_contacto + crear_causacion DIRECTAMENTE. NO hagas ninguna pregunta.
+  → Usa retención 10%: [5381] 23651501 para PN
+  La sección muestra "PROVEEDOR DETECTADO: PERSONA JURÍDICA" Y hay NIT en el mensaje
+  → ACCIÓN: Genera el bloque <action> crear_contacto + crear_causacion DIRECTAMENTE. NO hagas ninguna pregunta.
+  → Usa retención 11%: [5382] 23651502 para PJ
+
+CASO 2 — Tipo detectado pero falta número de CC/NIT:
+  La sección muestra "PROVEEDOR DETECTADO: PERSONA NATURAL" pero NO hay CC en el mensaje
+  → ACCIÓN: Haz UNA sola pregunta: "¿Cuál es el número de cédula de [nombre]?"
+  → NO preguntes el tipo — ya está determinado. NO preguntes nada más.
+  La sección muestra "PROVEEDOR DETECTADO: PERSONA JURÍDICA" pero NO hay NIT en el mensaje
+  → ACCIÓN: Haz UNA sola pregunta: "¿Cuál es el NIT de [nombre]?"
+  → NO preguntes el tipo — ya está determinado. NO preguntes nada más.
+
+CASO 3 — Tipo NO detectado:
+  La sección muestra "TIPO DE PROVEEDOR NO DETECTADO"
+  → ACCIÓN: Pregunta UNA vez: "¿[nombre] es persona natural (PN) o empresa (persona jurídica)?"
+  → Luego pide NIT/CC en la siguiente respuesta.
+
 NUNCA uses ambas retenciones a la vez. Solo una según el tipo de proveedor.
-"""
+NUNCA inventes ni uses NIT/CC ficticios o placeholders — espera el dato real del usuario.
+
+═══════════════════════════════════════════════════
+INSTRUCCIÓN PRIORITARIA DE ESTA SESIÓN:
+═══════════════════════════════════════════════════
+{honorarios_instruccion}"""
 
 # Keywords that indicate the user wants to register or ask about accounts
 REGISTER_KEYWORDS = [
@@ -787,15 +825,16 @@ async def gather_context(user_message: str, alegra_service, db) -> dict:
 
 async def gather_accounts_context(user_message: str, alegra_service, db) -> tuple:
     """Build accounts context from roddos_cuentas (fast) + Alegra patterns.
-    Returns (accounts_context_str, patterns_context_str)."""
+    Returns (accounts_context_str, patterns_context_str, honorarios_instruccion)."""
     msg_lower = user_message.lower()
     needs_accounts = any(w in msg_lower for w in REGISTER_KEYWORDS)
 
     accounts_str = "No se requiere plan de cuentas para esta consulta."
     patterns_str = "Sin patrones aprendidos aún."
+    honorarios_instruccion = "(Sin instrucción especial para esta consulta.)"
 
     if not needs_accounts:
-        return accounts_str, patterns_str
+        return accounts_str, patterns_str, honorarios_instruccion
 
     # ── 1. Transaction-type detection → targeted account selection ───────────
     # Detect proveedor type first (needed for honorarios rule)
@@ -868,33 +907,67 @@ async def gather_accounts_context(user_message: str, alegra_service, db) -> tupl
                 f"  [{a['alegra_id']}] {a['codigo']} — {a['nombre']}"
                 for a in sorted(roddos_accts, key=lambda x: x["codigo"])
             ]
-            accounts_str = (
+            cuentas_str = (
                 "CUENTAS REALES DE RODDOS (usar estas — ya configuradas en Alegra):\n"
                 + "\n".join(lines)
             )
-            # Inject honorarios note based on detected proveedor type
+
+            # ── Honorarios: detect case and build honorarios_instruccion ──────
             is_honorario_msg = any(kw in msg_lower for kw in
                                    ["honorario", "asesor", "profesional", "contad"])
             if is_honorario_msg:
+                id_detected = _detectar_identificacion(user_message)
                 if tipo_proveedor == "PN":
-                    accounts_str += (
-                        "\n\nPROVEEDOR DETECTADO: PERSONA NATURAL"
-                        "\n→ Usar OBLIGATORIAMENTE retención 10%: [5381] 23651501"
-                        "\n→ NO usar 23651502 (esa es para PJ)"
-                    )
+                    if id_detected:
+                        honorarios_instruccion = (
+                            f"INSTRUCCION OBLIGATORIA (Caso 1 — Tipo+ID conocidos):\n"
+                            f"El sistema detectó: PERSONA NATURAL con CC={id_detected}.\n"
+                            f"ACCION INMEDIATA: Genera el bloque <action> crear_contacto+crear_causacion AHORA.\n"
+                            f"Retención 10%: cuenta [5381] 23651501. NO hagas ninguna pregunta."
+                        )
+                    else:
+                        honorarios_instruccion = (
+                            "INSTRUCCION OBLIGATORIA (Caso 2 — Tipo conocido, CC faltante):\n"
+                            "El sistema detectó: PERSONA NATURAL (por el nombre en el mensaje).\n"
+                            "ACCION INMEDIATA: Hacer UNA SOLA PREGUNTA, exactamente: "
+                            "'¿Cuál es el número de cédula de [nombre del proveedor]?'\n"
+                            "PROHIBIDO: NO preguntar si es PN o PJ — ya está determinado.\n"
+                            "PROHIBIDO: NO hacer ninguna otra pregunta."
+                        )
                 elif tipo_proveedor == "PJ":
-                    accounts_str += (
-                        "\n\nPROVEEDOR DETECTADO: PERSONA JURÍDICA / EMPRESA"
-                        "\n→ Usar OBLIGATORIAMENTE retención 11%: [5382] 23651502"
-                        "\n→ NO usar 23651501 (esa es para PN)"
-                    )
+                    if id_detected:
+                        honorarios_instruccion = (
+                            f"INSTRUCCION OBLIGATORIA (Caso 1 — Tipo+ID conocidos):\n"
+                            f"El sistema detectó: PERSONA JURÍDICA con NIT={id_detected}.\n"
+                            f"ACCION INMEDIATA: Genera el bloque <action> crear_contacto+crear_causacion AHORA.\n"
+                            f"Retención 11%: cuenta [5382] 23651502. NO hagas ninguna pregunta."
+                        )
+                    else:
+                        honorarios_instruccion = (
+                            "INSTRUCCION OBLIGATORIA (Caso 2 — Tipo conocido, NIT faltante):\n"
+                            "El sistema detectó: PERSONA JURÍDICA (por sufijo en el nombre).\n"
+                            "ACCION INMEDIATA: Hacer UNA SOLA PREGUNTA, exactamente: "
+                            "'¿Cuál es el NIT de [nombre del proveedor]?'\n"
+                            "PROHIBIDO: NO preguntar si es PN o PJ — ya está determinado.\n"
+                            "PROHIBIDO: NO hacer ninguna otra pregunta."
+                        )
                 else:
-                    accounts_str += (
-                        "\n\nTIPO DE PROVEEDOR NO DETECTADO AUTOMÁTICAMENTE"
-                        "\n→ DEBES preguntar al usuario antes de proponer el asiento:"
-                        '\n   "¿El proveedor es persona natural o empresa (persona jurídica)?"'
-                        "\n→ NO uses 23651501 ni 23651502 sin confirmar el tipo."
+                    honorarios_instruccion = (
+                        "INSTRUCCION OBLIGATORIA (Caso 3 — Tipo no detectado):\n"
+                        "El sistema NO pudo determinar si el proveedor es PN o PJ.\n"
+                        "ACCION INMEDIATA: Hacer UNA SOLA PREGUNTA: "
+                        "'¿[nombre] es persona natural (PN) o empresa (persona jurídica)?'\n"
+                        "NO pedir el NIT/CC todavía — primero confirmar el tipo."
                     )
+                # Add compact provider-type note to accounts_str
+                pn_note = {
+                    "PN": "\n[Sistema: Proveedor detectado como PERSONA NATURAL — retención 10%]",
+                    "PJ": "\n[Sistema: Proveedor detectado como PERSONA JURÍDICA — retención 11%]",
+                    "UNCLEAR": "\n[Sistema: Tipo de proveedor no determinado]",
+                }
+                accounts_str = cuentas_str + pn_note.get(tipo_proveedor, "")
+            else:
+                accounts_str = cuentas_str
         else:
             # Final fallback: full Alegra categories
             accounts_tree = await alegra_service.get_accounts_from_categories()
@@ -963,7 +1036,7 @@ async def gather_accounts_context(user_message: str, alegra_service, db) -> tupl
     except Exception:
         patterns_str = "Sin patrones disponibles."
 
-    return accounts_str, patterns_str
+    return accounts_str, patterns_str, honorarios_instruccion
 
 
 DOCUMENT_ANALYSIS_SYSTEM_PROMPT = """Eres el Agente Contable IA de RODDOS Colombia, experto en contabilidad NIIF Colombia.
@@ -1037,7 +1110,7 @@ async def process_document_chat(
     alegra_service = AlegraService(db)
 
     # Always load full accounts context for document analysis
-    accounts_str, _ = await gather_accounts_context("causar registrar factura", alegra_service, db)
+    accounts_str, _, _hon = await gather_accounts_context("causar registrar factura", alegra_service, db)
 
     # Get active loanbooks for payment detection
     loanbook_str = "Sin loanbooks activos."
@@ -1158,7 +1231,7 @@ async def process_chat(
 
     # Gather context (parallel where possible)
     context_data = await gather_context(user_message, alegra_service, db)
-    accounts_str, patterns_str = await gather_accounts_context(user_message, alegra_service, db)
+    accounts_str, patterns_str, honorarios_instruccion = await gather_accounts_context(user_message, alegra_service, db)
     context_str = json.dumps(context_data, ensure_ascii=False)
 
     # Build IVA context string
@@ -1214,6 +1287,7 @@ async def process_chat(
         .replace("{iva_context}", iva_context_str)
         .replace("{accounts_context}", accounts_str)
         .replace("{patterns_context}", patterns_str)
+        .replace("{honorarios_instruccion}", honorarios_instruccion)
     )
 
     # Save user message to MongoDB
