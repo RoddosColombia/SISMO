@@ -21,9 +21,11 @@ logger = logging.getLogger(__name__)
 # ── GET /semaforo ─────────────────────────────────────────────────────────────
 @router.get("/semaforo")
 async def get_semaforo(current_user=Depends(get_current_user)):
-    """Semáforo financiero en tiempo real (5 dimensiones)."""
+    """Semáforo financiero en tiempo real (exactamente 5 dimensiones: caja, cartera, ventas, roll_rate, impuestos)."""
     datos = await consolidar_datos_financieros(db)
-    return await generar_semaforo(datos)
+    result = await generar_semaforo(datos)
+    # Retornar solo las 5 dimensiones de color (excluir metricas internas)
+    return {k: v for k, v in result.items() if k != "metricas"}
 
 
 # ── GET /pyg ──────────────────────────────────────────────────────────────────

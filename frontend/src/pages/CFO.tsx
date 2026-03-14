@@ -32,7 +32,7 @@ interface Semaforo {
   ventas:    "VERDE" | "AMARILLO" | "ROJO";
   roll_rate: "VERDE" | "AMARILLO" | "ROJO";
   impuestos: "VERDE" | "AMARILLO" | "ROJO";
-  metricas: {
+  metricas?: {
     tasa_mora_pct:   number;
     roll_rate_pct:   number;
     pct_cobrado:     number;

@@ -22,6 +22,45 @@ from emergentintegrations.llm.chat import LlmChat, UserMessage
 
 logger = logging.getLogger(__name__)
 
+
+# ── Parser diagnóstico IA ─────────────────────────────────────────────────────
+
+def _parse_diagnostico(analisis_ia: str) -> dict:
+    """Extrae puntos positivos (bien) y negativos (mal) del texto IA."""
+    bien: list[str] = []
+    mal:  list[str] = []
+    section: str | None = None
+
+    for raw_line in analisis_ia.split("\n"):
+        line = raw_line.strip().lstrip("*#").strip()
+        if not line:
+            continue
+        lower = line.lower()
+        if any(kw in lower for kw in ("positivo", "favorable", "fortaleza", "bien:")):
+            section = "bien"
+            continue
+        if any(kw in lower for kw in ("negativo", "desfavorable", "debilidad", "preocup",
+                                       "riesgo", "mal:", "crítico")):
+            section = "mal"
+            continue
+        if section and len(line) > 15:
+            content = line.lstrip("0123456789. )-•→").strip()
+            if content and len(content) > 15:
+                if section == "bien" and len(bien) < 5:
+                    bien.append(content)
+                elif section == "mal" and len(mal) < 5:
+                    mal.append(content)
+
+    # Fallback: si no se detectaron secciones, dividir el texto por la mitad
+    if not bien and not mal and analisis_ia:
+        lines = [ln.strip() for ln in analisis_ia.split("\n") if len(ln.strip()) > 20]
+        mid = len(lines) // 2
+        bien = lines[:mid][:3]
+        mal  = lines[mid:][:3]
+
+    return {"bien": bien, "mal": mal}
+
+
 # ── Costos unitarios por modelo ───────────────────────────────────────────────
 COSTO_MODELOS: dict[str, float] = {
     "sport 100":  4_157_461.0,
@@ -669,6 +708,7 @@ async def generar_informe_cfo(db, triggered_by: str = "manual") -> dict:
         "id":               str(uuid.uuid4()),
         "periodo":          datos["periodo"],
         "fecha_generacion": now_iso,
+        "generado_en":      now_iso,           # alias para la API
         "generado_por":     triggered_by,
         "datos_financieros": {
             "pyg":         pyg,
@@ -680,7 +720,9 @@ async def generar_informe_cfo(db, triggered_by: str = "manual") -> dict:
         },
         "semaforo":     semaforo,
         "analisis_ia":  analisis_ia,
+        "diagnostico":  _parse_diagnostico(analisis_ia),
         "plan_acciones": plan_acciones,
+        "plan_accion":   plan_acciones,        # alias para la API
     }
 
     await db.cfo_informes.insert_one(informe)
