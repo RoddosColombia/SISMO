@@ -359,11 +359,13 @@ FORMATO EXACTO PARA CREAR_CAUSACION (Alegra API /journals):
   ]
 }
 
-REGLA CRÍTICA: El campo "entries" usa {"id": NÚMERO_ENTERO, "name": NOMBRE_TEXTO, "debit": N, "credit": N}
-El campo "name" es solo informativo para el usuario — NO lo envíes a Alegra (el sistema lo elimina automáticamente).
-NUNCA uses {"account": {"id": ...}} — ese formato es INCORRECTO y da error 403/400.
-El id en entries es el ID numérico de la cuenta del plan de cuentas NIIF de Alegra.
-Para Debitos y Créditos que NO aplican, usa 0 (no omitir el campo).
+REGLA CRÍTICA — IDs DE CUENTAS:
+El campo "id" en cada entry DEBE ser el ID numérico interno de Alegra de esa empresa.
+En el contexto recibirás "cuentas_contables": lista de {id, code, name} con los IDs reales.
+USA SIEMPRE el id de esa lista. NUNCA inventes un ID ni uses el código PUC como ID.
+Si no ves la cuenta exacta en la lista, escoge la más cercana por nombre o cuenta padre.
+El campo "name" es informativo para el usuario — el sistema lo elimina antes de enviar a Alegra.
+NUNCA uses {"account": {"id": ...}} — ese formato da error 400.
 
 RETENCIONES Colombia (calcular antes de mostrar el asiento):
 • ReteFuente Arrendamiento inmuebles:   3.5% del valor bruto
@@ -543,6 +545,22 @@ async def gather_context(user_message: str, alegra_service, db) -> dict:
 
     # Pull IVA status for cuatrimestral context
     msg_lower = user_message.lower()
+
+    # ── Inject chart of accounts for causacion / journal entry scenarios ─────
+    causacion_kws = ["causaci", "gasto", "comprobante", "journal", "asiento", "registro contable",
+                     "contabiliz", "débito", "debito", "crédito", "credito", "cuenta"]
+    if any(kw in msg_lower for kw in causacion_kws):
+        try:
+            accts = await alegra_service.get_accounts_from_categories()
+            leaf_accts = alegra_service.get_leaf_accounts(accts)
+            # Send condensed list: id, code, name (no type/nature to save tokens)
+            context["cuentas_contables"] = [
+                {"id": a["id"], "code": a.get("code", ""), "name": a["name"]}
+                for a in leaf_accts
+                if a.get("status", "active") == "active"
+            ]
+        except Exception:
+            pass
 
     # ── Inject catalog items for compra/bill scenarios ──────────────────────
     compra_kws = ["compra", "factura compra", "factura de compra", "bill", "proveedor",
@@ -997,6 +1015,14 @@ async def process_chat(
         ]
         extra_context += "\n\nLOANBOOK_ACTIVOS:\n" + "\n".join(lines)
 
+    if context_data.get("cuentas_contables"):
+        acct_list = context_data["cuentas_contables"]
+        lines = [f"  • id={a['id']} | code={a.get('code','')} | {a['name']}" for a in acct_list]
+        extra_context += (
+            "\n\nCUENTAS_CONTABLES_ALEGRA — USA ESTOS IDs EN crear_causacion (NO inventes IDs):\n"
+            + "\n".join(lines)
+        )
+
     # Build system prompt with all context
     system_prompt = (
         AGENT_SYSTEM_PROMPT
@@ -1157,12 +1183,60 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
             **({"next_pending_action": next_action} if next_action else {}),
         }
 
-    # ── CREAR_CAUSACION: strip display-only 'name' from entries ──────────────
+    # ── CREAR_CAUSACION: validate entry IDs and translate if needed ──────────
     if action_type == "crear_causacion":
         entries = payload.get("entries", [])
-        payload["entries"] = [
-            {"id": e["id"], "debit": e.get("debit", 0), "credit": e.get("credit", 0)}
+        # Strip display-only 'name' but keep it temporarily for ID translation
+        normalized = [
+            {
+                "id":     e["id"],
+                "debit":  e.get("debit", 0),
+                "credit": e.get("credit", 0),
+                "_name":  e.get("name", ""),
+            }
             for e in entries
+        ]
+
+        # Translate invalid IDs → real Alegra IDs using name-based lookup
+        if not await service.is_demo_mode():
+            try:
+                cats = await service.request("categories")
+                valid_ids: set = set()
+                name_to_id: dict = {}
+
+                def _build_maps(items: list) -> None:
+                    for item in items:
+                        valid_ids.add(str(item["id"]))
+                        norm = (item.get("name") or "").lower().strip()
+                        if norm:
+                            name_to_id[norm] = str(item["id"])
+                        for child in item.get("children", []):
+                            _build_maps([child])
+
+                _build_maps(cats if isinstance(cats, list) else [])
+
+                for entry in normalized:
+                    if str(entry["id"]) not in valid_ids:
+                        entry_name = (entry.get("_name") or "").lower().strip()
+                        if entry_name:
+                            # Exact match first
+                            if entry_name in name_to_id:
+                                entry["id"] = int(name_to_id[entry_name])
+                            else:
+                                # Partial match: pick first account whose name contains key words
+                                words = [w for w in entry_name.split() if len(w) > 3]
+                                for known_name, known_id in name_to_id.items():
+                                    if all(w in known_name for w in words[:2]):
+                                        entry["id"] = int(known_id)
+                                        logger.info(f"[causacion] ID {entry['id']} → {known_id} via name '{entry_name}'")
+                                        break
+            except Exception as lookup_err:
+                logger.warning(f"[causacion] ID translation: {lookup_err}")
+
+        # Final normalization: strip helper _name
+        payload["entries"] = [
+            {"id": e["id"], "debit": e["debit"], "credit": e["credit"]}
+            for e in normalized
         ]
 
     endpoint, method = ACTION_MAP[action_type]

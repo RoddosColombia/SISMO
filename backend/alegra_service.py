@@ -209,7 +209,7 @@ class AlegraService:
                 'type': cat.get('type', 'asset'),
                 'nature': cat.get('nature', 'debit'),
                 'use': cat.get('use', 'movement'),
-                'code': None,  # NIIF accounts have no PUC code
+                'code': cat.get('code'),          # PUC / local code from Alegra
                 'status': cat.get('status', 'active'),
                 'subAccounts': self._transform_categories(children) if children else [],
             }
