@@ -25,6 +25,7 @@ import Presupuesto from "./pages/Presupuesto";
 import Repuestos from "./pages/Repuestos";
 import Loanbook from "./pages/Loanbook";
 import Cartera from "./pages/Cartera";
+import CFO from "./pages/CFO";
 import "./App.css";
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -72,6 +73,7 @@ function AppRoutes() {
           <Route path="repuestos" element={<Repuestos />} />
           <Route path="loanbook" element={<Loanbook />} />
           <Route path="cartera" element={<Cartera />} />
+          <Route path="cfo" element={<CFO />} />
           {/* Fiscal */}
           <Route path="impuestos" element={<Impuestos />} />
           <Route path="retenciones" element={<Retenciones />} />

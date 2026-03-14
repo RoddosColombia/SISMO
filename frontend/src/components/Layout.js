@@ -4,7 +4,7 @@ import {
   LayoutDashboard, FileText, ShoppingCart, TrendingUp, TrendingDown,
   Building2, Settings, LogOut, ChevronLeft, Menu, Bell, User,
   CreditCard, Receipt, Calculator, Users, Gift, BarChart2, Tag, Target, Bike, X,
-  Wrench, BookOpen, Wallet, Bot
+  Wrench, BookOpen, Wallet, Bot, BriefcaseBusiness,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useAlegra } from "../contexts/AlegraContext";
@@ -22,6 +22,7 @@ const MODULES = [
   { path: "/repuestos",            label: "Repuestos",             icon: Wrench,          group: "Inventario" },
   { path: "/loanbook",             label: "Loanbook",              icon: BookOpen,        group: "Cartera" },
   { path: "/cartera",              label: "Cartera",               icon: Wallet,          group: "Cartera" },
+  { path: "/cfo",                  label: "Agente CFO",            icon: BriefcaseBusiness, group: "Cartera" },
   { path: "/impuestos",            label: "Impuestos y Alertas",   icon: Receipt,         group: "Fiscal" },
   { path: "/retenciones",          label: "Retenciones",           icon: Calculator,      group: "Fiscal" },
   { path: "/nomina",               label: "Nómina",                icon: Users,           group: "RRHH" },

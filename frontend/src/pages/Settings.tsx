@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import {
   Save, TestTube2, RefreshCw, Loader2, ToggleLeft, ToggleRight,
   Shield, Activity, Globe, QrCode, Download, Check, MessageCircle,
-  Plus, Pencil, X, Bike,
+  Plus, Pencil, X, Bike, Zap,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Button } from "../components/ui/button";
@@ -212,6 +212,7 @@ export default function Settings() {
           {user?.role === "admin" && <TabsTrigger value="audit" data-testid="tab-audit">Auditoría</TabsTrigger>}
           <TabsTrigger value="webhooks" data-testid="tab-webhooks">Webhooks</TabsTrigger>
           {user?.role === "admin" && <TabsTrigger value="mercately" data-testid="tab-mercately">Mercately (WhatsApp)</TabsTrigger>}
+          <TabsTrigger value="cfo" data-testid="tab-cfo">Agente CFO</TabsTrigger>
         </TabsList>
 
         {/* Alegra Connection Tab */}
@@ -339,6 +340,7 @@ export default function Settings() {
         <SecurityTab api={api} user={user} />
         <AuditTab api={api} />
         <WebhooksTab api={api} />
+        <CfoTab api={api} />
         {user?.role === "admin" && <MercatelyTab api={api} />}
       </Tabs>
     </div>
@@ -346,7 +348,128 @@ export default function Settings() {
 }
 
 
-// ─── CATÁLOGO DE MOTOS TAB ────────────────────────────────────────────────────
+// ─── CFO CONFIG TAB ──────────────────────────────────────────────────────────
+
+function CfoTab({ api }: { api: any }) {
+  const [cfg, setCfg] = useState({
+    dia_informe:     1,
+    umbral_mora_pct: 5,
+    umbral_caja_cop: 5_000_000,
+    whatsapp_activo: false,
+    whatsapp_ceo:    "",
+  });
+  const [saving, setSaving]       = useState(false);
+  const [generating, setGenerating] = useState(false);
+
+  useEffect(() => {
+    api.get("/cfo/config").then((r: any) => setCfg((prev) => ({ ...prev, ...r.data }))).catch(() => {});
+  }, [api]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await api.post("/cfo/config", cfg);
+      toast.success("Configuración CFO guardada");
+    } catch { toast.error("Error guardando configuración"); }
+    finally { setSaving(false); }
+  };
+
+  const handleGenerar = async () => {
+    setGenerating(true);
+    try {
+      await api.post("/cfo/generar");
+      toast.success("Informe CFO generado — ve a la página CFO para verlo");
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "Error generando informe");
+    } finally { setGenerating(false); }
+  };
+
+  return (
+    <TabsContent value="cfo" className="mt-5">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 max-w-lg space-y-5">
+        <h3 className="text-base font-bold text-[#0F2A5C] flex items-center gap-2">
+          <Zap size={16} className="text-[#C9A84C]" /> Configuración Agente CFO
+        </h3>
+
+        <div className="space-y-4">
+          <div>
+            <Label className="text-sm font-medium text-slate-700">Día del mes para informe automático</Label>
+            <Input
+              type="number" min={1} max={28}
+              value={cfg.dia_informe}
+              onChange={(e: any) => setCfg((p) => ({ ...p, dia_informe: Number(e.target.value) }))}
+              className="mt-1.5 w-28"
+              data-testid="cfo-dia-informe"
+            />
+            <p className="text-xs text-slate-400 mt-1">Se genera automáticamente ese día a las 08:00 AM (Bogotá)</p>
+          </div>
+
+          <div>
+            <Label className="text-sm font-medium text-slate-700">Umbral alerta mora (%)</Label>
+            <Input
+              type="number" min={0} max={100} step={0.5}
+              value={cfg.umbral_mora_pct}
+              onChange={(e: any) => setCfg((p) => ({ ...p, umbral_mora_pct: Number(e.target.value) }))}
+              className="mt-1.5 w-28"
+              data-testid="cfo-umbral-mora"
+            />
+          </div>
+
+          <div>
+            <Label className="text-sm font-medium text-slate-700">Umbral alerta caja (COP)</Label>
+            <Input
+              type="number" min={0} step={1_000_000}
+              value={cfg.umbral_caja_cop}
+              onChange={(e: any) => setCfg((p) => ({ ...p, umbral_caja_cop: Number(e.target.value) }))}
+              className="mt-1.5 w-44"
+              data-testid="cfo-umbral-caja"
+            />
+          </div>
+
+          <div>
+            <Label className="text-sm font-medium text-slate-700">Enviar informe por WhatsApp al CEO</Label>
+            <button
+              onClick={() => setCfg((p) => ({ ...p, whatsapp_activo: !p.whatsapp_activo }))}
+              data-testid="cfo-whatsapp-toggle"
+              className="mt-1.5 block"
+            >
+              {cfg.whatsapp_activo
+                ? <ToggleRight size={32} className="text-[#00C853]" />
+                : <ToggleLeft  size={32} className="text-slate-400" />}
+            </button>
+          </div>
+
+          {cfg.whatsapp_activo && (
+            <div>
+              <Label className="text-sm font-medium text-slate-700">Número WhatsApp CEO</Label>
+              <Input
+                type="tel"
+                placeholder="+573001234567"
+                value={cfg.whatsapp_ceo}
+                onChange={(e: any) => setCfg((p) => ({ ...p, whatsapp_ceo: e.target.value }))}
+                className="mt-1.5"
+                data-testid="cfo-whatsapp-ceo"
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="flex gap-3 pt-2">
+          <Button onClick={handleSave} disabled={saving} data-testid="cfo-save-btn"
+            className="bg-[#0F2A5C] hover:bg-[#1a3d7a] text-white">
+            {saving ? <Loader2 size={14} className="animate-spin mr-1" /> : <Save size={14} className="mr-1" />}
+            Guardar
+          </Button>
+          <Button onClick={handleGenerar} disabled={generating} variant="outline" data-testid="cfo-generar-btn">
+            {generating ? <Loader2 size={14} className="animate-spin mr-1" /> : <Zap size={14} className="mr-1" />}
+            Generar Informe Ahora
+          </Button>
+        </div>
+      </div>
+    </TabsContent>
+  );
+}
+
 
 const EMPTY_MOTO: Partial<CatalogoMoto> = {
   modelo: "", marca: "Auteco", costo: 0, pvp: 0,

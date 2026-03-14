@@ -942,6 +942,12 @@ async def process_chat(
             db, user
         )
 
+    # ── CFO intent detection (antes del flujo contable normal) ───────────────
+    from services.cfo_agent import is_cfo_query, process_cfo_query
+    if is_cfo_query(user_message):
+        return await process_cfo_query(user_message, db, user, session_id)
+    # ─────────────────────────────────────────────────────────────────────────
+
     api_key = os.environ.get("EMERGENT_LLM_KEY")
 
     # Import here to avoid circular import
