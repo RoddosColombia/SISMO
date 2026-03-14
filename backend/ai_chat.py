@@ -1,9 +1,35 @@
 import os
+import re
 import uuid
 import json
 from datetime import datetime, timezone
 from fastapi import HTTPException
 from emergentintegrations.llm.chat import LlmChat, UserMessage, FileContent
+
+
+# ── Helpers de detección de tipo de proveedor ────────────────────────────────
+_PJ_SUFFIXES = (
+    "SAS", "S.A.S", "LTDA", "S.A.", "SA ", "CORP", "INC", "SOCIEDAD",
+    "EMPRESA", "CONSULTORÍA", "CONSULTORIA", "COMPAÑÍA", "COMPANIA",
+    "GROUP", "SERVICIOS", "SOLUTIONS", "SOLUCIONES", "ASOCIADOS",
+    "ASOCIADAS", "CIA ", "CÍA ", "LIMITADA", "INMOBILIARIA", "AGENCIA",
+)
+_PN_PATTERN = re.compile(
+    r'\b[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}\b'
+)
+
+
+def _detectar_tipo_proveedor(msg: str) -> str:
+    """Detecta si el proveedor en el mensaje es PN (persona natural) o PJ (empresa).
+
+    Returns: 'PN', 'PJ', o 'UNCLEAR'.
+    """
+    upper = msg.upper()
+    if any(suf.upper() in upper for suf in _PJ_SUFFIXES):
+        return "PJ"
+    if _PN_PATTERN.search(msg):
+        return "PN"
+    return "UNCLEAR"
 
 AGENT_SYSTEM_PROMPT = """Eres el Agente Contable IA de RODDOS Colombia — actúas como un contador experto en NIIF Colombia.
 Tienes acceso DIRECTO a Alegra ERP y EJECUTAS acciones reales, no solo sugieres.
@@ -485,6 +511,12 @@ ASIENTOS TÍPICOS DE RODDOS:
 • Costo venta moto:      DEB [5520] Costo motos     | CRED [5348] Inventario motos
 • Pago cuota loanbook:   DEB banco                  | CRED [5327] Créditos Directos | CRED [5456] Interés mora
 • Software/licencia:     DEB [5484] Sistemas        | CRED proveedor
+
+REGLA CRÍTICA — RETENCIONES EN HONORARIOS:
+Si el nombre del proveedor NO tiene SAS/Ltda/SA/Corp/Sociedad/Empresa/Consultora → es PERSONA NATURAL → retención 10% [5381] 23651501
+Si el nombre tiene SAS/Ltda/SA/Corp/Sociedad o similar → es PERSONA JURÍDICA → retención 11% [5382] 23651502
+Si el tipo NO está claro en el mensaje → PREGUNTA SIEMPRE: "¿El proveedor es persona natural o empresa?" — NO propongas el asiento sin saber el tipo.
+NUNCA uses ambas retenciones a la vez. Solo una según el tipo de proveedor.
 """
 
 # Keywords that indicate the user wants to register or ask about accounts
@@ -766,11 +798,22 @@ async def gather_accounts_context(user_message: str, alegra_service, db) -> tupl
         return accounts_str, patterns_str
 
     # ── 1. Transaction-type detection → targeted account selection ───────────
+    # Detect proveedor type first (needed for honorarios rule)
+    tipo_proveedor = _detectar_tipo_proveedor(user_message)
+
+    # Honorarios retención depends on PN vs PJ
+    if tipo_proveedor == "PN":
+        honorarios_ret = ["23651501"]          # 10% PN
+    elif tipo_proveedor == "PJ":
+        honorarios_ret = ["23651502"]          # 11% PJ
+    else:
+        honorarios_ret = ["23651501", "23651502"]  # ambas — agente preguntará
+
     TRANSACTION_RULES = [
         (["arriendo", "arrendamiento", "alquiler", "calle 127"],
          ["512010", "23653001"]),
         (["honorario", "asesor", "jurídic", "contad", "profesional"],
-         ["511025", "511030", "23651501", "23651502"]),
+         ["511025", "511030"] + honorarios_ret),
         (["venta moto", "vender moto", "factura moto", "venta de moto"],
          ["41350501", "61350501", "14350101", "13050501"]),
         (["cuota", "loanbook", "crédito directo", "abono crédito", "pago cuota"],
@@ -829,6 +872,29 @@ async def gather_accounts_context(user_message: str, alegra_service, db) -> tupl
                 "CUENTAS REALES DE RODDOS (usar estas — ya configuradas en Alegra):\n"
                 + "\n".join(lines)
             )
+            # Inject honorarios note based on detected proveedor type
+            is_honorario_msg = any(kw in msg_lower for kw in
+                                   ["honorario", "asesor", "profesional", "contad"])
+            if is_honorario_msg:
+                if tipo_proveedor == "PN":
+                    accounts_str += (
+                        "\n\nPROVEEDOR DETECTADO: PERSONA NATURAL"
+                        "\n→ Usar OBLIGATORIAMENTE retención 10%: [5381] 23651501"
+                        "\n→ NO usar 23651502 (esa es para PJ)"
+                    )
+                elif tipo_proveedor == "PJ":
+                    accounts_str += (
+                        "\n\nPROVEEDOR DETECTADO: PERSONA JURÍDICA / EMPRESA"
+                        "\n→ Usar OBLIGATORIAMENTE retención 11%: [5382] 23651502"
+                        "\n→ NO usar 23651501 (esa es para PN)"
+                    )
+                else:
+                    accounts_str += (
+                        "\n\nTIPO DE PROVEEDOR NO DETECTADO AUTOMÁTICAMENTE"
+                        "\n→ DEBES preguntar al usuario antes de proponer el asiento:"
+                        '\n   "¿El proveedor es persona natural o empresa (persona jurídica)?"'
+                        "\n→ NO uses 23651501 ni 23651502 sin confirmar el tipo."
+                    )
         else:
             # Final fallback: full Alegra categories
             accounts_tree = await alegra_service.get_accounts_from_categories()

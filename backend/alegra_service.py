@@ -44,7 +44,8 @@ class AlegraService:
         return await self.db.roddos_cuentas.find(
             {"uso_frecuente": True}, {"_id": 0}
         ).to_list(100)
-        """Return Alegra credentials with 60s in-memory cache to avoid repeated MongoDB reads."""
+
+    async def get_settings(self):
         cache_key = id(self.db)
         now = datetime.now(timezone.utc)
         if cache_key in _settings_cache:
