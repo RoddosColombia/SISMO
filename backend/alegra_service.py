@@ -22,7 +22,28 @@ class AlegraService:
     def __init__(self, db):
         self.db = db
 
-    async def get_settings(self):
+    async def get_cuenta_roddos(self, descripcion: str, tipo: str | None = None) -> dict | None:
+        """Busca la cuenta RODDOS más relevante en MongoDB por nombre, palabras_clave o transacciones_tipicas.
+
+        Returns: {codigo, alegra_id, nombre, tipo} o None si no hay match.
+        """
+        query: dict = {
+            "$or": [
+                {"nombre":               {"$regex": descripcion, "$options": "i"}},
+                {"palabras_clave":       {"$regex": descripcion, "$options": "i"}},
+                {"transacciones_tipicas":{"$regex": descripcion, "$options": "i"}},
+            ]
+        }
+        if tipo:
+            query["tipo"] = tipo
+        doc = await self.db.roddos_cuentas.find_one(query, {"_id": 0})
+        return doc
+
+    async def get_cuentas_roddos_frecuentes(self) -> list[dict]:
+        """Retorna las cuentas de uso frecuente de RODDOS."""
+        return await self.db.roddos_cuentas.find(
+            {"uso_frecuente": True}, {"_id": 0}
+        ).to_list(100)
         """Return Alegra credentials with 60s in-memory cache to avoid repeated MongoDB reads."""
         cache_key = id(self.db)
         now = datetime.now(timezone.utc)

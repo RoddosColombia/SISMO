@@ -418,6 +418,73 @@ IVA CUATRIMESTRAL — ESTADO ACTUAL:
 
 IMPORTANTE: Responde siempre en español colombiano. Sé conciso y profesional.
 Cuando el usuario pregunte sobre IVA, SIEMPRE incluye el estado actual del período y 3+ sugerencias concretas para reducirlo.
+
+═══════════════════════════════════════════════════
+PLAN DE CUENTAS RODDOS — IDs INTERNOS DE ALEGRA
+(Usa SIEMPRE estos IDs en crear_causacion. No inventes IDs.)
+═══════════════════════════════════════════════════
+BANCOS:
+  [5314] 11100501 — Bancolombia 2029
+  [5315] 11100502 — Bancolombia 2540
+  [5318] 11100505 — BBVA 0210
+  [5319] 11100506 — BBVA 0212
+  [5321] 11200501 — Banco de Bogotá Ahorros
+  [5322] 11200502 — Davivienda Ahorros 482
+  [5310] 11050501 — Caja general
+
+CARTERA / ACTIVOS:
+  [5326] 13050501 — Cuentas por cobrar clientes nacionales
+  [5327] 13050502 — Creditos Directos Roddos (cuotas loanbook)
+  [5348] 14350101 — Motos (Inventario)
+  [5349] 14350102 — Repuestos (Inventario)
+
+INGRESOS:
+  [5442] 41350501 — Motos (Ventas)
+  [5445] 41350601 — Repuestos (Ventas)
+  [5456] 41502001 — Creditos Directos Roddos (Intereses mora/financiación)
+  [5453] 41459507 — Matricula
+  [5451] 41459505 — Aval
+
+COSTOS:
+  [5520] 61350501 — Motos (Costo ventas)
+  [5523] 61350601 — Repuestos (Costo ventas)
+  [5531] 61459507 — Matricula (Costo)
+
+PASIVOS — IVA:
+  [5404] 24080601 — IVA Generado 19%
+  [5406] 24081001 — IVA Descontable en Compras 19%
+  [5408] 24081501 — IVA Descontable por Servicios
+
+PASIVOS — RETENCIONES POR PAGAR:
+  [5381] 23651501 — Retenciones honorarios 10% (persona natural)
+  [5382] 23651502 — Retenciones honorarios 11% (persona jurídica)
+  [5383] 23652501 — Retenciones servicios 4%
+  [5386] 23653001 — Retenciones arriendo 3.5%
+  [5388] 23654001 — Retenciones compra 2.5%
+  [5392] 23680501 — RteICA 11.04‰ Bogotá
+  [5410] 241205   — ICA por pagar
+  [5376] 220505   — Cuentas por pagar a proveedores nacionales
+
+GASTOS FRECUENTES:
+  [5480] 512010 — Arrendamientos (arriendo local Calle 127)
+  [5462] 510506 — Sueldos y salarios
+  [5478] 511505 — Industria y Comercio (ICA gasto)
+  [5484] 513520 — Software/Sistemas (Emergent, Alegra, Mercately)
+  [5487] 513535 — Teléfono / Internet
+  [5507] 530505 — Gastos bancarios
+  [5508] 530515 — Comisiones
+  [5509] 531520 — Gravamen al movimiento Financiero (4x1000)
+  [5497] 519530 — Útiles, papelería y fotocopia
+
+ASIENTOS TÍPICOS DE RODDOS:
+• Arriendo Calle 127:    DEB [5480] Arrendamientos | CRED [5386] Ret.arriendo 3.5% | CRED [proveedor] Neto
+• Honorarios PN:         DEB [cuenta gasto]         | CRED [5381] Ret.hon. 10%     | CRED banco/proveedor
+• Honorarios PJ:         DEB [cuenta gasto]         | CRED [5382] Ret.hon. 11%     | CRED banco/proveedor
+• Servicios (mant/aseo): DEB [cuenta gasto]         | CRED [5383] Ret.servicios 4% | CRED proveedor
+• Venta moto:            DEB [5326] Cartera         | CRED [5442] Ingresos motos   | CRED [5404] IVA si aplica
+• Costo venta moto:      DEB [5520] Costo motos     | CRED [5348] Inventario motos
+• Pago cuota loanbook:   DEB banco                  | CRED [5327] Créditos Directos | CRED [5456] Interés mora
+• Software/licencia:     DEB [5484] Sistemas        | CRED proveedor
 """
 
 # Keywords that indicate the user wants to register or ask about accounts
@@ -687,7 +754,7 @@ async def gather_context(user_message: str, alegra_service, db) -> dict:
 
 
 async def gather_accounts_context(user_message: str, alegra_service, db) -> tuple:
-    """Gather chart of accounts and RODDOS learned patterns for AI context.
+    """Build accounts context from roddos_cuentas (fast) + Alegra patterns.
     Returns (accounts_context_str, patterns_context_str)."""
     msg_lower = user_message.lower()
     needs_accounts = any(w in msg_lower for w in REGISTER_KEYWORDS)
@@ -698,36 +765,91 @@ async def gather_accounts_context(user_message: str, alegra_service, db) -> tupl
     if not needs_accounts:
         return accounts_str, patterns_str
 
-    # Load leaf accounts from Alegra categories
+    # ── 1. Transaction-type detection → targeted account selection ───────────
+    TRANSACTION_RULES = [
+        (["arriendo", "arrendamiento", "alquiler", "calle 127"],
+         ["512010", "23653001"]),
+        (["honorario", "asesor", "jurídic", "contad", "profesional"],
+         ["511025", "511030", "23651501", "23651502"]),
+        (["venta moto", "vender moto", "factura moto", "venta de moto"],
+         ["41350501", "61350501", "14350101", "13050501"]),
+        (["cuota", "loanbook", "crédito directo", "abono crédito", "pago cuota"],
+         ["13050502", "41502001"]),
+        (["nómina", "salario", "sueldo", "empleado"],
+         ["510506"]),
+        (["software", "emergent", "alegra", "mercately", "sistema", "tecnología", "licencia"],
+         ["513520"]),
+        (["teléfono", "internet", "celular"],
+         ["513535"]),
+        (["4x1000", "gmf", "gravamen", "cuatro por mil"],
+         ["531520"]),
+        (["papelería", "útiles", "tóner", "papel"],
+         ["519530"]),
+        (["iva generado", "iva cobrado", "iva venta"],
+         ["24080601"]),
+        (["iva descontable", "iva compra", "iva proveedor"],
+         ["24081001"]),
+        (["retención", "retefuente", "retener"],
+         ["23651501", "23651502", "23652501", "23653001", "23654001"]),
+        (["matrícula", "matricula"],
+         ["41459507", "61459507"]),
+        (["repuesto", "accesorio"],
+         ["41350601", "61350601", "14350102"]),
+    ]
+
+    # Collect codes relevant to detected transaction types
+    relevant_codes: set[str] = set()
+    for keywords, codes in TRANSACTION_RULES:
+        if any(kw in msg_lower for kw in keywords):
+            relevant_codes.update(codes)
+
+    # Always include main banks for any payment/receipt
+    if any(w in msg_lower for w in ["pagar","pago","recibir","cobrar","recaudo","banco","consign"]):
+        relevant_codes.update(["11100501","11100502","11100505","11200501","11200502","11050501"])
+
+    # ── 2. Build accounts string from roddos_cuentas (MongoDB, fast) ─────────
     try:
-        accounts_tree = await alegra_service.get_accounts_from_categories()
-        leaves = alegra_service.get_leaf_accounts(accounts_tree)
-        if leaves:
-            # Group by type for compact representation
-            by_type = {}
+        if relevant_codes:
+            accounts_cursor = db.roddos_cuentas.find(
+                {"codigo": {"$in": list(relevant_codes)}}, {"_id": 0}
+            )
+        else:
+            # Fallback: all uso_frecuente=True accounts
+            accounts_cursor = db.roddos_cuentas.find(
+                {"uso_frecuente": True}, {"_id": 0}
+            )
+        roddos_accts = await accounts_cursor.to_list(60)
+
+        if roddos_accts:
+            lines = [
+                f"  [{a['alegra_id']}] {a['codigo']} — {a['nombre']}"
+                for a in sorted(roddos_accts, key=lambda x: x["codigo"])
+            ]
+            accounts_str = (
+                "CUENTAS REALES DE RODDOS (usar estas — ya configuradas en Alegra):\n"
+                + "\n".join(lines)
+            )
+        else:
+            # Final fallback: full Alegra categories
+            accounts_tree = await alegra_service.get_accounts_from_categories()
+            leaves = alegra_service.get_leaf_accounts(accounts_tree)
+            by_type: dict = {}
             for acc in leaves:
-                t = acc.get('type', 'asset')
-                if t not in by_type:
-                    by_type[t] = []
-                by_type[t].append(f"  [{acc['id']}] {acc['name']}")
+                t = acc.get("type", "asset")
+                by_type.setdefault(t, []).append(f"  [{acc['id']}] {acc['name']}")
+            TYPE_LABELS = {"asset":"ACTIVOS","liability":"PASIVOS","equity":"PATRIMONIO",
+                           "income":"INGRESOS","expense":"GASTOS","cost":"COSTOS"}
+            accounts_str = "\n".join(
+                f"{TYPE_LABELS.get(t,t.upper())}:\n" + "\n".join(accs[:20])
+                for t, accs in by_type.items()
+            ) or "Sin cuentas disponibles."
+    except Exception as e:
+        accounts_str = "Error cargando plan de cuentas."
+        print(f"[gather_accounts_context] {e}")
 
-            TYPE_LABELS = {
-                "asset": "ACTIVOS", "liability": "PASIVOS", "equity": "PATRIMONIO",
-                "income": "INGRESOS", "expense": "GASTOS", "cost": "COSTOS",
-            }
-            lines = []
-            for t, accs in by_type.items():
-                lines.append(f"{TYPE_LABELS.get(t, t.upper())}:")
-                lines.extend(accs[:20])  # max 20 per type to avoid huge context
-            accounts_str = "\n".join(lines) or "Sin cuentas disponibles."
-    except Exception:
-        accounts_str = "Error cargando plan de cuentas (usar cuentas NIIF estándar Colombia)."
-
-    # Load RODDOS learned patterns — primero buscar similitud al mensaje actual
+    # ── 3. Load RODDOS learned patterns ──────────────────────────────────────
     try:
-        # agent_memory.find_similar(concepto) — ANTES de generar cada propuesta
         similar = await find_similar_pattern(db, user_message)
-
         patterns = await db.agent_memory.find(
             {"tipo": {"$in": ["crear_causacion", "crear_factura_venta", "registrar_factura_compra"]}},
             {"_id": 0}
@@ -736,27 +858,23 @@ async def gather_accounts_context(user_message: str, alegra_service, db) -> tupl
         if patterns:
             plines = []
             TIPO_LABELS = {
-                "crear_causacion":         "Causación",
-                "crear_factura_venta":     "Factura venta",
+                "crear_causacion":          "Causación",
+                "crear_factura_venta":      "Factura venta",
                 "registrar_factura_compra": "Factura compra",
             }
-
-            # Si hay similitud >= 80% → incluir al TOPE como sugerencia destacada
             if similar:
-                sim_pct    = round(similar.get("_similitud", 0) * 100)
-                freq_sim   = similar.get("frecuencia_count", 1)
-                tipo_sim   = TIPO_LABELS.get(similar["tipo"], similar["tipo"])
-                cuentas_sim = similar.get("cuentas_usadas", [])
+                sim_pct   = round(similar.get("_similitud", 0) * 100)
+                freq_sim  = similar.get("frecuencia_count", 1)
+                tipo_sim  = TIPO_LABELS.get(similar["tipo"], similar["tipo"])
                 cuentas_sim_str = " | ".join([
                     f"{c.get('rol','?')}: [{c.get('id','')}] {c.get('name','')}"
-                    for c in cuentas_sim[:2]
+                    for c in similar.get("cuentas_usadas", [])[:2]
                 ])
                 plines.append(
                     f"[PATRÓN SIMILAR DETECTADO — {sim_pct}% similitud]\n"
                     f"• {tipo_sim} — \"{similar['descripcion']}\" ({freq_sim}x) {cuentas_sim_str}\n"
                     f"→ Puedes sugerir este patrón directamente al usuario\n"
                 )
-
             for p in patterns:
                 # Evitar duplicar el patrón ya incluido como similar
                 if similar and p.get("descripcion") == similar.get("descripcion"):
@@ -785,7 +903,7 @@ async def gather_accounts_context(user_message: str, alegra_service, db) -> tupl
 DOCUMENT_ANALYSIS_SYSTEM_PROMPT = """Eres el Agente Contable IA de RODDOS Colombia, experto en contabilidad NIIF Colombia.
 Has recibido un comprobante contable (factura, recibo, comprobante de pago, extracto u otro documento).
 
-PLAN DE CUENTAS DISPONIBLE EN ALEGRA (cuentas hoja):
+CUENTAS REALES DE RODDOS EN ALEGRA (usar estos IDs en entries):
 {accounts_context}
 
 LOANBOOKS ACTIVOS EN RODDOS:
@@ -1186,7 +1304,6 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
     # ── CREAR_CAUSACION: validate entry IDs and translate if needed ──────────
     if action_type == "crear_causacion":
         entries = payload.get("entries", [])
-        # Strip display-only 'name' but keep it temporarily for ID translation
         normalized = [
             {
                 "id":     e["id"],
@@ -1197,41 +1314,63 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
             for e in entries
         ]
 
-        # Translate invalid IDs → real Alegra IDs using name-based lookup
+        # Translate invalid IDs → real Alegra IDs using roddos_cuentas (fast)
         if not await service.is_demo_mode():
             try:
-                cats = await service.request("categories")
-                valid_ids: set = set()
-                name_to_id: dict = {}
-
-                def _build_maps(items: list) -> None:
-                    for item in items:
-                        valid_ids.add(str(item["id"]))
-                        norm = (item.get("name") or "").lower().strip()
-                        if norm:
-                            name_to_id[norm] = str(item["id"])
-                        for child in item.get("children", []):
-                            _build_maps([child])
-
-                _build_maps(cats if isinstance(cats, list) else [])
+                roddos = await db.roddos_cuentas.find(
+                    {}, {"_id": 0, "alegra_id": 1, "nombre": 1, "palabras_clave": 1}
+                ).to_list(200)
+                valid_ids = {str(r["alegra_id"]) for r in roddos}
+                name_to_id = {r["nombre"].lower(): str(r["alegra_id"]) for r in roddos}
+                # Also index palabras_clave for fuzzy match
+                kw_to_id: dict[str, str] = {}
+                for r in roddos:
+                    for kw in r.get("palabras_clave", []):
+                        kw_to_id[kw.lower()] = str(r["alegra_id"])
 
                 for entry in normalized:
                     if str(entry["id"]) not in valid_ids:
                         entry_name = (entry.get("_name") or "").lower().strip()
+                        matched = False
                         if entry_name:
-                            # Exact match first
+                            # 1. Exact name match
                             if entry_name in name_to_id:
                                 entry["id"] = int(name_to_id[entry_name])
-                            else:
-                                # Partial match: pick first account whose name contains key words
-                                words = [w for w in entry_name.split() if len(w) > 3]
-                                for known_name, known_id in name_to_id.items():
-                                    if all(w in known_name for w in words[:2]):
-                                        entry["id"] = int(known_id)
-                                        logger.info(f"[causacion] ID {entry['id']} → {known_id} via name '{entry_name}'")
+                                matched = True
+                            # 2. Keywords match
+                            if not matched:
+                                for kw, kid in kw_to_id.items():
+                                    if kw in entry_name:
+                                        entry["id"] = int(kid)
+                                        matched = True
                                         break
+                            # 3. Partial name match
+                            if not matched:
+                                words = [w for w in entry_name.split() if len(w) > 3]
+                                for rname, rid in name_to_id.items():
+                                    if all(w in rname for w in words[:2]):
+                                        entry["id"] = int(rid)
+                                        break
+
+                        if not matched and str(entry["id"]) not in valid_ids:
+                            # Final fallback: Alegra /categories
+                            try:
+                                cats = await service.request("categories")
+                                cat_ids: set = set()
+                                cat_name_map: dict = {}
+                                def _scan(items: list) -> None:
+                                    for item in items:
+                                        cat_ids.add(str(item["id"]))
+                                        cat_name_map[(item.get("name") or "").lower()] = str(item["id"])
+                                        for child in item.get("children", []):
+                                            _scan([child])
+                                _scan(cats if isinstance(cats, list) else [])
+                                if entry_name in cat_name_map:
+                                    entry["id"] = int(cat_name_map[entry_name])
+                            except Exception:
+                                pass
             except Exception as lookup_err:
-                logger.warning(f"[causacion] ID translation: {lookup_err}")
+                        print(f"[causacion] ID translation: {lookup_err}")
 
         # Final normalization: strip helper _name
         payload["entries"] = [
