@@ -1,5 +1,5 @@
 # RODDOS Contable IA — Product Requirements Document
-**Versión**: 3.1.0 | **Actualizado**: Febrero 2026
+**Versión**: 4.0.0 | **Actualizado**: Febrero 2026
 
 ---
 
@@ -49,6 +49,7 @@ Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
 - **Scheduler DPD + Scores** (BUILD 3 ✅ — TEST BUILD3 10/10+Frontend PASS): migration_v24.py idempotente, 4 CRON jobs (DPD@06:00, Scores@06:30, RADAR@07:00, Resumen@Vie17:00 Bogotá), 4 endpoints /api/radar/*, endpoints gestion/ptp/snapshot, Loanbook.tsx con columnas DPD y Score
 - **TypeScript Migration** (✅ COMPLETADO — Febrero 2026): `// @ts-nocheck` eliminado de App.tsx, Login.tsx, AgentChatPage.tsx, Settings.tsx. Interfaces propias: Message, PendingAction, DocumentProposalData, AttachedFile. Declaraciones `.d.ts` para shadcn/ui. Fork-ts-checker: "No issues found."
 - **TEST 3** (✅ 29/29 PASS): DPD 3A (9/9), Mora 15%EA 3B (3/3), Scores A+→E 3C (6/6), Protocolo+Performance 3D (4/4), Migración 3E (5/5). Fix: `calcular_scores()` ahora incluye estado "recuperacion".
+- **BUILD 4 — Agente CFO** (✅ 18/18 PASS — Febrero 2026): services/cfo_agent.py (6 funciones), routers/cfo.py (8 endpoints), CFO page /cfo (5 secciones + botón flotante), Settings tab "Agente CFO", scheduler mensual día 1 08:00 AM Bogotá, CFO intent detection en chat, LineChart 8 semanas.
 - Credenciales Alegra, modo demo, cuentas predeterminadas
 - 2FA con Google Authenticator (TOTP)
 - Bot Telegram (infraestructura completa)
@@ -71,30 +72,26 @@ Política: Migrar a .tsx/.ts al tocar cada archivo. No migrar en bloque.
 
 ## BACKLOG (por prioridad — orden BUILD fijo)
 
-### P0 — BUILD 4: Agente CFO
-- CFO Agent: semáforo financiero, informe mensual automático, plan de acción IA
-- Integración resultados Alegra + loanbook en un solo dashboard
-
-### P1 — BUILD 5: WhatsApp Mercately
+### P0 — BUILD 5: WhatsApp Mercately
 - Integración WhatsApp (infraestructura en settings lista, Mercately config en DB)
 - Scheduler Viernes 17:00 → envío automático resumen CEO
+- Motor de alertas: mora día 1, DPD 8, DPD 15, DPD 22 → WhatsApp automático al cliente
 
-### P2 — BUILD 6: CRM + RADAR UI
+### P1 — BUILD 6: CRM + RADAR UI
 - CRM clientes: ClientDetail, notas APPEND-ONLY, historial gestiones
 - RADAR UI completo: BucketBadge, RadarCard priorizada, scores A+..E visuales
 
-### P3 — BUILD 7: Scheduler WhatsApp + alertas
-- Motor de alertas automático (mora día 1, DPD 8, DPD 15, DPD 22)
-- Envío automático notificaciones clientes por WhatsApp
+### P2 — BUILD 7: Scheduler WhatsApp + alertas automáticas
+- Motor de alertas completo (disparadores por DPD, estado, vencimiento DIAN)
 
-### P4 — BUILD 8: Frontend completo + Dashboard
-- Dashboard KPIs tiempo real
+### P3 — BUILD 8: Frontend completo + Dashboard KPIs
+- Dashboard KPIs tiempo real con panel RADAR en vivo (buckets visuales)
 - Estado de Resultados automático Alegra
 - Renombrar módulo cartera → RADAR (frontend completo)
 
 ### Backlog Técnico
 - Migrar Cartera.js, contextos AuthContext/AlegraContext a TypeScript
-- Pruebas E2E Telegram con token real
+- Integración DIAN para semáforo impuestos (actualmente hardcoded VERDE)
 - Nómina y Prestaciones NIIF Colombia
 
 ---
