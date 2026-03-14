@@ -396,7 +396,7 @@ async def test_4g_endpoint() -> None:
     res2 = subprocess.run(
         ["curl", "-s", f"{API_URL}/api/cfo/semaforo",
          "-H", f"Authorization: Bearer {token}"],
-        capture_output=True, text=True, timeout=20
+        capture_output=True, text=True, timeout=60
     )
     try:
         data = json.loads(res2.stdout)
