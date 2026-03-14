@@ -27,23 +27,28 @@ async def collection_queue(current_user=Depends(get_current_user)):
 
 @router.get("/semana")
 async def semana_stats(current_user=Depends(get_current_user)):
-    """Cuotas esperadas esta semana vs pagadas vs pendientes."""
+    """Cuotas esperadas esta semana vs pagadas vs pendientes + nuevas moras."""
     hoy      = date.today()
     lunes    = hoy - timedelta(days=hoy.weekday())
     domingo  = lunes + timedelta(days=6)
     lunes_s  = lunes.isoformat()
     domingo_s = domingo.isoformat()
 
+    # Reference point: 7 days ago (to detect new moras)
+    hace7 = (hoy - timedelta(days=7)).isoformat()
+
     loans = await db.loanbook.find(
         {"estado": {"$in": ["activo", "mora", "completado"]}},
-        {"_id": 0, "cuotas": 1, "codigo": 1, "cliente_nombre": 1},
+        {"_id": 0, "cuotas": 1, "codigo": 1, "cliente_nombre": 1, "created_at": 1},
     ).to_list(5000)
 
     esperadas: list[dict] = []
     pagadas:   list[dict] = []
     pendientes: list[dict] = []
+    nuevas_moras = 0
 
     for loan in loans:
+        tiene_mora_nueva = False
         for cuota in loan.get("cuotas", []):
             fv = cuota.get("fecha_vencimiento", "")
             if lunes_s <= fv <= domingo_s:
@@ -58,27 +63,36 @@ async def semana_stats(current_user=Depends(get_current_user)):
                 esperadas.append(item)
                 if cuota.get("estado") == "pagada":
                     pagadas.append(item)
+                elif cuota.get("estado") == "vencida" and not tiene_mora_nueva:
+                    nuevas_moras += 1
+                    tiene_mora_nueva = True
                 else:
                     pendientes.append(item)
 
-    valor_esperado  = sum(e["valor"] for e in esperadas)
-    valor_cobrado   = sum(p["valor"] for p in pagadas)
-    valor_pendiente = sum(p["valor"] for p in pendientes)
+    valor_esperado = sum(i["valor"] for i in esperadas)
+    valor_cobrado  = sum(i["valor"] for i in pagadas)
+    pct_cobranza   = round(valor_cobrado / valor_esperado * 100, 1) if valor_esperado > 0 else 0.0
 
     return {
-        "semana": {"inicio": lunes_s, "fin": domingo_s},
-        "totales": {
-            "cuotas_esperadas":  len(esperadas),
-            "cuotas_pagadas":    len(pagadas),
-            "cuotas_pendientes": len(pendientes),
-            "valor_esperado":    valor_esperado,
-            "valor_cobrado":     valor_cobrado,
-            "valor_pendiente":   valor_pendiente,
-            "porcentaje_cobrado": round(valor_cobrado / valor_esperado * 100, 1)
-            if valor_esperado > 0 else 0.0,
-        },
+        "semana_inicio":  lunes_s,
+        "semana_fin":     domingo_s,
+        "esperadas":      len(esperadas),
+        "pagadas":        len(pagadas),
+        "pendientes":     len(pendientes),
+        "nuevas_moras":   nuevas_moras,
+        "valor_esperado": valor_esperado,
+        "valor_cobrado":  valor_cobrado,
+        "pct_cobranza":   pct_cobranza,
         "detalle_pendiente": sorted(pendientes, key=lambda x: x["fecha_vencimiento"]),
     }
+
+
+# ── Deprecated alias — remove in 30 days ─────────────────────────────────────
+
+@router.get("/cola-remota")
+async def cola_remota_deprecated(current_user=Depends(get_current_user)):
+    """DEPRECATED — alias for /queue. Will be removed in 30 days. Use /queue instead."""
+    return await collection_queue(current_user)
 
 
 @router.get("/roll-rate")

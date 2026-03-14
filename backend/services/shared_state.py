@@ -13,7 +13,7 @@ Expone exactamente 6 funciones asíncronas:
 import time
 import uuid
 import logging
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, date, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -382,42 +382,69 @@ async def get_daily_collection_queue(db) -> list[dict]:
             estado_cuota = cuota.get("estado", "")
             if not fv or estado_cuota not in ("pendiente", "vencida"):
                 continue
+
+            manana_s = (date.today() + timedelta(days=1)).isoformat()
+
             if fv <= today:
                 dpd_actual = (date.today() - date.fromisoformat(fv)).days
+                # Granular bucket mapping aligned with BUILD 6 RADAR
                 bucket = (
-                    "URGENTE"   if dpd_actual > 14
-                    else "PARA_HOY" if dpd_actual == 0
-                    else "VENCIDA"
+                    "RECUPERACION" if dpd_actual >= 22 else
+                    "CRITICO"      if dpd_actual >= 15 else
+                    "URGENTE"      if dpd_actual >= 8  else
+                    "ACTIVO"       if dpd_actual >= 1  else
+                    "HOY"
                 )
-                # DPD=22 activa recuperación (PRD: "Máximo sin pago: 21 días")
                 dias_para_protocolo = max(0, 22 - dpd_actual)
+            elif fv == manana_s:
+                dpd_actual = -1
+                bucket = "MAÑANA"
+                dias_para_protocolo = 23
+            else:
+                continue  # future cuota — not actionable
 
-                # WhatsApp link con código país Colombia (57)
-                telefono = loan.get("cliente_telefono", "")
-                wa_phone = telefono.replace(" ", "").replace("+", "").replace("-", "")
-                if wa_phone and not wa_phone.startswith("57") and len(wa_phone) == 10:
-                    wa_phone = f"57{wa_phone}"
-                valor_fmt = str(int(cuota.get("valor", 0)))
-                whatsapp_link = (
-                    f"https://wa.me/{wa_phone}?text=RODDOS%3A+Cuota+vencida+%24{valor_fmt}"
-                    if wa_phone else ""
-                )
+            # Compute score from cuota history
+            all_pagadas = [c for c in loan.get("cuotas", []) if c.get("estado") == "pagada"]
+            a_tiempo = sum(
+                1 for c in all_pagadas
+                if c.get("fecha_pago", "9999") <= c.get("fecha_vencimiento", "9999")
+            )
+            score_pct = round(a_tiempo / len(all_pagadas) * 100) if all_pagadas else 100
+            score_letra = (
+                "A" if score_pct >= 90 else
+                "B" if score_pct >= 70 else
+                "C" if score_pct >= 50 else "F"
+            )
 
-                queue.append({
-                    "loanbook_id":          loan["id"],
-                    "codigo":               loan["codigo"],
-                    "cliente_nombre":       loan["cliente_nombre"],
-                    "cliente_telefono":     telefono,
-                    "cuota_numero":         cuota["numero"],
-                    "fecha_vencimiento":    fv,
-                    "bucket":               bucket,
-                    "dpd_actual":           dpd_actual,
-                    "total_a_pagar":        cuota.get("valor", 0),
-                    "dias_para_protocolo":  dias_para_protocolo,
-                    "whatsapp_link":        whatsapp_link,
-                    "saldo_total":          loan.get("saldo_pendiente", 0),
-                })
-                break  # solo primera cuota vencida por loan
+            # WhatsApp link con código país Colombia (57)
+            telefono = loan.get("cliente_telefono", "")
+            wa_phone = telefono.replace(" ", "").replace("+", "").replace("-", "")
+            if wa_phone and not wa_phone.startswith("57") and len(wa_phone) == 10:
+                wa_phone = f"57{wa_phone}"
+            valor_fmt = str(int(cuota.get("valor", 0)))
+            whatsapp_link = (
+                f"https://wa.me/{wa_phone}?text=RODDOS%3A+Cuota+vencida+%24{valor_fmt}"
+                if wa_phone else ""
+            )
+
+            queue.append({
+                "loanbook_id":          loan["id"],
+                "codigo":               loan["codigo"],
+                "cliente_nombre":       loan["cliente_nombre"],
+                "cliente_telefono":     telefono,
+                "cuota_numero":         cuota["numero"],
+                "fecha_vencimiento":    fv,
+                "bucket":               bucket,
+                "dpd_actual":           dpd_actual,
+                "total_a_pagar":        cuota.get("valor", 0),
+                "mora":                 cuota.get("mora", 0),
+                "dias_para_protocolo":  dias_para_protocolo,
+                "whatsapp_link":        whatsapp_link,
+                "saldo_total":          loan.get("saldo_pendiente", 0),
+                "score_pct":            score_pct,
+                "score_letra":          score_letra,
+            })
+            break  # solo primera cuota vencida/urgente por loan
 
     queue.sort(key=lambda x: (-x["dpd_actual"], x["fecha_vencimiento"]))
     _cache_set(key, queue)

@@ -24,7 +24,9 @@ import EgresosClasificados from "./pages/EgresosClasificados";
 import Presupuesto from "./pages/Presupuesto";
 import Repuestos from "./pages/Repuestos";
 import Loanbook from "./pages/Loanbook";
-import Cartera from "./pages/Cartera";
+import Radar from "./pages/Radar";
+import CRMList from "./pages/CRMList";
+import CRMCliente from "./pages/CRMCliente";
 import CFO from "./pages/CFO";
 import "./App.css";
 
@@ -72,7 +74,9 @@ function AppRoutes() {
           <Route path="inventario-auteco" element={<InventarioAuteco />} />
           <Route path="repuestos" element={<Repuestos />} />
           <Route path="loanbook" element={<Loanbook />} />
-          <Route path="cartera" element={<Cartera />} />
+          <Route path="radar" element={<Radar />} />
+          <Route path="crm" element={<CRMList />} />
+          <Route path="crm/:id" element={<CRMCliente />} />
           <Route path="cfo" element={<CFO />} />
           {/* Fiscal */}
           <Route path="impuestos" element={<Impuestos />} />
