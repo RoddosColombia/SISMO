@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 from fastapi import APIRouter, Request
 
-from ai_chat import execute_chat_action, process_document_chat
+from ai_chat import execute_chat_action, process_document_chat, process_chat
 from database import db
 
 logger = logging.getLogger(__name__)
@@ -552,7 +552,6 @@ async def mercately_webhook(request: Request):
     if message_type == "text" and content and tipo_remitente == "INTERNO":
         admin = await _get_admin()
         if admin:
-            from ai_chat import process_chat
             session_id = f"mercately-int-{phone}"
             try:
                 result = await process_chat(session_id, content, db, admin)

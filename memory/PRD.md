@@ -1,5 +1,5 @@
 # RODDOS Contable IA — Product Requirements Document
-**Versión**: 4.0.0 | **Actualizado**: Febrero 2026
+**Versión**: 5.0.0 | **Actualizado**: Marzo 2026
 
 ---
 
@@ -50,7 +50,8 @@ Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
 - **TypeScript Migration** (✅ COMPLETADO — Febrero 2026): `// @ts-nocheck` eliminado de App.tsx, Login.tsx, AgentChatPage.tsx, Settings.tsx. Interfaces propias: Message, PendingAction, DocumentProposalData, AttachedFile. Declaraciones `.d.ts` para shadcn/ui. Fork-ts-checker: "No issues found."
 - **TEST 3** (✅ 29/29 PASS): DPD 3A (9/9), Mora 15%EA 3B (3/3), Scores A+→E 3C (6/6), Protocolo+Performance 3D (4/4), Migración 3E (5/5). Fix: `calcular_scores()` ahora incluye estado "recuperacion".
 - **Plan de Cuentas RODDOS — Conocimiento Base (✅ Febrero 2026)**: Colección `roddos_cuentas` en MongoDB con 155 cuentas reales de Alegra. `gather_accounts_context` usa `roddos_cuentas` primero (<5ms). System prompt incluye PLAN DE CUENTAS RODDOS con IDs reales.
-- **Smart Retentions PN/PJ (✅ Febrero 2026)**: Detección automática de tipo de proveedor (`_detectar_tipo_proveedor`) y número de identificación (`_detectar_identificacion`). Flujo de 3 casos: (1) Tipo+ID → acción directa, (2) Tipo sin ID → pregunta SOLO cédula/NIT, (3) Tipo desconocido → pregunta tipo. Validado con TEST 4 oficial 49/49 + 3/3 retentions PASS.
+- **Smart Retentions PN/PJ (✅ Marzo 2026)**: Detección automática de tipo de proveedor (`_detectar_tipo_proveedor`) y número de identificación (`_detectar_identificacion`). Flujo de 3 casos: (1) Tipo+ID → acción directa, (2) Tipo sin ID → pregunta SOLO cédula/NIT, (3) Tipo desconocido → pregunta tipo. Validado con TEST 4 oficial 49/49 + 3/3 retentions PASS.
+- **BUILD 5 — WhatsApp Mercately (✅ Marzo 2026)**: Canal WhatsApp via Mercately. `routers/mercately.py` con POST /api/mercately/webhook público. Flujos: CLIENTE (comprobante → propuesta → confirmación SI → registro Alegra → recibo digital), INTERNO (factura → ExecutionCard → confirmación SI → ejecución Alegra), DESCONOCIDO (bienvenida). Settings tab actualizado: api_key, phone_number, whitelist, ceo_number + botón "Probar Conexión" (GET /api/v1/agent). Sesiones con TTL 5 min en `mercately_sessions`. 12/12 tests PASS.
 - Credenciales Alegra, modo demo, cuentas predeterminadas
 - 2FA con Google Authenticator (TOTP)
 - Bot Telegram (infraestructura completa)
