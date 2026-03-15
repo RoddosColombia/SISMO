@@ -84,6 +84,8 @@ export default function Layout() {
   const [mobileOpen, setMobileOpen]   = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [showNotifs, setShowNotifs]   = useState(false);
+  // BUILD 9 — Badge alertas CFO en sidebar
+  const [cfoAlertCount, setCfoAlertCount] = useState(0);
   const location  = useLocation();
   const navigate  = useNavigate();
 
@@ -97,11 +99,26 @@ export default function Layout() {
     } catch {}
   }, [api]);
 
+  // Poll CFO alerts every 60s for sidebar badge
+  const fetchCfoAlerts = useCallback(async () => {
+    try {
+      const res = await api.get("/cfo/alertas");
+      const activas = (res.data || []).filter((a) => a.estado === "nueva");
+      setCfoAlertCount(activas.length);
+    } catch {}
+  }, [api]);
+
   useEffect(() => {
     fetchNotifications();
     const interval = setInterval(fetchNotifications, 15000);
     return () => clearInterval(interval);
   }, [fetchNotifications]);
+
+  useEffect(() => {
+    fetchCfoAlerts();
+    const cfoPoll = setInterval(fetchCfoAlerts, 60000);
+    return () => clearInterval(cfoPoll);
+  }, [fetchCfoAlerts]);
 
   const markAllRead = async () => {
     try { await api.put("/notifications/read-all"); setNotifications([]); } catch {}
@@ -182,7 +199,19 @@ export default function Layout() {
                     : { color: "#888", borderLeft: "2px solid transparent" }
                   }
                 >
-                  <mod.icon size={16} className="flex-shrink-0" />
+                  <div className="relative flex-shrink-0">
+                    <mod.icon size={16} />
+                    {/* BUILD 9: Badge rojo para CFO cuando hay alertas activas */}
+                    {mod.path === "/cfo" && cfoAlertCount > 0 && (
+                      <span
+                        className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 rounded-full text-[8px] font-bold flex items-center justify-center"
+                        style={{ background: "#FF4444", color: "#fff" }}
+                        data-testid="cfo-alert-badge"
+                      >
+                        {cfoAlertCount > 9 ? "9+" : cfoAlertCount}
+                      </span>
+                    )}
+                  </div>
                   {!collapsed && (
                     <span className="text-[12.5px] font-medium flex-1">{mod.label}</span>
                   )}

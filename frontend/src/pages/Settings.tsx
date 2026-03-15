@@ -1360,11 +1360,16 @@ const SCHEDULER_JOBS = [
   { id: "alertar_buckets_criticos",  label: "Alertas Buckets WA",        schedule: "Diario 06:05" },
   { id: "verificar_alertas_cfo",     label: "Verificar Alertas CFO",     schedule: "Diario 06:10" },
   { id: "calcular_scores",           label: "Calcular Scores + PTP",     schedule: "Diario 06:30" },
+  // BUILD 9
+  { id: "alertas_predictivas",       label: "Alertas Predictivas ML",    schedule: "Diario 06:45", badge: "ML" },
   { id: "generar_cola_radar",        label: "Generar Cola RADAR",        schedule: "Diario 07:00" },
+  { id: "resolver_outcomes",         label: "Resolver Outcomes WA",      schedule: "Diario 07:30", badge: "ML" },
   { id: "recordatorio_preventivo",   label: "Recordatorio Preventivo",   schedule: "Mar 09:00" },
   { id: "recordatorio_vencimiento",  label: "Recordatorio Vencimiento",  schedule: "Mié 09:00" },
   { id: "notificar_mora_nueva",      label: "Notificar Mora Nueva",      schedule: "Jue 09:00" },
   { id: "resumen_semanal_ceo",       label: "Resumen Semanal CEO",       schedule: "Vie 17:00" },
+  // BUILD 9 — semanal
+  { id: "procesar_patrones",         label: "Procesar Patrones ML",      schedule: "Lun 08:00", badge: "ML" },
 ];
 
 function SchedulerTab({ api }: { api: any }) {
@@ -1396,14 +1401,19 @@ function SchedulerTab({ api }: { api: any }) {
       {/* Jobs */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
         <h3 className="text-sm font-bold text-[#0F2A5C] mb-3 flex items-center gap-2">
-          <span>⏱</span> Jobs del Scheduler (9 total)
+          <span>⏱</span> Jobs del Scheduler (12 total — 3 de ML activos en BUILD 9)
         </h3>
         <div className="space-y-2">
           {SCHEDULER_JOBS.map(job => (
             <div key={job.id} data-testid={`scheduler-job-${job.id}`}
               className="flex items-center justify-between py-2 px-3 bg-slate-50 rounded-lg border border-slate-100">
               <div>
-                <p className="text-sm font-medium text-slate-700">{job.label}</p>
+                <p className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                  {job.label}
+                  {job.badge && (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-600 border border-blue-200">{job.badge}</span>
+                  )}
+                </p>
                 <p className="text-xs text-slate-400">{job.schedule} (America/Bogota)</p>
               </div>
               <button

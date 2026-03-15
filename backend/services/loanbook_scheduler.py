@@ -1,15 +1,18 @@
-"""loanbook_scheduler.py — 9 CRON jobs para DPD, scores, alertas WA y resumen CEO.
+"""loanbook_scheduler.py — 12 CRON jobs para DPD, scores, alertas WA, resumen CEO y ML.
 
 Jobs (timezone=America/Bogota):
   06:00 AM diario    → calcular_dpd_todos()         — DPD + bucket + interés mora
   06:05 AM diario    → alertar_buckets_criticos()    — WA clientes DPD 8/15 + CEO DPD 22
   06:10 AM diario    → verificar_alertas_cfo()       — despacha cfo_alertas[estado=nueva]
   06:30 AM diario    → calcular_scores() + PTP followup
+  06:45 AM diario    → alertas_predictivas()         — BUILD 9: ML riesgo predictivo
   07:00 AM diario    → generar_cola_radar()          — warm-up caché RADAR
+  07:30 AM diario    → resolver_outcomes()           — BUILD 9: verifica pagos post-gestión
   Martes   09:00 AM  → recordatorio_preventivo()     — cuota vence mañana (miércoles)
   Miércoles 09:00 AM → recordatorio_vencimiento()    — cuota vence hoy
   Jueves   09:00 AM  → notificar_mora_nueva()         — DPD == 1 (no pagaron ayer)
   Viernes  17:00 PM  → resumen_semanal_ceo()          — resumen enriquecido al CEO
+  Lunes    08:00 AM  → procesar_patrones()           — BUILD 9: extrae patrones ML semanales
 
 REGLA GLOBAL: Si mercately_config.api_key está vacío → solo log, sin envío, sin crash.
 """
@@ -462,8 +465,9 @@ async def generar_cola_radar() -> None:
 # ─── CRON 6: Martes 09:00 AM — Recordatorio preventivo ───────────────────────
 
 async def recordatorio_preventivo() -> None:
-    """Envía WA a clientes cuya cuota vence MAÑANA (miércoles)."""
+    """Envía WA a clientes cuya cuota vence MAÑANA (miércoles). BUILD 9: usa template óptimo."""
     from database import db
+    from services.learning_engine import get_template_optimo, DEFAULT_TEMPLATES, _bucket_label
 
     try:
         config = await _get_mercately_config()
@@ -476,8 +480,8 @@ async def recordatorio_preventivo() -> None:
 
         loans = await db.loanbook.find(
             {"estado": {"$in": ["activo", "mora"]}},
-            {"_id": 0, "cliente_nombre": 1, "cliente_telefono": 1,
-             "moto_descripcion": 1, "cuotas": 1},
+            {"_id": 0, "id": 1, "cliente_nombre": 1, "cliente_telefono": 1,
+             "moto_descripcion": 1, "cuotas": 1, "dpd_actual": 1, "dpd_bucket": 1, "score_pago": 1},
         ).to_list(5000)
 
         enviados = 0
@@ -491,12 +495,29 @@ async def recordatorio_preventivo() -> None:
                     nombre = _nombre_corto(loan.get("cliente_nombre", ""))
                     modelo = (loan.get("moto_descripcion", "") or "la moto").strip()
                     valor  = cuota.get("valor", 0)
-                    msg = (
-                        f"Hola {nombre} 👋, mañana miércoles {fecha_fmt} vence tu cuota "
-                        f"#{cuota['numero']} por {_fmt_cop(valor)} de tu {modelo}. "
-                        "Envíanos el comprobante cuando realices el pago. ¡Gracias!"
-                    )
-                    await _wa(tel, msg, config)
+                    bucket = _bucket_label(loan.get("dpd_bucket", "0"), loan.get("dpd_actual", 0))
+                    score  = loan.get("score_pago", "C") or "C"
+
+                    # BUILD 9: obtener template óptimo (si no hay patrón → "default")
+                    tmpl_id = await get_template_optimo(db, bucket, score)
+
+                    if tmpl_id == "default":
+                        msg = (
+                            f"Hola {nombre} 👋, mañana miércoles {fecha_fmt} vence tu cuota "
+                            f"#{cuota['numero']} por {_fmt_cop(valor)} de tu {modelo}. "
+                            "Envíanos el comprobante cuando realices el pago. ¡Gracias!"
+                        )
+                    else:
+                        tpl = DEFAULT_TEMPLATES.get(tmpl_id, DEFAULT_TEMPLATES.get(bucket, ""))
+                        msg = tpl.format(
+                            nombre=nombre, num_cuota=cuota.get("numero", "?"),
+                            valor=_fmt_cop(valor), fecha=fecha_fmt, dpd=0,
+                        ) if tpl else (
+                            f"Hola {nombre}, recuerda que mañana vence tu cuota "
+                            f"#{cuota['numero']} por {_fmt_cop(valor)}."
+                        )
+
+                    await _wa(tel, msg, config, job=f"recordatorio_preventivo:tmpl={tmpl_id}")
                     enviados += 1
                     break  # un mensaje por cliente
 
@@ -509,8 +530,9 @@ async def recordatorio_preventivo() -> None:
 # ─── CRON 7: Miércoles 09:00 AM — Recordatorio vencimiento ───────────────────
 
 async def recordatorio_vencimiento() -> None:
-    """Envía WA a clientes cuya cuota vence HOY."""
+    """Envía WA a clientes cuya cuota vence HOY. BUILD 9: usa template óptimo."""
     from database import db
+    from services.learning_engine import get_template_optimo, DEFAULT_TEMPLATES, _bucket_label
 
     try:
         config = await _get_mercately_config()
@@ -523,7 +545,8 @@ async def recordatorio_vencimiento() -> None:
 
         loans = await db.loanbook.find(
             {"estado": {"$in": ["activo", "mora"]}},
-            {"_id": 0, "cliente_nombre": 1, "cliente_telefono": 1, "cuotas": 1},
+            {"_id": 0, "id": 1, "cliente_nombre": 1, "cliente_telefono": 1,
+             "cuotas": 1, "dpd_actual": 1, "dpd_bucket": 1, "score_pago": 1},
         ).to_list(5000)
 
         enviados = 0
@@ -536,12 +559,28 @@ async def recordatorio_vencimiento() -> None:
                         and cuota.get("estado") == "pendiente"):
                     nombre = _nombre_corto(loan.get("cliente_nombre", ""))
                     valor  = cuota.get("valor", 0)
-                    msg = (
-                        f"Hola {nombre}, hoy {fecha_fmt} vence tu cuota #{cuota['numero']} "
-                        f"por {_fmt_cop(valor)}. Recuerda enviarnos el comprobante 📸. "
-                        "¡Contamos contigo!"
-                    )
-                    await _wa(tel, msg, config)
+                    bucket = _bucket_label(loan.get("dpd_bucket", "0"), loan.get("dpd_actual", 0))
+                    score  = loan.get("score_pago", "C") or "C"
+
+                    # BUILD 9: obtener template óptimo
+                    tmpl_id = await get_template_optimo(db, bucket, score)
+
+                    if tmpl_id == "default":
+                        msg = (
+                            f"Hola {nombre}, hoy {fecha_fmt} vence tu cuota #{cuota['numero']} "
+                            f"por {_fmt_cop(valor)}. Recuerda enviarnos el comprobante 📸. "
+                            "¡Contamos contigo!"
+                        )
+                    else:
+                        tpl = DEFAULT_TEMPLATES.get(tmpl_id, DEFAULT_TEMPLATES.get(bucket, ""))
+                        msg = tpl.format(
+                            nombre=nombre, num_cuota=cuota.get("numero", "?"),
+                            valor=_fmt_cop(valor), fecha=fecha_fmt, dpd=0,
+                        ) if tpl else (
+                            f"Hola {nombre}, hoy vence tu cuota #{cuota['numero']} por {_fmt_cop(valor)}."
+                        )
+
+                    await _wa(tel, msg, config, job=f"recordatorio_vencimiento:tmpl={tmpl_id}")
                     enviados += 1
                     break
 
@@ -716,20 +755,114 @@ async def resumen_semanal_ceo() -> None:
         logger.error("[LoanScheduler] resumen_semanal_ceo error: %s", e)
 
 
+# ─── CRON BUILD 9a: 06:45 AM — Alertas predictivas ──────────────────────────
+
+async def alertas_predictivas() -> None:
+    """BUILD 9: Para cada loanbook DPD=0, evalúa riesgo predictivo con el learning engine.
+    Si probabilidad_mora > 0.70 → inserta en cfo_alertas y añade al RADAR como PREVENTIVO."""
+    from database import db
+    from services.learning_engine import get_alerta_deterioro
+
+    try:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        import uuid as _uuid
+
+        loans = await db.loanbook.find(
+            {"estado": "activo", "dpd_actual": 0},
+            {"_id": 0, "id": 1, "codigo": 1, "cliente_nombre": 1},
+        ).to_list(5000)
+
+        generadas = 0
+        for loan in loans:
+            loanbook_id = loan["id"]
+            alerta = await get_alerta_deterioro(db, loanbook_id)
+            if not alerta:
+                continue
+
+            prob  = alerta.get("probabilidad", 0)
+            señales = alerta.get("señales", [])
+
+            # Insertar alerta CFO si no existe una activa de este tipo para el loan
+            existing = await db.cfo_alertas.find_one(
+                {"entity_id": loanbook_id,
+                 "tipo": "deterioro_predictivo",
+                 "estado": {"$in": ["nueva", "notificada"]}},
+                {"_id": 0, "id": 1},
+            )
+            if not existing:
+                alerta_id = str(_uuid.uuid4())
+                await db.cfo_alertas.insert_one({
+                    "id":          alerta_id,
+                    "tipo":        "deterioro_predictivo",
+                    "nivel":       "critico" if prob >= 0.80 else "advertencia",
+                    "titulo":      f"Riesgo predictivo: {loan.get('cliente_nombre','?')}",
+                    "descripcion": (
+                        f"Probabilidad de mora: {prob*100:.0f}%. Señales: {', '.join(señales)}. "
+                        f"{alerta.get('accion_sugerida','')}"
+                    ),
+                    "entity_id":   loanbook_id,
+                    "entity_type": "loanbook",
+                    "estado":      "nueva",
+                    "creada_en":   now_iso,
+                    "metadata":    {
+                        "probabilidad": prob,
+                        "señales":      señales,
+                        "badge":        "predictivo",
+                    },
+                })
+                generadas += 1
+
+        logger.info("[LoanScheduler] alertas_predictivas: %d alertas generadas", generadas)
+
+    except Exception as e:
+        logger.error("[LoanScheduler] alertas_predictivas error: %s", e)
+
+
+# ─── CRON BUILD 9b: 07:30 AM — Resolver outcomes ─────────────────────────────
+
+async def resolver_outcomes() -> None:
+    """BUILD 9: Resuelve outcomes de aprendizaje con 3+ días de antigüedad."""
+    from services.learning_engine import resolver_outcomes_pendientes
+    from database import db
+    try:
+        count = await resolver_outcomes_pendientes(db)
+        logger.info("[LoanScheduler] resolver_outcomes: %d resueltos", count)
+    except Exception as e:
+        logger.error("[LoanScheduler] resolver_outcomes error: %s", e)
+
+
+# ─── CRON BUILD 9c: Lunes 08:00 AM — Procesar patrones ───────────────────────
+
+async def procesar_patrones() -> None:
+    """BUILD 9: Extrae patrones ML semanales de los outcomes acumulados."""
+    from services.learning_engine import procesar_patrones_semanales
+    from database import db
+    try:
+        result = await procesar_patrones_semanales(db)
+        logger.info("[LoanScheduler] procesar_patrones: %s", result)
+    except Exception as e:
+        logger.error("[LoanScheduler] procesar_patrones error: %s", e)
+
+
 # ─── Ciclo de vida ────────────────────────────────────────────────────────────
 
 def start_loanbook_scheduler() -> None:
-    """Registra los 9 CRON jobs y arranca el scheduler."""
+    """Registra los 12 CRON jobs y arranca el scheduler."""
     _jobs = [
         (calcular_dpd_todos,       {"hour": 6, "minute": 0},                        "calcular_dpd_todos"),
         (alertar_buckets_criticos, {"hour": 6, "minute": 5},                        "alertar_buckets_criticos"),
         (verificar_alertas_cfo,    {"hour": 6, "minute": 10},                       "verificar_alertas_cfo"),
         (calcular_scores,          {"hour": 6, "minute": 30},                       "calcular_scores"),
+        # BUILD 9
+        (alertas_predictivas,      {"hour": 6, "minute": 45},                       "alertas_predictivas"),
         (generar_cola_radar,       {"hour": 7, "minute": 0},                        "generar_cola_radar"),
+        (resolver_outcomes,        {"hour": 7, "minute": 30},                       "resolver_outcomes"),
         (recordatorio_preventivo,  {"day_of_week": "tue", "hour": 9, "minute": 0},  "recordatorio_preventivo"),
         (recordatorio_vencimiento, {"day_of_week": "wed", "hour": 9, "minute": 0},  "recordatorio_vencimiento"),
         (notificar_mora_nueva,     {"day_of_week": "thu", "hour": 9, "minute": 0},  "notificar_mora_nueva"),
         (resumen_semanal_ceo,      {"day_of_week": "fri", "hour": 17, "minute": 0}, "resumen_semanal_ceo"),
+        # BUILD 9 — semanal
+        (procesar_patrones,        {"day_of_week": "mon", "hour": 8, "minute": 0},  "procesar_patrones"),
     ]
 
     for func, kwargs, job_id in _jobs:
@@ -742,10 +875,11 @@ def start_loanbook_scheduler() -> None:
 
     _loanbook_scheduler.start()
     logger.info(
-        "[LoanScheduler] Iniciado — 9 jobs: "
-        "DPD@06:00 · Buckets@06:05 · CFO@06:10 · "
-        "Scores@06:30 · RADAR@07:00 · "
-        "Prev@Mar09:00 · Venc@Mié09:00 · Mora@Jue09:00 · Resumen@Vie17:00 (America/Bogota)"
+        "[LoanScheduler] Iniciado — 12 jobs: "
+        "DPD@06:00 · Buckets@06:05 · CFO@06:10 · Scores@06:30 · Predictivo@06:45 · "
+        "RADAR@07:00 · Outcomes@07:30 · "
+        "Prev@Mar09:00 · Venc@Mié09:00 · Mora@Jue09:00 · Resumen@Vie17:00 · "
+        "Patrones@Lun08:00 (America/Bogota)"
     )
 
 

@@ -18,6 +18,7 @@ from routers import auth, settings, alegra, chat, inventory, taxes, budget, dash
 from routers import repuestos, loanbook, telegram, radar as radar_router, cfo as cfo_router
 from routers import mercately as mercately_router, crm as crm_router
 from routers import scheduler as scheduler_router
+from routers import learning as learning_router
 from services.scheduler import start_scheduler, stop_scheduler
 from services.loanbook_scheduler import start_loanbook_scheduler, stop_loanbook_scheduler
 from migration_v24 import run_migration_v24
@@ -194,3 +195,4 @@ app.include_router(cfo_router.router,      prefix=PREFIX)
 app.include_router(mercately_router.router, prefix=PREFIX)
 app.include_router(crm_router.router,      prefix=PREFIX)
 app.include_router(scheduler_router.router, prefix=PREFIX)
+app.include_router(learning_router.router,  prefix=PREFIX)

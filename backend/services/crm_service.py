@@ -4,6 +4,7 @@ All mutations are append-only on historical arrays (gestiones, notas, score_hist
 Never overwrite historical records.
 """
 import uuid
+import asyncio
 from datetime import datetime, timezone, date
 
 from services.shared_state import emit_state_change
@@ -143,6 +144,13 @@ async def registrar_gestion(
                 crm_query,
                 {"$set": {"ptp_activo": {"fecha": ptp_fecha, "loanbook_id": loanbook_id, "registrado_en": today}}},
             )
+
+    # BUILD 9 — registrar outcome de aprendizaje (no bloqueante)
+    try:
+        from services import learning_engine
+        asyncio.create_task(learning_engine.crear_outcome(db, gestion))
+    except Exception:
+        pass  # nunca bloquear la gestión principal
 
     return gestion
 

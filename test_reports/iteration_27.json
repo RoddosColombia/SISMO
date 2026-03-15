@@ -1,0 +1,33 @@
+{
+  "summary": "BUILD 9 (Learning Engine) testing complete — 14/14 backend tests pass, all frontend tests pass. Learning endpoint returns correct structure, scheduler triggers work for all 3 ML jobs, gestiones create learning outcomes async, Settings shows 12 jobs with ML badges, CRM client page loads correctly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_build9.py",
+    "/app/test_reports/pytest/build9_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "CFO badge (data-testid='cfo-alert-badge') is correctly conditional — only shows when cfoAlertCount > 0. No active CFO alerts in test environment, so badge hidden is expected behavior.",
+    "Learning boxes (alerta-deterioro, learning-recomendacion) are correctly hidden with no patterns learned (DPD>0 client tested). Per spec this is correct behavior.",
+    "Minor HTML hydration warning: <span> inside <option> in CRMList select dropdowns — cosmetic only, no functional impact."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_build9.py"
+  ],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100% (all flows)"},
+  "test_credentials": "contabilidad@roddos.com / Admin@RODDOS2025!",
+  "seed_data_creation": "2 gestiones registered on test3-lb001 during testing (whatsapp + llamada, resultado: no_contestó)",
+  "mocked_apis": "Mercately WhatsApp outbound (MOCKED)",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Build 9 fully tested. All 14 backend tests in /app/backend/tests/test_build9.py pass. Key flows verified: GET /api/crm/{id}/learning returns recomendacion+alerta_deterioro, 3 ML scheduler jobs trigger OK with correct labels, gestiones create learning_outcomes via asyncio.create_task, Settings Alertas Scheduler tab shows '12 total — 3 de ML activos en BUILD 9' with ML badges on 3 jobs, Ejecutar button triggers toast, CRM client page navigates correctly and shows timeline. Learning boxes only appear when pattern conditions met (confianza>=0.6 or prob>0.60 with DPD=0) — hidden in fresh install is CORRECT. CFO badge conditional on cfoAlertCount>0.",
+  "rca_of_issues": "N/A — no issues found"
+}

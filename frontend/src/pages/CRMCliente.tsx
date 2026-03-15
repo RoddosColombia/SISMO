@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft, Phone, MessageCircle, Calendar, AlertTriangle, Star,
-  Edit2, Check, X, Plus, Loader2, Clock, User,
+  Edit2, Check, X, Plus, Loader2, Clock, User, Brain, TrendingDown,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "../components/ui/sonner";
@@ -67,6 +67,8 @@ export default function CRMCliente() {
   const [showPTP, setShowPTP] = useState(false);
   const [ptpFecha, setPtpFecha] = useState("");
   const [ptpMonto, setPtpMonto] = useState("");
+  // BUILD 9 — Capa de Aprendizaje
+  const [learning, setLearning] = useState<any>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -89,6 +91,12 @@ export default function CRMCliente() {
   }, [api, id]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // BUILD 9 — Fetch learning data (recomendación + alerta)
+  useEffect(() => {
+    if (!id) return;
+    api.get(`/crm/${id}/learning`).then((r: any) => setLearning(r.data)).catch(() => {});
+  }, [id, api]);
 
   const handleSaveDatos = async () => {
     try {
@@ -210,6 +218,53 @@ export default function CRMCliente() {
           </div>
         </div>
       </div>
+
+      {/* BUILD 9 — Sección de Inteligencia Predictiva */}
+      {learning && (
+        <div className="space-y-2 mb-4">
+          {/* Alerta predictiva (naranja) — solo si DPD=0 y prob > 0.60 */}
+          {learning.alerta_deterioro?.alerta && dpd_actual === 0 && (
+            <div
+              className="flex items-start gap-3 rounded-xl border border-orange-600/40 bg-orange-900/15 px-4 py-3"
+              data-testid="learning-alerta-deterioro"
+            >
+              <TrendingDown size={16} className="text-orange-400 mt-0.5 shrink-0" />
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-orange-300">
+                  Alerta predictiva: {Math.round((learning.alerta_deterioro.probabilidad || 0) * 100)}% de probabilidad de no pagar
+                </p>
+                {learning.alerta_deterioro.señales?.length > 0 && (
+                  <p className="text-[11px] text-orange-400/80 mt-0.5">
+                    Señales: {learning.alerta_deterioro.señales.join(" · ")}
+                  </p>
+                )}
+                <p className="text-[11px] text-orange-300/70 mt-0.5">
+                  {learning.alerta_deterioro.accion_sugerida}
+                </p>
+              </div>
+            </div>
+          )}
+          {/* Recomendación de contacto (azul) — solo si hay patrón con confianza >= 0.6 */}
+          {learning.recomendacion?.tiene_patron && (learning.recomendacion?.confianza || 0) >= 0.6 && (
+            <div
+              className="flex items-start gap-3 rounded-xl border border-blue-600/40 bg-blue-900/15 px-4 py-3"
+              data-testid="learning-recomendacion"
+            >
+              <Brain size={16} className="text-blue-400 mt-0.5 shrink-0" />
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-blue-300">
+                  El sistema recomienda: {learning.recomendacion.recomendacion}
+                </p>
+                <p className="text-[11px] text-blue-400/70 mt-0.5">
+                  Tasa de éxito histórica: {learning.recomendacion.tasa_exito}% ·
+                  Confianza: {Math.round((learning.recomendacion.confianza || 0) * 100)}%
+                  {learning.recomendacion.scope === "segmento" && " (patrón de segmento)"}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid md:grid-cols-2 gap-4 mb-4">
         {/* Situación crédito */}

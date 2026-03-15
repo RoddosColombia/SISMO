@@ -220,6 +220,14 @@ async def consolidar_datos_financieros(db) -> dict:
     # ── Configuración CFO ────────────────────────────────────────────────────
     cfo_cfg = await db.cfo_config.find_one({}, {"_id": 0}) or {}
 
+    # ── BUILD 9: Métricas predictivas del learning engine ─────────────────────
+    metricas_predictivas: dict = {}
+    try:
+        from services.learning_engine import get_metricas_predictivas
+        metricas_predictivas = await get_metricas_predictivas(db)
+    except Exception as e:
+        logger.warning(f"[CFO] metricas_predictivas: {e}")
+
     return {
         "periodo":                    hoy.strftime("%B %Y"),
         "mes_inicio":                 mes_inicio,
@@ -246,6 +254,7 @@ async def consolidar_datos_financieros(db) -> dict:
         "loans_raw":                  loans,
         "catalogo":                   catalogo,
         "cfo_cfg":                    cfo_cfg,
+        "metricas_predictivas":       metricas_predictivas,
     }
 
 
@@ -304,16 +313,22 @@ async def analizar_pyg(datos: dict) -> dict:
 # ── 3. analizar_cartera ───────────────────────────────────────────────────────
 
 async def analizar_cartera(datos: dict) -> dict:
-    """Análisis de cartera desde portfolio_health + top morosos."""
+    """Análisis de cartera desde portfolio_health + top morosos + BUILD 9 métricas predictivas."""
     portfolio = datos.get("portfolio", {})
+    pred = datos.get("metricas_predictivas", {})
     return {
-        "tasa_mora_pct":  portfolio.get("tasa_mora", 0),
-        "valor_mora":     portfolio.get("por_estado", {}).get("mora", {}).get("saldo_total", 0),
-        "roll_rate":      0,  # BUILD future: add roll_rate to shared_state
-        "total_cartera":  portfolio.get("saldo_cartera_total", 0),
-        "en_mora":        portfolio.get("en_mora", 0),
-        "activos":        portfolio.get("activos", 0),
-        "top_morosos":    datos.get("top_morosos", []),
+        "tasa_mora_pct":                portfolio.get("tasa_mora", 0),
+        "valor_mora":                   portfolio.get("por_estado", {}).get("mora", {}).get("saldo_total", 0),
+        "roll_rate":                    0,
+        "total_cartera":                portfolio.get("saldo_cartera_total", 0),
+        "en_mora":                      portfolio.get("en_mora", 0),
+        "activos":                      portfolio.get("activos", 0),
+        "top_morosos":                  datos.get("top_morosos", []),
+        # BUILD 9 — Inteligencia Predictiva
+        "efectividad_canal":            pred.get("efectividad_canal", {}),
+        "clientes_en_riesgo_predictivo": pred.get("clientes_en_riesgo_predictivo", 0),
+        "tendencia_mora":               pred.get("tendencia_mora", "estable"),
+        "outcomes_analizados":          pred.get("outcomes_last_30d", 0),
     }
 
 
@@ -613,22 +628,29 @@ async def generar_semaforo(datos: dict) -> dict:
 
     return {
         "caja":       color_caja,
-        "cartera":    _color(tasa_mora > 15, umbral_mora <= tasa_mora <= 15),
+        "cartera":    _color(
+            tasa_mora > 15 or cartera.get("clientes_en_riesgo_predictivo", 0) >= 3,
+            umbral_mora <= tasa_mora <= 15 or cartera.get("clientes_en_riesgo_predictivo", 0) >= 1,
+        ),
         "ventas":     _color(pct_meta < 70 and meta_ventas > 0, 70 <= pct_meta < 99 and meta_ventas > 0),
         "roll_rate":  _color(roll_rate > 20, 10 <= roll_rate <= 20),
         "impuestos":  color_impuestos,
         "metricas": {
-            "tasa_mora_pct":        tasa_mora,
-            "roll_rate_pct":        roll_rate,
-            "pct_cobrado":          pct_cobrado,
-            "resultado_neto":       resultado_neto,
-            "pct_meta_ventas":      pct_meta,
-            "cobrado_mes":          cobrado,
-            "esperado_mes":         esperado,
-            "brecha_caja":          brecha,
-            "iva_neto":             tributaria.get("iva_neto_trimestre", 0),
-            "ica_estimado":         tributaria.get("ica_estimado", 0),
-            "alertas_tributarias":  tributaria.get("alertas_tributarias", []),
+            "tasa_mora_pct":                    tasa_mora,
+            "roll_rate_pct":                    roll_rate,
+            "pct_cobrado":                      pct_cobrado,
+            "resultado_neto":                   resultado_neto,
+            "pct_meta_ventas":                  pct_meta,
+            "cobrado_mes":                      cobrado,
+            "esperado_mes":                     esperado,
+            "brecha_caja":                      brecha,
+            "iva_neto":                         tributaria.get("iva_neto_trimestre", 0),
+            "ica_estimado":                     tributaria.get("ica_estimado", 0),
+            "alertas_tributarias":              tributaria.get("alertas_tributarias", []),
+            # BUILD 9
+            "clientes_en_riesgo_predictivo":    cartera.get("clientes_en_riesgo_predictivo", 0),
+            "tendencia_mora":                   cartera.get("tendencia_mora", "estable"),
+            "efectividad_canal":                cartera.get("efectividad_canal", {}),
         },
     }
 
@@ -660,6 +682,13 @@ async def generar_informe_cfo(db, triggered_by: str = "manual") -> dict:
         "tributario":  tributaria,
         "kpis":        kpis,
         "top_morosos": datos["top_morosos"],
+        # BUILD 9 — Inteligencia Predictiva para el prompt de Claude
+        "inteligencia_predictiva": {
+            "clientes_en_riesgo":    cartera.get("clientes_en_riesgo_predictivo", 0),
+            "tendencia_mora":        cartera.get("tendencia_mora", "estable"),
+            "efectividad_canal":     cartera.get("efectividad_canal", {}),
+            "outcomes_analizados":   cartera.get("outcomes_analizados", 0),
+        },
     }
 
     analisis_ia = ""
@@ -683,7 +712,8 @@ async def generar_informe_cfo(db, triggered_by: str = "manual") -> dict:
             "2) FLUJO DE CAJA: analiza la brecha entre ingresos y egresos.\n"
             "3) TRIBUTARIO: comenta el IVA neto, ICA estimado y cualquier alerta DIAN.\n"
             "4) INVENTARIO: menciona motos con stock >60 días si las hay.\n"
-            "5) PLAN DE ACCIÓN: exactamente 5 líneas, cada una con formato:\n"
+            "5) INTELIGENCIA PREDICTIVA: comenta clientes_en_riesgo, tendencia_mora y canal más efectivo.\n"
+            "6) PLAN DE ACCIÓN: exactamente 5 líneas, cada una con formato:\n"
             "   ACCIÓN|RESPONSABLE|FECHA|MÉTRICA\n"
             "Sé preciso. Usa solo los números del JSON. No inventes datos."
         )
@@ -708,7 +738,7 @@ async def generar_informe_cfo(db, triggered_by: str = "manual") -> dict:
         "id":               str(uuid.uuid4()),
         "periodo":          datos["periodo"],
         "fecha_generacion": now_iso,
-        "generado_en":      now_iso,           # alias para la API
+        "generado_en":      now_iso,
         "generado_por":     triggered_by,
         "datos_financieros": {
             "pyg":         pyg,
@@ -717,6 +747,12 @@ async def generar_informe_cfo(db, triggered_by: str = "manual") -> dict:
             "flujo_caja":  flujo,
             "tributario":  tributaria,
             "kpis":        kpis,
+        },
+        "inteligencia_predictiva": {
+            "clientes_en_riesgo":  cartera.get("clientes_en_riesgo_predictivo", 0),
+            "tendencia_mora":      cartera.get("tendencia_mora", "estable"),
+            "efectividad_canal":   cartera.get("efectividad_canal", {}),
+            "outcomes_analizados": cartera.get("outcomes_analizados", 0),
         },
         "semaforo":     semaforo,
         "analisis_ia":  analisis_ia,

@@ -21,6 +21,10 @@ ALLOWED_JOBS: list[str] = [
     "recordatorio_vencimiento",
     "notificar_mora_nueva",
     "resumen_semanal_ceo",
+    # BUILD 9 — Learning Engine
+    "alertas_predictivas",
+    "resolver_outcomes",
+    "procesar_patrones",
 ]
 
 JOB_LABELS: dict[str, str] = {
@@ -33,6 +37,10 @@ JOB_LABELS: dict[str, str] = {
     "recordatorio_vencimiento": "Recordatorio Vencimiento (Mié 09:00)",
     "notificar_mora_nueva":     "Notificar Mora Nueva (Jue 09:00)",
     "resumen_semanal_ceo":      "Resumen Semanal CEO (Vie 17:00)",
+    # BUILD 9
+    "alertas_predictivas":      "Alertas Predictivas ML (06:45)",
+    "resolver_outcomes":        "Resolver Outcomes WA (07:30)",
+    "procesar_patrones":        "Procesar Patrones ML (Lun 08:00)",
 }
 
 
@@ -63,6 +71,7 @@ async def trigger_job(job_id: str, current_user=Depends(get_current_user)):
         calcular_dpd_todos, alertar_buckets_criticos, verificar_alertas_cfo,
         calcular_scores, generar_cola_radar, recordatorio_preventivo,
         recordatorio_vencimiento, notificar_mora_nueva, resumen_semanal_ceo,
+        alertas_predictivas, resolver_outcomes, procesar_patrones,
     )
     _job_map = {
         "calcular_dpd_todos":       calcular_dpd_todos,
@@ -74,6 +83,10 @@ async def trigger_job(job_id: str, current_user=Depends(get_current_user)):
         "recordatorio_vencimiento": recordatorio_vencimiento,
         "notificar_mora_nueva":     notificar_mora_nueva,
         "resumen_semanal_ceo":      resumen_semanal_ceo,
+        # BUILD 9
+        "alertas_predictivas":      alertas_predictivas,
+        "resolver_outcomes":        resolver_outcomes,
+        "procesar_patrones":        procesar_patrones,
     }
     asyncio.create_task(_job_map[job_id]())
     return {

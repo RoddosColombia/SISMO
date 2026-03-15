@@ -1036,6 +1036,32 @@ async def gather_accounts_context(user_message: str, alegra_service, db) -> tupl
     except Exception:
         patterns_str = "Sin patrones disponibles."
 
+    # ── 4. BUILD 9: Patrón contable aprendido por NIT ────────────────────────
+    try:
+        nit_detected = _detectar_identificacion(user_message)
+        if nit_detected:
+            patron_contable = await db.learning_patterns.find_one(
+                {"tipo": "patron_contable",
+                 "entidad_id": str(nit_detected),
+                 "activo": True,
+                 "confianza": {"$gte": 0.7}},
+                {"_id": 0},
+            )
+            if patron_contable:
+                d = patron_contable.get("datos", {})
+                nota = (
+                    f"\n\n[BUILD 9 — PATRÓN APRENDIDO PARA NIT {nit_detected}]\n"
+                    f"Cuenta débito: {d.get('cuenta_debito_id','?')} {d.get('cuenta_debito_nombre','')}\n"
+                    f"Cuenta crédito: {d.get('cuenta_credito_id','?')} {d.get('cuenta_credito_nombre','')}\n"
+                    f"Retención: {d.get('retencion_pct','?')}%\n"
+                    f"Confianza: {round(patron_contable.get('confianza',0)*100,0):.0f}% "
+                    f"({patron_contable.get('muestra_n',0)} registros)\n"
+                    f"→ Usar este patrón si el tipo de transacción coincide con transacciones anteriores."
+                )
+                patterns_str += nota
+    except Exception:
+        pass
+
     return accounts_str, patterns_str, honorarios_instruccion
 
 
