@@ -60,6 +60,8 @@ Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
 ### GAPS v1.0 Completados (Marzo 2026)
 - **GAP 1 — Normalización teléfonos**: `normalizar_telefono()` en `crm_service.py`. Aplicado en 5 puntos: upsert_cliente, loanbook create, mercately _detect_sender, mercately _normalize_phone, loanbook_scheduler (todos los CRONs). Migración ejecutada: 1 loanbook + 2 crm_clientes normalizados. Formato: +57XXXXXXXXXX
 - **GAP 2 — Inventario + Alegra Sync**: `sync_inventario_desde_compra()` en `post_action_sync.py`. CASO 4 la invoca al registrar factura de compra de motos. Crea ítems en Alegra + documenta en `inventario_motos`. GET /api/inventario/stats funcional. Migración idempotente de backfill loanbook→inventario disponible.
+- **Factura Compra → Inventario (Opción A, Marzo 2026)**: System prompt hace obligatorio `motos_a_agregar` en compras de motos. Claude pregunta por chasis/color antes de ejecutar. Sin datos → estado `Pendiente datos`. `es_compra_motos=True` sin datos → evento `inventario.sync.pendiente` + warning. Stats incluye `pendiente_datos`.
+- **Bloqueo doble-venta (Marzo 2026)**: Guard en `execute_chat_action` para `crear_factura_venta`: bloquea moto no-Disponible (con detalle factura/fecha/cliente anterior), bloquea chasis inexistente, bloquea stock=0 por modelo. Evento `inventario.moto.baja` post-venta. Fix: `chasis or None` para índice sparse MongoDB.
 - **GAP 3 — CFO Asíncrono**: POST /api/cfo/generar → async BackgroundTasks → retorna job_id. GET /api/cfo/status/{job_id} para polling. CFO.tsx: polling cada 2s, máx 90s. Semáforo y P&G ahora cargan independientemente del spinner principal (no bloquean la UI).
 
 ### Seguridad / Datos
