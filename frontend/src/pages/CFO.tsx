@@ -1155,8 +1155,9 @@ export default function CFO(): React.ReactElement {
 
       <section data-testid="pl-section-wrapper">
         {/* ── Estado de Resultados (P&L) ─────────────────────────────────── */}
-        <div className="rounded-xl border border-slate-200 bg-white p-4" data-testid="pl-section">
-          <div className="flex items-center justify-between mb-3">
+        <div className="rounded-xl border border-slate-200 bg-white" data-testid="pl-section">
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-slate-100">
             <div className="flex items-center gap-2">
               <TrendingUp size={16} className="text-[#0F2A5C]" />
               <p className="text-sm font-bold text-slate-800">Estado de Resultados {pl ? `— ${pl.mes_label}` : ""}</p>
@@ -1191,54 +1192,195 @@ export default function CFO(): React.ReactElement {
           </div>
 
           {pl ? (
-            <div className="space-y-2">
-              {(pl.gastos_operacionales?.advertencia || pl.costo_ventas?.advertencia) && (
-                <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
-                  {pl.gastos_operacionales?.advertencia || pl.costo_ventas?.advertencia}
-                </div>
-              )}
-              {pl.alerta_margen_critico && (
-                <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700 font-semibold">
-                  Alerta: Margen bruto {pl.margen_bruto_pct}% — por debajo del 15% mínimo recomendado.
-                </div>
-              )}
-              <table className="w-full text-xs">
-                <tbody>
-                  {[
-                    { label: "Ventas motos nuevas", val: pl.ingresos.ventas_motos_nuevas.total, note: `${pl.ingresos.ventas_motos_nuevas.unidades} un.`, indent: 1 },
-                    { label: "Ventas motos usadas", val: pl.ingresos.ventas_motos_usadas.total, note: `${pl.ingresos.ventas_motos_usadas.unidades} un.`, indent: 1 },
-                    { label: "Ingresos financiación", val: pl.ingresos.ingresos_financiacion.total, indent: 1 },
-                    { label: "Otros ingresos", val: pl.ingresos.otros_ingresos.total, indent: 1 },
-                    { label: "TOTAL INGRESOS", val: pl.ingresos.total, bold: true },
-                    { label: "Costo de ventas", val: -pl.costo_ventas.total, indent: 1 },
-                    { label: "UTILIDAD BRUTA", val: pl.utilidad_bruta, bold: true, note: `${pl.margen_bruto_pct}%` },
-                    { label: "Gastos operacionales", val: -pl.gastos_operacionales.total, indent: 1, partial: pl.gastos_operacionales.modo_parcial },
-                    { label: "UTILIDAD OPERACIONAL", val: pl.utilidad_operacional, bold: true },
-                    { label: "Intereses deuda NP", val: -pl.gastos_no_operacionales.intereses_deuda, indent: 1 },
-                    { label: "Provisión impuestos (33%)", val: -pl.provision_impuestos, indent: 1 },
-                    { label: "UTILIDAD NETA", val: pl.utilidad_neta, bold: true, highlight: true },
-                  ].map(({ label, val, note, indent, bold, highlight, partial }: any) => (
-                    <tr key={label} className={`border-t border-slate-100 ${highlight ? (val >= 0 ? "bg-emerald-50" : "bg-red-50") : ""}`}>
-                      <td className={`py-1.5 ${indent ? "pl-4 text-slate-500" : "pl-0"} ${bold ? "font-bold text-slate-800" : ""}`}>{label}</td>
-                      <td className={`py-1.5 text-right font-mono ${bold ? "font-bold" : ""} ${val < 0 ? "text-red-600" : "text-slate-800"} ${highlight ? (val >= 0 ? "text-emerald-700" : "text-red-700") : ""}`}>
-                        {fmt(val)}{partial ? " ⚠️" : ""}
-                      </td>
-                      {note && <td className="py-1.5 pl-2 text-slate-400 text-[10px]">{note}</td>}
-                    </tr>
+            <div>
+              {/* Alertas */}
+              {(pl.gastos_operacionales?.advertencia || pl.costo_ventas?.advertencia || pl.ingresos?.alertas?.length > 0) && (
+                <div className="px-4 pt-3 space-y-1.5">
+                  {(pl.gastos_operacionales?.advertencia || pl.costo_ventas?.advertencia) && (
+                    <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
+                      {pl.gastos_operacionales?.advertencia || pl.costo_ventas?.advertencia}
+                    </div>
+                  )}
+                  {pl.ingresos?.alertas?.map((a: string, i: number) => (
+                    <div key={i} className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700 flex gap-1.5">
+                      <AlertTriangle size={12} className="flex-shrink-0 mt-0.5" />
+                      {a}
+                    </div>
                   ))}
-                </tbody>
-              </table>
-              {pl.comparativo && (
-                <div className="mt-2 text-xs text-slate-500 border-t border-slate-100 pt-2">
-                  Vs {pl.comparativo.periodo_anterior}: ingresos
-                  <span className={`ml-1 font-semibold ${(pl.comparativo.variacion_ingresos_pct ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                    {(pl.comparativo.variacion_ingresos_pct ?? 0) >= 0 ? "+" : ""}{pl.comparativo.variacion_ingresos_pct ?? "N/D"}%
-                  </span>
+                  {pl.alerta_margen_critico && (
+                    <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700 font-semibold">
+                      Alerta: Margen bruto {pl.margen_bruto_pct}% — por debajo del 15% mínimo recomendado.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── SECCIÓN A: Base Devengada (Contable) ── */}
+              <div className="px-4 pt-3 pb-1">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-[10px] font-bold bg-[#0F2A5C] text-white px-2 py-0.5 rounded">SECCIÓN A</span>
+                  <span className="text-xs font-semibold text-slate-700">Base Devengada — Contable</span>
+                  <span className="text-[10px] text-slate-400">(facturación Alegra — útil para impuestos)</span>
+                </div>
+                <table className="w-full text-xs">
+                  <tbody>
+                    {[
+                      { label: "Ventas motos nuevas", val: pl.ingresos.ventas_motos_nuevas.total, note: `${pl.ingresos.ventas_motos_nuevas.unidades} un.`, indent: 1 },
+                      { label: "Ventas motos usadas", val: pl.ingresos.ventas_motos_usadas.total, note: `${pl.ingresos.ventas_motos_usadas.unidades} un.`, indent: 1 },
+                      { label: "Ingresos financiación", val: pl.ingresos.ingresos_financiacion.total, indent: 1 },
+                      { label: "Otros ingresos", val: pl.ingresos.otros_ingresos.total, indent: 1 },
+                      { label: "TOTAL INGRESOS", val: pl.ingresos.total, bold: true },
+                      { label: "Costo de ventas", val: -pl.costo_ventas.total, indent: 1 },
+                      { label: "UTILIDAD BRUTA", val: pl.utilidad_bruta, bold: true, note: `${pl.margen_bruto_pct}%` },
+                      { label: "Gastos operacionales", val: -pl.gastos_operacionales.total, indent: 1, partial: pl.gastos_operacionales.modo_parcial },
+                      { label: "UTILIDAD OPERACIONAL", val: pl.utilidad_operacional, bold: true },
+                      { label: "Intereses deuda NP", val: -pl.gastos_no_operacionales.intereses_deuda, indent: 1 },
+                      { label: "Provisión impuestos (33%)", val: -pl.provision_impuestos, indent: 1 },
+                      { label: "UTILIDAD NETA", val: pl.utilidad_neta, bold: true, highlight: true },
+                    ].map(({ label, val, note, indent, bold, highlight, partial }: any) => (
+                      <tr key={label} className={`border-t border-slate-100 ${highlight ? (val >= 0 ? "bg-emerald-50" : "bg-red-50") : ""}`}>
+                        <td className={`py-1.5 ${indent ? "pl-4 text-slate-500" : "pl-0"} ${bold ? "font-bold text-slate-800" : ""}`}>{label}</td>
+                        <td className={`py-1.5 text-right font-mono ${bold ? "font-bold" : ""} ${val < 0 ? "text-red-600" : "text-slate-800"} ${highlight ? (val >= 0 ? "text-emerald-700" : "text-red-700") : ""}`}>
+                          {fmt(val)}{partial ? " ⚠️" : ""}
+                        </td>
+                        {note && <td className="py-1.5 pl-2 text-slate-400 text-[10px]">{note}</td>}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {/* Comparativo */}
+                {pl.comparativo && (
+                  <div className="mt-2 text-xs text-slate-500 border-t border-slate-100 pt-2">
+                    Vs {pl.comparativo.periodo_anterior}: ingresos
+                    <span className={`ml-1 font-semibold ${(pl.comparativo.variacion_ingresos_pct ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                      {(pl.comparativo.variacion_ingresos_pct ?? 0) >= 0 ? "+" : ""}{pl.comparativo.variacion_ingresos_pct ?? "N/D"}%
+                    </span>
+                  </div>
+                )}
+
+                {/* Detalle de facturas (collapsible) */}
+                {pl.ingresos?.detalle?.length > 0 && (
+                  <details className="mt-2 border border-slate-200 rounded-lg overflow-hidden">
+                    <summary className="cursor-pointer text-xs font-semibold text-[#0F2A5C] px-3 py-2 bg-slate-50 hover:bg-slate-100 select-none flex items-center justify-between" data-testid="toggle-facturas">
+                      <span>Ver {pl.ingresos.detalle.length} facturas incluidas en el cálculo</span>
+                    </summary>
+                    <table className="w-full text-[11px]">
+                      <thead className="bg-[#0F2A5C] text-white">
+                        <tr>
+                          <th className="px-3 py-1.5 text-left">Fecha</th>
+                          <th className="px-3 py-1.5 text-left">Factura</th>
+                          <th className="px-3 py-1.5 text-left">Cliente</th>
+                          <th className="px-3 py-1.5 text-right">Monto</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pl.ingresos.detalle.map((f: any, i: number) => (
+                          <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"} data-testid={`factura-row-${i}`}>
+                            <td className="px-3 py-1.5 text-slate-500">{f.fecha}</td>
+                            <td className="px-3 py-1.5 font-mono font-semibold text-[#0F2A5C]">FV-{f.factura}</td>
+                            <td className="px-3 py-1.5 text-slate-700">{f.cliente}</td>
+                            <td className="px-3 py-1.5 text-right font-mono font-semibold">{fmt(f.total)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-slate-100 font-bold">
+                        <tr>
+                          <td colSpan={3} className="px-3 py-1.5 text-right text-xs">TOTAL</td>
+                          <td className="px-3 py-1.5 text-right font-mono">{fmt(pl.ingresos.total)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </details>
+                )}
+              </div>
+
+              {/* ── SECCIÓN B: Base Caja (CFO Financiero) ── */}
+              {pl.flujo_caja_real && (
+                <div className="px-4 pt-3 pb-4 border-t border-slate-200 mt-2">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-[10px] font-bold bg-emerald-700 text-white px-2 py-0.5 rounded">SECCIÓN B</span>
+                    <span className="text-xs font-semibold text-slate-700">Base Caja — CFO Financiero</span>
+                    <span className="text-[10px] text-slate-400">(recaudo real recibido — útil para decisiones operativas)</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+                    {/* Cuotas iniciales cobradas */}
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                      <p className="text-[10px] font-bold text-emerald-700 uppercase tracking-wide mb-1">Cuotas iniciales cobradas</p>
+                      <p className="text-lg font-bold text-emerald-800">{fmt(pl.flujo_caja_real.cuotas_iniciales.total)}</p>
+                      <p className="text-[10px] text-emerald-600">{pl.flujo_caja_real.cuotas_iniciales.detalle?.length || 0} clientes pagaron</p>
+                      {pl.flujo_caja_real.cuotas_iniciales.pendientes?.total > 0 && (
+                        <p className="text-[10px] text-amber-700 mt-0.5">
+                          Pendiente: {fmt(pl.flujo_caja_real.cuotas_iniciales.pendientes.total)}
+                        </p>
+                      )}
+                    </div>
+                    {/* Cuotas semanales cobradas */}
+                    <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
+                      <p className="text-[10px] font-bold text-blue-700 uppercase tracking-wide mb-1">Cuotas semanales cobradas</p>
+                      <p className="text-lg font-bold text-blue-800">{fmt(pl.flujo_caja_real.cuotas_semanales.total)}</p>
+                      <p className="text-[10px] text-blue-600">{pl.flujo_caja_real.cuotas_semanales.num_pagos} pagos registrados</p>
+                    </div>
+                    {/* Total caja */}
+                    <div className="rounded-xl border border-[#0F2A5C]/30 bg-[#0F2A5C]/5 p-3">
+                      <p className="text-[10px] font-bold text-[#0F2A5C] uppercase tracking-wide mb-1">Total efectivo recibido</p>
+                      <p className="text-lg font-bold text-[#0F2A5C]">{fmt(pl.flujo_caja_real.total_caja)}</p>
+                      <p className="text-[10px] text-slate-500">vs {fmt(pl.ingresos.total)} facturado</p>
+                    </div>
+                  </div>
+
+                  {/* Detalle cuotas semanales (collapsible) */}
+                  {pl.flujo_caja_real.cuotas_semanales.detalle?.length > 0 && (
+                    <details className="border border-slate-200 rounded-lg overflow-hidden mb-2">
+                      <summary className="cursor-pointer text-xs font-semibold text-emerald-700 px-3 py-2 bg-slate-50 hover:bg-slate-100 select-none" data-testid="toggle-cuotas-semanales">
+                        Ver detalle de cuotas semanales cobradas ({pl.flujo_caja_real.cuotas_semanales.detalle.length} pagos)
+                      </summary>
+                      <table className="w-full text-[11px]">
+                        <thead className="bg-emerald-700 text-white">
+                          <tr>
+                            <th className="px-3 py-1.5 text-left">Fecha</th>
+                            <th className="px-3 py-1.5 text-left">Cliente</th>
+                            <th className="px-3 py-1.5 text-center">Cuota #</th>
+                            <th className="px-3 py-1.5 text-right">Monto</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {pl.flujo_caja_real.cuotas_semanales.detalle.map((c: any, i: number) => (
+                            <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                              <td className="px-3 py-1.5 text-slate-500">{c.fecha}</td>
+                              <td className="px-3 py-1.5 text-slate-700">{c.cliente}</td>
+                              <td className="px-3 py-1.5 text-center text-slate-500">#{c.num_cuota}</td>
+                              <td className="px-3 py-1.5 text-right font-mono font-semibold text-emerald-700">{fmt(c.monto)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </details>
+                  )}
+
+                  {/* Pending cuotas iniciales */}
+                  {pl.flujo_caja_real.cuotas_iniciales.pendientes?.detalle?.length > 0 && (
+                    <details className="border border-amber-200 rounded-lg overflow-hidden">
+                      <summary className="cursor-pointer text-xs font-semibold text-amber-700 px-3 py-2 bg-amber-50 hover:bg-amber-100 select-none" data-testid="toggle-ci-pendientes">
+                        Cuotas iniciales pendientes de cobro — {fmt(pl.flujo_caja_real.cuotas_iniciales.pendientes.total)} ({pl.flujo_caja_real.cuotas_iniciales.pendientes.detalle.length} clientes)
+                      </summary>
+                      <table className="w-full text-[11px]">
+                        <tbody>
+                          {pl.flujo_caja_real.cuotas_iniciales.pendientes.detalle.map((c: any, i: number) => (
+                            <tr key={i} className={`${i % 2 === 0 ? "bg-white" : "bg-amber-50"} border-t border-amber-100`}>
+                              <td className="px-3 py-1.5 text-slate-700">{c.cliente}</td>
+                              <td className="px-3 py-1.5 text-right font-mono font-semibold text-amber-700">{fmt(c.monto)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </details>
+                  )}
+                  <p className="text-[10px] text-slate-400 mt-2">{pl.flujo_caja_real.nota}</p>
                 </div>
               )}
             </div>
           ) : (
-            <p className="text-xs text-slate-400 text-center py-4">
+            <p className="text-xs text-slate-400 text-center py-6">
               Selecciona el período y haz clic en "Cargar P&L" para ver el Estado de Resultados.
             </p>
           )}

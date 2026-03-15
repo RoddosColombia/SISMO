@@ -246,6 +246,84 @@ async def _build_pl(periodo: str, user):
     except Exception:
         comparativo = None
 
+    # ── 6. Flujo de caja real (base caja) — desde loanbooks ──────────────────
+    try:
+        loanbooks_all = await db.loanbook.find({}, {"_id": 0}).to_list(500)
+    except Exception:
+        loanbooks_all = []
+
+    cuotas_iniciales_cobradas: list = []
+    cuotas_semanales_cobradas: list = []
+
+    for lb in loanbooks_all:
+        cliente = lb.get("cliente_nombre", "—")
+        codigo  = lb.get("codigo", "—")
+
+        # Cuotas iniciales: pagada si está marcada Y tiene fecha de entrega en el período
+        ci_pagada = lb.get("cuota_inicial_pagada", False)
+        ci_monto  = float(lb.get("cuota_inicial_total") or 0)
+        fecha_entrega = (lb.get("fecha_entrega") or "")[:10]
+        if ci_pagada and ci_monto > 0 and first_day <= fecha_entrega <= last_day:
+            cuotas_iniciales_cobradas.append({
+                "cliente":  cliente,
+                "loanbook": codigo,
+                "monto":    ci_monto,
+                "fecha":    fecha_entrega,
+            })
+
+        # Cuotas semanales: por array de cuotas pagadas en el período
+        for cuota in lb.get("cuotas", []):
+            if cuota.get("estado") == "pagada":
+                fp = (cuota.get("fecha_pago") or "")[:10]
+                if fp and first_day <= fp <= last_day:
+                    cuotas_semanales_cobradas.append({
+                        "cliente":   cliente,
+                        "loanbook":  codigo,
+                        "num_cuota": cuota.get("numero"),
+                        "monto":     float(cuota.get("valor") or 0),
+                        "fecha":     fp,
+                    })
+
+    total_ci = sum(c["monto"] for c in cuotas_iniciales_cobradas)
+    total_cs = sum(c["monto"] for c in cuotas_semanales_cobradas)
+    total_caja = total_ci + total_cs
+
+    # Pending cuotas iniciales (not yet collected)
+    ci_pendientes = [
+        {
+            "cliente":  lb.get("cliente_nombre", "—"),
+            "loanbook": lb.get("codigo", "—"),
+            "monto":    float(lb.get("cuota_inicial_total") or 0),
+        }
+        for lb in loanbooks_all
+        if not lb.get("cuota_inicial_pagada")
+        and float(lb.get("cuota_inicial_total") or 0) > 0
+    ]
+    total_ci_pendiente = sum(c["monto"] for c in ci_pendientes)
+
+    # ── 7. Alertas de facturas (duplicados/sospechosas) ───────────────────────
+    alertas_facturas: list[str] = []
+    seen_client_amount: dict = {}
+    for inv in detalle_ingresos:
+        key = (inv["cliente"][:25].strip().lower(), inv["total"])
+        num = inv["factura"]
+        if key in seen_client_amount:
+            alertas_facturas.append(
+                f"Posible duplicado: facturas {seen_client_amount[key]} y {num} "
+                f"para {inv['cliente'][:25]} por {_fmt_cop(inv['total'])} "
+                f"en la misma fecha. Verificar en Alegra."
+            )
+        else:
+            seen_client_amount[key] = num
+        # Flag suspiciously low invoice numbers (may be test)
+        try:
+            if int(num) < 100:
+                alertas_facturas.append(
+                    f"Factura {num} tiene número muy bajo — posible factura de prueba. Verificar."
+                )
+        except (ValueError, TypeError):
+            pass
+
     modo = "parcial" if (modo_parcial_gastos or not invoices) else "completo"
 
     return {
@@ -261,6 +339,7 @@ async def _build_pl(periodo: str, user):
             "otros_ingresos":         {"total": otros_ingresos},
             "total":                  total_ingresos,
             "detalle":                detalle_ingresos,
+            "alertas":                alertas_facturas,
         },
         "costo_ventas": {
             "costo_motos_nuevas":  {"total": costo_motos_n, "unidades": costo_motos_n_units},
@@ -289,6 +368,23 @@ async def _build_pl(periodo: str, user):
         "utilidad_neta":            utilidad_neta,
         "alerta_margen_critico":    (margen_bruto_pct < 15 and total_ingresos > 0),
         "comparativo":              comparativo,
+        "flujo_caja_real": {
+            "cuotas_iniciales": {
+                "total":   total_ci,
+                "detalle": cuotas_iniciales_cobradas,
+                "pendientes": {
+                    "total":   total_ci_pendiente,
+                    "detalle": ci_pendientes,
+                },
+            },
+            "cuotas_semanales": {
+                "total":    total_cs,
+                "num_pagos": len(cuotas_semanales_cobradas),
+                "detalle":  cuotas_semanales_cobradas,
+            },
+            "total_caja": total_caja,
+            "nota": "Base caja: efectivo real recibido en el período (cuotas iniciales + semanales cobradas). Distinto de ingresos contables (base devengada).",
+        },
     }
 
 
