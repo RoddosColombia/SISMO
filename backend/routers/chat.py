@@ -1,5 +1,6 @@
 """Chat router — AI agent messaging and action execution."""
 import logging
+import traceback
 import uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,6 +16,22 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 logger = logging.getLogger(__name__)
 
 
+async def _log_agent_error(error_type: str, error_message: str, tb: str, user_message: str, fase: str):
+    """Registra errores del agente en MongoDB para diagnóstico posterior."""
+    try:
+        await db.agent_errors.insert_one({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "error_type": error_type,
+            "error_message": error_message,
+            "stack_trace": tb,
+            "user_message": user_message[:500] if user_message else "",
+            "fase": fase,
+            "resuelto": False,
+        })
+    except Exception:
+        pass  # logging never breaks the flow
+
+
 @router.post("/message")
 async def chat_message(req: ChatMessageRequest, current_user=Depends(get_current_user)):
     try:
@@ -25,11 +42,26 @@ async def chat_message(req: ChatMessageRequest, current_user=Depends(get_current
             file_type=req.file_type,
         )
     except Exception as e:
-        logger.error(f"Chat error for user {current_user.get('email')}: {e}")
-        raise HTTPException(
-            status_code=503,
-            detail="El asistente IA no está disponible momentáneamente. Por favor intenta de nuevo en unos segundos.",
+        tb = traceback.format_exc()
+        logger.error(f"Chat error for user {current_user.get('email')}: {e}\n{tb}")
+        await _log_agent_error(
+            error_type=type(e).__name__,
+            error_message=str(e),
+            tb=tb,
+            user_message=req.message or "",
+            fase="process_chat",
         )
+        # Provide a descriptive error instead of the generic one
+        err_detail = str(e)
+        if "anthropic" in err_detail.lower() or "litellm" in err_detail.lower() or "llm" in err_detail.lower():
+            detail = f"Error en la API de IA: {err_detail}. Intenta de nuevo en unos segundos."
+        elif "mongo" in err_detail.lower() or "motor" in err_detail.lower():
+            detail = f"Error de base de datos: {err_detail}."
+        elif "alegra" in err_detail.lower():
+            detail = f"Error al conectar con Alegra: {err_detail}."
+        else:
+            detail = f"Error inesperado: {err_detail}. Por favor reporta este mensaje al equipo técnico."
+        raise HTTPException(status_code=503, detail=detail)
 
 
 class ExecuteActionRequest(BaseModel):

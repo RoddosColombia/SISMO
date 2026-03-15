@@ -238,3 +238,49 @@ app.include_router(learning_router.router,  prefix=PREFIX)
 app.include_router(er_router.router,        prefix=PREFIX)
 app.include_router(cfo_chat_router.router,  prefix=PREFIX)
 app.include_router(proveedores_router.router, prefix=PREFIX)
+
+
+# ─── Health Check ─────────────────────────────────────────────────────────────
+
+@app.get("/api/health")
+async def health_check():
+    """Diagnóstico rápido del estado del sistema."""
+    result = {
+        "status": "ok",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "alegra": "desconocido",
+        "mongodb": "desconocido",
+        "anthropic": "desconocido",
+        "agent_memory": "desconocido",
+        "loanbooks_activos": 0,
+        "proveedores_config": 0,
+    }
+    # MongoDB
+    try:
+        await client.admin.command("ping")
+        result["mongodb"] = "conectado"
+    except Exception as e:
+        result["mongodb"] = f"error: {str(e)[:80]}"
+        result["status"] = "degradado"
+
+    # Collections
+    try:
+        result["loanbooks_activos"] = await db.loanbook.count_documents({"estado": "activo"})
+        result["proveedores_config"] = await db.proveedores_config.count_documents({})
+        mem_count = await db.agent_memory.count_documents({})
+        result["agent_memory"] = "ok" if mem_count > 0 else "vacío"
+    except Exception as e:
+        result["agent_memory"] = f"error: {str(e)[:60]}"
+
+    # Alegra
+    try:
+        creds = await db.alegra_credentials.find_one({}, {"_id": 0, "token": 1})
+        result["alegra"] = "conectado" if creds and creds.get("token") else "sin credenciales"
+    except Exception as e:
+        result["alegra"] = f"error: {str(e)[:60]}"
+
+    # Anthropic (EMERGENT_LLM_KEY)
+    llm_key = os.environ.get("EMERGENT_LLM_KEY", "")
+    result["anthropic"] = "key presente" if llm_key else "error: EMERGENT_LLM_KEY no configurado"
+
+    return result

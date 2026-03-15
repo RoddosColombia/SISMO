@@ -1755,7 +1755,6 @@ async def process_chat(
     _export_keywords = ["exporta", "exportar", "estado de resultado", "p&l", "pl de", "informe financiero", "generar informe"]
     if any(kw in msg_lower_cmd for kw in _export_keywords):
         from datetime import date as _date
-        import re
         # Extract period from message (look for month name or YYYY-MM)
         _meses_map = {"enero":"01","febrero":"02","marzo":"03","abril":"04","mayo":"05","junio":"06",
                      "julio":"07","agosto":"08","septiembre":"09","octubre":"10","noviembre":"11","diciembre":"12"}
@@ -1849,9 +1848,11 @@ async def process_chat(
         r'sí[,\s].*es\s+autoret', r'si[,\s].*es\s+autoret',
         r'confirmo.*autoretenedor', r'es\s+autoretenedor',
     ]
-    _is_autoret_confirm = any(
-        re.search(p, msg_lower_cmd, re.IGNORECASE) for p in _autoret_sí_patterns
-    )
+    _is_autoret_confirm = False
+    for _ap in _autoret_sí_patterns:
+        if re.search(_ap, msg_lower_cmd, re.IGNORECASE):
+            _is_autoret_confirm = True
+            break
     if _is_autoret_confirm:
         try:
             # Find provider from recent assistant messages
