@@ -20,6 +20,7 @@ from routers import cfo_estrategico as cfo_est_router
 from routers import mercately as mercately_router, crm as crm_router
 from routers import scheduler as scheduler_router
 from routers import learning as learning_router
+from routers import estado_resultados as er_router
 from services.scheduler import start_scheduler, stop_scheduler
 from services.loanbook_scheduler import start_loanbook_scheduler, stop_loanbook_scheduler
 from migration_v24 import run_migration_v24
@@ -198,3 +199,4 @@ app.include_router(mercately_router.router, prefix=PREFIX)
 app.include_router(crm_router.router,      prefix=PREFIX)
 app.include_router(scheduler_router.router, prefix=PREFIX)
 app.include_router(learning_router.router,  prefix=PREFIX)
+app.include_router(er_router.router,        prefix=PREFIX)

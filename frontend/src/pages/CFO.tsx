@@ -234,6 +234,10 @@ export default function CFO(): React.ReactElement {
   // Presupuesto mensual
   const [presupuesto, setPresupuesto]   = useState<any>(null);
   const [generandoPresupuesto, setGenerandoPresupuesto] = useState(false);
+  // Estado de Resultados (P&L)
+  const [pl, setPl]                     = useState<any>(null);
+  const [loadingPl, setLoadingPl]       = useState(false);
+  const [plPeriodo, setPlPeriodo]       = useState("2026-03");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -481,6 +485,31 @@ export default function CFO(): React.ReactElement {
       setPresupuesto(res.data.presupuesto);
       toast.success(`Presupuesto ${mes} generado`);
     } catch { toast.error("Error generando presupuesto"); } finally { setGenerandoPresupuesto(false); }
+  };
+
+  const handleCargarPl = async (periodo: string) => {
+    setLoadingPl(true);
+    try {
+      const res = await api.get(`/cfo/estado-resultados?periodo=${periodo}`);
+      setPl(res.data);
+      setPlPeriodo(periodo);
+    } catch { toast.error("Error cargando P&L"); } finally { setLoadingPl(false); }
+  };
+
+  const handleExportarPdf = () => {
+    const url = `${API}/api/cfo/estado-resultados/pdf?periodo=${plPeriodo}`;
+    window.open(url, "_blank");
+  };
+
+  const handleExportarExcel = async () => {
+    try {
+      const res = await api.get(`/cfo/estado-resultados/excel?periodo=${plPeriodo}`, { responseType: "blob" });
+      const url  = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement("a");
+      link.href  = url; link.setAttribute("download", `RODDOS_PL_${plPeriodo}.xlsx`);
+      document.body.appendChild(link); link.click();
+      document.body.removeChild(link); window.URL.revokeObjectURL(url);
+    } catch { toast.error("Error exportando Excel"); }
   };
 
   const handleReclasificar = async (id: string, nuevoTipo: string) => {
@@ -1122,6 +1151,98 @@ export default function CFO(): React.ReactElement {
             </p>
           )}
         </div>
+      </section>
+
+        {/* ── Estado de Resultados (P&L) ─────────────────────────────────── */}
+        <div className="rounded-xl border border-slate-200 bg-white p-4" data-testid="pl-section">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <TrendingUp size={16} className="text-[#0F2A5C]" />
+              <p className="text-sm font-bold text-slate-800">Estado de Resultados {pl ? `— ${pl.mes_label}` : ""}</p>
+              {pl && <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${pl.modo === "completo" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{pl.modo === "completo" ? "Completo" : "Parcial"}</span>}
+            </div>
+            <div className="flex gap-2 items-center">
+              <select
+                value={plPeriodo}
+                onChange={e => setPlPeriodo(e.target.value)}
+                className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 text-slate-600"
+                data-testid="pl-periodo-select"
+              >
+                {["2026-03","2026-02","2026-01","2025-12","2025-11","2025-10"].map(p => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => handleCargarPl(plPeriodo)}
+                disabled={loadingPl}
+                className="text-xs bg-[#0F2A5C] text-white px-3 py-1.5 rounded-lg font-semibold hover:bg-[#1a3d7a] transition disabled:opacity-50"
+                data-testid="cargar-pl-btn"
+              >
+                {loadingPl ? <Loader2 size={12} className="animate-spin inline" /> : "Cargar P&L"}
+              </button>
+              {pl && (
+                <>
+                  <button onClick={handleExportarExcel} className="text-xs border border-[#0F2A5C] text-[#0F2A5C] px-2 py-1.5 rounded-lg font-semibold hover:bg-[#0F2A5C]/5 transition" data-testid="export-excel-btn">Excel</button>
+                  <button onClick={handleExportarPdf} className="text-xs bg-slate-800 text-white px-2 py-1.5 rounded-lg font-semibold hover:bg-slate-700 transition" data-testid="export-pdf-btn">PDF</button>
+                </>
+              )}
+            </div>
+          </div>
+
+          {pl ? (
+            <div className="space-y-2">
+              {(pl.gastos_operacionales?.advertencia || pl.costo_ventas?.advertencia) && (
+                <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
+                  {pl.gastos_operacionales?.advertencia || pl.costo_ventas?.advertencia}
+                </div>
+              )}
+              {pl.alerta_margen_critico && (
+                <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700 font-semibold">
+                  Alerta: Margen bruto {pl.margen_bruto_pct}% — por debajo del 15% mínimo recomendado.
+                </div>
+              )}
+              <table className="w-full text-xs">
+                <tbody>
+                  {[
+                    { label: "Ventas motos nuevas", val: pl.ingresos.ventas_motos_nuevas.total, note: `${pl.ingresos.ventas_motos_nuevas.unidades} un.`, indent: 1 },
+                    { label: "Ventas motos usadas", val: pl.ingresos.ventas_motos_usadas.total, note: `${pl.ingresos.ventas_motos_usadas.unidades} un.`, indent: 1 },
+                    { label: "Ingresos financiación", val: pl.ingresos.ingresos_financiacion.total, indent: 1 },
+                    { label: "Otros ingresos", val: pl.ingresos.otros_ingresos.total, indent: 1 },
+                    { label: "TOTAL INGRESOS", val: pl.ingresos.total, bold: true },
+                    { label: "Costo de ventas", val: -pl.costo_ventas.total, indent: 1 },
+                    { label: "UTILIDAD BRUTA", val: pl.utilidad_bruta, bold: true, note: `${pl.margen_bruto_pct}%` },
+                    { label: "Gastos operacionales", val: -pl.gastos_operacionales.total, indent: 1, partial: pl.gastos_operacionales.modo_parcial },
+                    { label: "UTILIDAD OPERACIONAL", val: pl.utilidad_operacional, bold: true },
+                    { label: "Intereses deuda NP", val: -pl.gastos_no_operacionales.intereses_deuda, indent: 1 },
+                    { label: "Provisión impuestos (33%)", val: -pl.provision_impuestos, indent: 1 },
+                    { label: "UTILIDAD NETA", val: pl.utilidad_neta, bold: true, highlight: true },
+                  ].map(({ label, val, note, indent, bold, highlight, partial }: any) => (
+                    <tr key={label} className={`border-t border-slate-100 ${highlight ? (val >= 0 ? "bg-emerald-50" : "bg-red-50") : ""}`}>
+                      <td className={`py-1.5 ${indent ? "pl-4 text-slate-500" : "pl-0"} ${bold ? "font-bold text-slate-800" : ""}`}>{label}</td>
+                      <td className={`py-1.5 text-right font-mono ${bold ? "font-bold" : ""} ${val < 0 ? "text-red-600" : "text-slate-800"} ${highlight ? (val >= 0 ? "text-emerald-700" : "text-red-700") : ""}`}>
+                        {fmt(val)}{partial ? " ⚠️" : ""}
+                      </td>
+                      {note && <td className="py-1.5 pl-2 text-slate-400 text-[10px]">{note}</td>}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {pl.comparativo && (
+                <div className="mt-2 text-xs text-slate-500 border-t border-slate-100 pt-2">
+                  Vs {pl.comparativo.periodo_anterior}: ingresos
+                  <span className={`ml-1 font-semibold ${(pl.comparativo.variacion_ingresos_pct ?? 0) >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                    {(pl.comparativo.variacion_ingresos_pct ?? 0) >= 0 ? "+" : ""}{pl.comparativo.variacion_ingresos_pct ?? "N/D"}%
+                  </span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-slate-400 text-center py-4">
+              Selecciona el período y haz clic en "Cargar P&L" para ver el Estado de Resultados.
+            </p>
+          )}
+        </div>
+
       </section>
 
       {/* ── Modal Plantilla ─────────────────────────────────────────────────── */}

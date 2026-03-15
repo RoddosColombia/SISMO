@@ -18,6 +18,10 @@ interface InventarioStats {
   disponibles?: number; vendidas?: number; entregadas?: number; total?: number;
 }
 interface CfoAlerta { id: string; dimension?: string; mensaje?: string; color?: string; urgencia?: number; }
+interface CfoIndicadores {
+  creditos_activos?: number; creditos_minimos?: number; recaudo_semanal_base?: number;
+  gastos_fijos_semanales?: number; margen_semanal?: number; autosostenible?: boolean;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -46,36 +50,108 @@ const CFO_LABELS: Record<string, string> = {
 };
 const CFO_KEYS = ["caja", "cartera", "ventas", "roll_rate", "impuestos"];
 
+// ── Sostenibilidad Widget ──────────────────────────────────────────────────────
+function SostenibilidadWidget({ indicadores }: { indicadores: CfoIndicadores }) {
+  const activos   = indicadores.creditos_activos  ?? 0;
+  const minimos   = indicadores.creditos_minimos  ?? 45;
+  const recaudo   = indicadores.recaudo_semanal_base ?? 0;
+  const deficit   = indicadores.margen_semanal    ?? 0;
+  const pct       = Math.min(100, Math.round((activos / Math.max(1, minimos)) * 100));
+  const META_DATE = new Date("2026-06-20T00:00:00");
+  const diasRestantes = Math.max(0, Math.floor((META_DATE.getTime() - Date.now()) / 86_400_000));
+
+  const colorClass = pct < 33
+    ? { bar: "bg-red-500",    text: "text-red-400",    border: "border-red-900/50   bg-red-950/30"    }
+    : pct < 66
+    ? { bar: "bg-yellow-400", text: "text-yellow-300", border: "border-yellow-900/50 bg-yellow-950/30" }
+    : { bar: "bg-emerald-500",text: "text-emerald-300",border: "border-emerald-900/50 bg-emerald-950/30"};
+
+  const semIcon = pct < 33 ? "🔴" : pct < 66 ? "🟡" : "🟢";
+
+  return (
+    <div
+      data-testid="sostenibilidad-widget"
+      className={`rounded-xl border p-4 ${colorClass.border}`}
+    >
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">
+          {semIcon} Sostenibilidad Operativa
+        </p>
+        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${pct < 33 ? "bg-red-900/50 text-red-300" : pct < 66 ? "bg-yellow-900/50 text-yellow-300" : "bg-emerald-900/50 text-emerald-300"}`}>
+          {pct}%
+        </span>
+      </div>
+
+      {/* Barra de progreso créditos */}
+      <div className="mb-3">
+        <div className="flex justify-between text-xs text-slate-400 mb-1">
+          <span>Créditos activos</span>
+          <span className={`font-bold ${colorClass.text}`}>{activos} / {minimos}</span>
+        </div>
+        <div className="h-2.5 bg-slate-800 rounded-full overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-700 ${colorClass.bar}`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </div>
+
+      {/* KPIs */}
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        <div className="bg-slate-900/50 rounded-lg px-2 py-1.5">
+          <p className="text-slate-500">Recaudo/sem</p>
+          <p className="font-bold text-white">{fmt(recaudo)}</p>
+        </div>
+        <div className={`rounded-lg px-2 py-1.5 ${deficit < 0 ? "bg-red-950/40" : "bg-emerald-950/40"}`}>
+          <p className="text-slate-500">Déficit/sem</p>
+          <p className={`font-bold ${deficit < 0 ? "text-red-400" : "text-emerald-400"}`}>{fmt(deficit)}</p>
+        </div>
+        <div className="bg-slate-900/50 rounded-lg px-2 py-1.5">
+          <p className="text-slate-500">Meta 90 días</p>
+          <p className="font-bold text-amber-300">55–60 ventas</p>
+        </div>
+        <div className={`rounded-lg px-2 py-1.5 ${diasRestantes <= 14 ? "bg-red-950/40" : "bg-slate-900/50"}`}>
+          <p className="text-slate-500">Días restantes</p>
+          <p className={`font-bold ${diasRestantes <= 14 ? "text-red-400" : "text-white"}`} data-testid="dias-restantes">
+            {diasRestantes} días
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
   const { api } = useAuth();
   const { data: ph, lastUpdated, refetch: refetchPH } = useSharedState(30_000);
 
-  const [semaforo, setSemaforo]   = useState<CfoSemaforo>({});
-  const [semana, setSemana]       = useState<RadarSemana>({});
-  const [top5, setTop5]           = useState<RadarItem[]>([]);
-  const [inventario, setInventario] = useState<InventarioStats>({});
-  const [alertas, setAlertas]     = useState<CfoAlerta[]>([]);
+  const [semaforo, setSemaforo]       = useState<CfoSemaforo>({});
+  const [semana, setSemana]           = useState<RadarSemana>({});
+  const [top5, setTop5]               = useState<RadarItem[]>([]);
+  const [inventario, setInventario]   = useState<InventarioStats>({});
+  const [alertas, setAlertas]         = useState<CfoAlerta[]>([]);
+  const [indicadores, setIndicadores] = useState<CfoIndicadores>({});
   const [loadingInit, setLoadingInit] = useState(true);
   const [gestionItem, setGestionItem] = useState<RadarItem | null>(null);
 
   const loadAll = useCallback(async () => {
     try {
-      // Fast endpoints first — MongoDB only, set loading=false immediately after
-      const [semRes, qRes, invRes, alertRes] = await Promise.allSettled([
+      const [semRes, qRes, invRes, alertRes, indRes] = await Promise.allSettled([
         api.get("/radar/semana"),
         api.get("/radar/queue"),
         api.get("/inventario/stats"),
         api.get("/cfo/alertas"),
+        api.get("/cfo/indicadores"),
       ]);
       if (semRes.status === "fulfilled")   setSemana(semRes.value.data);
       if (qRes.status === "fulfilled")     setTop5((qRes.value.data as RadarItem[]).slice(0, 5));
       if (invRes.status === "fulfilled")   setInventario(invRes.value.data);
       if (alertRes.status === "fulfilled") setAlertas((alertRes.value.data as CfoAlerta[]).filter(a => !a["resuelta"]));
+      if (indRes.status === "fulfilled")   setIndicadores(indRes.value.data ?? {});
     } catch { /* silent */ } finally { setLoadingInit(false); }
 
-    // Slow endpoint (Alegra API) — loads independently, doesn't block render
     try {
       const cfoRes = await api.get("/cfo/semaforo");
       setSemaforo(cfoRes.data);
@@ -86,12 +162,10 @@ export default function Dashboard() {
 
   const handleRefresh = () => { loadAll(); refetchPH(); };
 
-  // KPI computations
   const cobradoPct = semana.valor_esperado
     ? Math.round((semana.valor_pagado ?? 0) / semana.valor_esperado * 100)
     : 0;
   const tasaMora    = ph?.tasa_mora ?? 0;
-  const rollRateNum = semaforo.roll_rate === "ROJO" ? "Alto" : semaforo.roll_rate === "AMARILLO" ? "Medio" : "OK";
 
   if (loadingInit) {
     return (
@@ -122,6 +196,9 @@ export default function Dashboard() {
           <RefreshCw className="w-3.5 h-3.5" /> Actualizar
         </button>
       </div>
+
+      {/* Widget Sostenibilidad — siempre visible */}
+      <SostenibilidadWidget indicadores={indicadores} />
 
       {/* Row 1 — Semáforo CFO */}
       <section data-testid="cfo-semaforo-section">

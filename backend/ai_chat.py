@@ -1594,6 +1594,28 @@ async def process_chat(
     except Exception:
         pass
 
+    # ── BUILD 12: Estado de Resultados en contexto CFO ────────────────────────
+    try:
+        from routers.estado_resultados import _build_pl
+        periodo = f"{_today.year}-{_today.month:02d}"
+        _pl = await _build_pl(periodo, user)
+        _ing  = _pl["ingresos"]["total"]
+        _neta = _pl["utilidad_neta"]
+        _modo = _pl["modo"]
+        _margen = _pl["margen_bruto_pct"]
+        _gastos = _pl["gastos_operacionales"]["total"]
+        cfo_context_lines.append(
+            f"\n📊 P&L {_pl['mes_label']} (modo={_modo}):\n"
+            f"  Ingresos: ${_ing:,.0f} | COGS: ${_pl['costo_ventas']['total']:,.0f} | "
+            f"Utilidad bruta: ${_pl['utilidad_bruta']:,.0f} ({_margen:.1f}%)\n"
+            f"  Gastos oper.: ${_gastos:,.0f} | Utilidad neta: ${_neta:,.0f}"
+            + (f"\n  ⚠️ ALERTA: Margen bruto {_margen:.1f}% por debajo del 15% mínimo." if _pl.get("alerta_margen_critico") else "")
+            + (f"\n  ⚠️ {_pl['costo_ventas']['advertencia']}" if _pl["costo_ventas"].get("advertencia") else "")
+            + (f"\n  ⚠️ {_pl['gastos_operacionales']['advertencia']}" if _pl["gastos_operacionales"].get("advertencia") else "")
+        )
+    except Exception:
+        pass
+
     cfo_ctx_str = "\n".join(cfo_context_lines)
 
     system_prompt = (
@@ -1609,6 +1631,51 @@ async def process_chat(
 
     # ── MEJORA 4: Comandos especiales de contexto ─────────────────────────────
     msg_lower_cmd = user_message.lower().strip()
+
+    # ── BUILD 12: Detectar solicitud de exportación P&L ───────────────────────
+    _export_keywords = ["exporta", "exportar", "estado de resultado", "p&l", "pl de", "informe financiero", "generar informe"]
+    if any(kw in msg_lower_cmd for kw in _export_keywords):
+        from datetime import date as _date
+        import re
+        # Extract period from message (look for month name or YYYY-MM)
+        _meses_map = {"enero":"01","febrero":"02","marzo":"03","abril":"04","mayo":"05","junio":"06",
+                     "julio":"07","agosto":"08","septiembre":"09","octubre":"10","noviembre":"11","diciembre":"12"}
+        _periodo_export = None
+        for _m, _n in _meses_map.items():
+            if _m in msg_lower_cmd:
+                _ano = str(_date.today().year)
+                _ano_match = re.search(r'\b(20\d\d)\b', user_message)
+                if _ano_match: _ano = _ano_match.group(1)
+                _periodo_export = f"{_ano}-{_n}"
+                break
+        if not _periodo_export:
+            _h = _date.today()
+            _periodo_export = f"{_h.year}-{_h.month:02d}"
+
+        _ml = _meses_map.get(next((m for m in _meses_map if m in msg_lower_cmd), ""), _periodo_export[5:7])
+        _ano_label = _periodo_export[:4]
+        _mes_label = next((m.capitalize() for m in _meses_map if _meses_map[m] == _periodo_export[5:7]), _periodo_export)
+
+        export_card = {
+            "type":    "pl_export_card",
+            "titulo":  f"Estado de Resultados — {_mes_label} {_ano_label}",
+            "periodo": _periodo_export,
+            "periodo_label": f"01/{_periodo_export[5:7]}/{_ano_label} — {_periodo_export[5:7]}/{_ano_label}",
+        }
+
+        resp = f"Aquí tienes el Estado de Resultados de **{_mes_label} {_ano_label}**. Elige el formato de exportación:"
+        await db.chat_messages.insert_one({
+            "id": str(uuid.uuid4()), "session_id": session_id, "role": "user",
+            "content": user_message, "timestamp": datetime.now(timezone.utc).isoformat(),
+            "user_id": user.get("id"),
+        })
+        await db.chat_messages.insert_one({
+            "id": str(uuid.uuid4()), "session_id": session_id, "role": "assistant",
+            "content": resp, "timestamp": datetime.now(timezone.utc).isoformat(),
+            "user_id": user.get("id"),
+        })
+        return {"message": resp, "pending_action": None, "session_id": session_id, "export_card": export_card}
+
     is_context_cmd = any(kw in msg_lower_cmd for kw in [
         "en qué íbamos", "en que ibamos", "qué falta", "que falta",
         "resumen", "qué hice", "que hice", "qué pasó hoy", "que paso hoy",
