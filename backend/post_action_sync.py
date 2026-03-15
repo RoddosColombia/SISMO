@@ -497,6 +497,47 @@ async def post_action_sync(
         nombre = payload.get("name", "")
         sync_msgs.append(f"✅ Contacto **{nombre}** creado en Alegra (ID: {alegra_id})")
 
+    # ── CASO 5: Anulación de Factura de Compra ────────────────────────────────
+    elif action_type == "anular_factura_compra":
+        bill_id     = alegra_response.get("id", "")
+        bill_numero = alegra_response.get("numero", "")
+        proveedor   = alegra_response.get("proveedor", "")
+
+        # Reverse all inventory entries linked to this bill
+        motos_linked = await db.inventario_motos.find(
+            {"factura_compra_alegra_id": bill_id}, {"_id": 0}
+        ).to_list(50)
+
+        if motos_linked:
+            await db.inventario_motos.update_many(
+                {"factura_compra_alegra_id": bill_id},
+                {"$set": {"estado": "Anulada", "updated_at": now_iso}},
+            )
+            n = len(motos_linked)
+            descs = ", ".join(
+                f"{m.get('marca','')} {m.get('version','')}".strip()
+                for m in motos_linked[:3]
+            )
+            sync_msgs.append(f"✅ **Inventario**: {n} moto(s) marcadas como Anulada — {descs}")
+            modules.append("inventario")
+        else:
+            sync_msgs.append("✅ Sin motos vinculadas a esta factura en inventario")
+
+        sync_msgs.append(f"✅ **Factura de compra** {bill_numero} anulada en Alegra")
+
+        await db.roddos_events.insert_one({
+            "id": str(uuid.uuid4()),
+            "event_type": "factura.compra.anulada",
+            "timestamp": now_iso,
+            "data": {
+                "bill_id":     bill_id,
+                "bill_numero": bill_numero,
+                "proveedor":   proveedor,
+                "motos_count": len(motos_linked),
+                "anulado_por": user.get("email", ""),
+            },
+        })
+
     # ── Audit log (siempre) ───────────────────────────────────────────────────
     await db.audit_logs.insert_one({
         "id": str(uuid.uuid4()),

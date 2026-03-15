@@ -180,6 +180,9 @@ class AlegraService:
                 data = [x for x in data if x.get("status") == p["status"]]
             return data
         if "bills" in endpoint:
+            if method == "DELETE":
+                bill_id = endpoint.split("/")[1] if "/" in endpoint else "unknown"
+                return {"id": bill_id, "status": "void"}
             if method == "POST":
                 new_id = f"bill-{uuid.uuid4().hex[:6]}"
                 return {"id": new_id, "number": f"FC-2025-0{len(MOCK_BILLS)+1:02d}", "status": "open", **body}

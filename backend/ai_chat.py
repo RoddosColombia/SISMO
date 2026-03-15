@@ -105,6 +105,7 @@ TIPOS DE ACCIÓN DISPONIBLES:
 ═══════════════════════════════════════════════════
 • crear_factura_venta   → POST /invoices
 • registrar_factura_compra → POST /bills
+• anular_factura_compra → DELETE /bills/{id}  ← anulación de factura de compra
 • crear_causacion       → POST /journals  (endpoint correcto en Alegra API)
 • registrar_pago        → POST /payments
 • crear_contacto        → POST /contacts
@@ -351,7 +352,31 @@ PASO 2 — Si el usuario responde "sin datos" o "sin chasis":
    Indica al usuario: "Las motos se agregaron con estado 'Pendiente datos'. 
    Completa chasis/color en Módulo Motos antes de venderlas."
 
-PASO 3 — Formato _metadata obligatorio para compra de motos:
+PASO 3 — EXTRACCIÓN DE CAMPOS DE MOTOS (aplica cuando el usuario pega texto de una factura):
+
+Las facturas de Auteco/proveedores suelen incluir descripción en bloque. Debes dividirlas así:
+
+  ENTRADA: "MOTOCICLETA HONDA CB 125 TWISTER ROJA VIN: 9C2KC1710RR000123 MOTOR: KC17E0000456"
+  SALIDA esperada:
+    referencia: "HONDA CB 125 TWISTER"    ← TODO hasta el color, sin el color
+    color:      "ROJA"                    ← solo el color (puede ser 2 palabras: "NEGRO MATE")
+    chasis:     "9C2KC1710RR000123"       ← después de VIN: / CHASIS: / BASTIDOR: / No. SERIE:
+    motor:      "KC17E0000456"            ← después de MOTOR: / No. MOTOR: / MOT:
+    marca:      "HONDA"                   ← primera palabra de la referencia
+    
+  Colores típicos colombianos (1 o 2 palabras):
+  ROJA, AZUL RACING, NEGRO MATE, BLANCA PERLA, GRIS OSCURO, VERDE HUNTER,
+  NARANJA, AMARILLA SPORT, PLATA, ROJO CANDY
+
+  Si no puedes identificar el color claramente → color: "" y PREGUNTA al usuario.
+  Si no hay chasis → chasis: "" y ADVIERTE:
+    "⚠️ Chasis no detectado. Sin chasis no se puede prevenir doble venta."
+
+REGLA CRÍTICA: NUNCA cantidad > 1 con un solo chasis.
+  Si la factura trae 3 motos distintas → 3 objetos separados, cada uno con cantidad: 1.
+  Solo usa cantidad > 1 si el usuario confirma que son unidades sin datos individuales (sin chasis).
+
+PASO 4 — Formato _metadata obligatorio para compra de motos:
 {
   "_metadata": {
     "es_compra_motos": true,
@@ -359,19 +384,76 @@ PASO 3 — Formato _metadata obligatorio para compra de motos:
     "plazo_dias": 90,
     "motos_a_agregar": [
       {
-        "marca": "Honda",        // REQUERIDO
-        "version": "CB190R",     // REQUERIDO
-        "cantidad": 2,           // REQUERIDO
-        "precio_unitario": 8400000, // REQUERIDO
-        "color": "Rojo",         // opcional — si el usuario lo dio
-        "chasis": "ABC123456",   // opcional pero recomendado — si el usuario lo dio
-        "motor": "MOT987654"     // opcional
+        "referencia": "HONDA CB 125 TWISTER",  // modelo sin color
+        "marca":      "HONDA",                 // REQUERIDO
+        "version":    "CB 125 TWISTER",        // REQUERIDO (= referencia sin marca)
+        "color":      "ROJA",                  // opcional pero extraer siempre
+        "chasis":     "9C2KC1710RR000123",     // opcional pero recomendado
+        "motor":      "KC17E0000456",          // opcional
+        "cantidad":   1,                       // SIEMPRE 1 si hay chasis
+        "precio_unitario": 7058824,            // REQUERIDO
+        "año":        2026                     // si se menciona
       }
     ]
   }
 }
-Si cantidad > 1 y hay varios chasis, crea un objeto por chasis distinto con cantidad: 1 cada uno.
-Esto agrega las motos automáticamente al inventario con estado "Disponible" (o "Pendiente datos").
+
+PASO 5 — Tarjeta de confirmación ANTES de ejecutar la compra:
+Muestra el resumen de unidades a registrar en inventario:
+  "📦 **UNIDADES A INGRESAR AL INVENTARIO**
+   Unidad 1: [referencia] | Color: [color] | Chasis: [chasis] | Motor: [motor]
+   Unidad 2: ...
+   ¿Confirmas los datos o necesitas corregir algo?"
+Si el usuario dice "corregir X", actualiza ese campo antes de ejecutar.
+
+═══════════════════════════════════════════════════
+FLUJO — ANULACIÓN DE FACTURA DE COMPRA
+═══════════════════════════════════════════════════
+Cuando el usuario pide "anula la factura de compra [número o ID]":
+
+PASO 1 — Buscar la factura:
+  Si el usuario da número (ej: "FC-2025-001"), buscarlo en el contexto de facturas.
+  Si da ID numérico de Alegra, usarlo directamente.
+
+PASO 2 — Mostrar tarjeta de confirmación OBLIGATORIA:
+  Acción: anular_factura_compra
+  Tipo: WARNING (destructivo, irreversible en Alegra)
+  Campos del summary:
+    - Factura: [número]
+    - Proveedor: [nombre]
+    - Monto: $[X]
+    - Motos vinculadas: [N] unidades (si aplica)
+    - Advertencia: "Esta acción no se puede revertir"
+
+PASO 3 — Al confirmar, usar este formato:
+<action>
+{
+  "type": "anular_factura_compra",
+  "title": "Anular Factura de Compra [número]",
+  "summary": [
+    {"label": "Factura", "value": "[número]"},
+    {"label": "Proveedor", "value": "[nombre]"},
+    {"label": "Monto", "value": "$[X]"},
+    {"label": "⚠️ Advertencia", "value": "Esta acción no se puede revertir"}
+  ],
+  "payload": {
+    "bill_id": "[id_alegra_de_la_bill]",
+    "bill_numero": "[número visible, ej: FC-2025-001]",
+    "proveedor_nombre": "[nombre]",
+    "total": [monto],
+    "_metadata": {
+      "bill_numero": "[número visible]",
+      "proveedor_nombre": "[nombre]",
+      "total": [monto]
+    }
+  }
+}
+</action>
+
+BLOQUEO AUTOMÁTICO: Si alguna moto vinculada a esa factura tiene estado "Vendida" o "Entregada",
+NO puedes anular. Informa al usuario antes de mostrar la tarjeta de confirmación:
+  "❌ No se puede anular la factura [X]. La moto con chasis [Y] vinculada a esta factura
+   ya fue vendida. Resuelve primero esa venta antes de anular la compra."
 
 ═══════════════════════════════════════════════════
 MAPA DE CUENTAS CONTABLES — RODDOS SAS (IDs reales Alegra)
@@ -1465,6 +1547,54 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
         "registrar_pago": ("payments", "POST"),
         "crear_contacto": ("contacts", "POST"),
     }
+
+    # ── Special case: anular_factura_compra ───────────────────────────────────
+    if action_type == "anular_factura_compra":
+        bill_id     = payload.get("bill_id", "")
+        bill_numero = payload.get("bill_numero", "") or internal_metadata.get("bill_numero", "")
+        proveedor   = payload.get("proveedor_nombre", "") or internal_metadata.get("proveedor_nombre", "")
+
+        if not bill_id:
+            raise ValueError("Falta bill_id para anular la factura de compra.")
+
+        # Guard: check motos linked to this bill
+        motos_bloqueadas = await db.inventario_motos.find(
+            {"factura_compra_alegra_id": bill_id,
+             "estado": {"$in": ["Vendida", "Entregada"]}},
+            {"_id": 0, "chasis": 1, "marca": 1, "version": 1, "estado": 1},
+        ).to_list(10)
+
+        if motos_bloqueadas:
+            detalle = ", ".join(
+                f"chasis {m.get('chasis') or m.get('marca','')+' '+m.get('version','')} ({m.get('estado')})"
+                for m in motos_bloqueadas
+            )
+            raise ValueError(
+                f"❌ No se puede anular la factura {bill_numero}. "
+                f"La(s) siguiente(s) moto(s) vinculadas ya fueron vendidas/entregadas: {detalle}. "
+                "Resuelve primero esas ventas antes de anular la compra."
+            )
+
+        # Execute: DELETE /bills/{id} in Alegra
+        alegra_result = await service.request(f"bills/{bill_id}", "DELETE")
+
+        # Post-action sync
+        from post_action_sync import post_action_sync
+        sync_result = await post_action_sync(
+            "anular_factura_compra",
+            {"id": bill_id, "numero": bill_numero, "proveedor": proveedor},
+            payload,
+            db,
+            user,
+            metadata=internal_metadata,
+        )
+        return {
+            "success": True,
+            "result": alegra_result,
+            "id": bill_id,
+            "message": f"Factura {bill_numero} anulada en Alegra",
+            "sync": sync_result,
+        }
 
     if action_type not in ACTION_MAP:
         raise ValueError(f"Acción no reconocida: {action_type}")

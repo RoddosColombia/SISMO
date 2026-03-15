@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 30 — 15/15 tests pass for anular_factura_compra feature (guard logic, post_action_sync CASO 5, alegra mock DELETE, system prompt keywords, stats isolation, action handler registration).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration30_anulacion.py",
+    "/app/test_reports/pytest/iteration30.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "TEST 1: Guard correctly finds motos with estado=Vendida/Entregada linked to a bill and raises ValueError with 'No se puede anular' ✅",
+    "TEST 2: Guard returns 0 blocked motos when moto is Disponible → allows proceeding ✅",
+    "TEST 3a: post_action_sync CASO 5 updates linked motos to estado=Anulada ✅",
+    "TEST 3b: post_action_sync CASO 5 inserts factura.compra.anulada event in roddos_events ✅",
+    "TEST 4: alegra_service._mock('bills/123', 'DELETE') returns {id:'123', status:'void'} ✅ — NOTE: tested via _mock() directly because production credentials have is_demo_mode=False; mock path unreachable in production without demo mode",
+    "TEST 5: All system prompt keywords present — referencia, VIN:, NEGRO MATE, anular_factura_compra, ANULACIÓN, 'NUNCA cantidad > 1 con un solo chasis', Pendiente datos ✅",
+    "TEST 6: GET /api/inventario/stats returns disponibles count that correctly excludes Anulada motos ✅ — NOTE: stats endpoint doesn't return an 'anuladas' field; Anulada motos are silently excluded (not explicitly counted). Consider adding 'anuladas' field for frontend visibility.",
+    "TEST 7: Special case handler for anular_factura_compra is registered BEFORE ACTION_MAP check in ai_chat.py ✅"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration30_anulacion.py"
+  ],
+  "success_rate": {
+    "backend": "100% (15/15)",
+    "frontend": "N/A — backend-only testing"
+  },
+  "test_credentials": "contabilidad@roddos.com / Admin@RODDOS2025!",
+  "seed_data_creation": "Test motos/events inserted and cleaned up per test. No permanent data left.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 15 tests for anular_factura_compra pass. Guard in ai_chat.py (line 1552) blocks Vendida/Entregada motos. post_action_sync CASO 5 (line 501) sets Anulada + creates event. alegra _mock DELETE bills/{id} returns {id, status:'void'} correctly. Stats endpoint does NOT expose an 'anuladas' counter — minor gap. System prompt has all required keywords.",
+  "rca_of_issue": "N/A — no bugs found"
+}
