@@ -102,9 +102,18 @@ Política: Migrar a .tsx/.ts al tocar cada archivo. No migrar en bloque.
 - Integración DIAN para semáforo impuestos (actualmente hardcoded VERDE)
 - Nómina y Prestaciones NIIF Colombia
 
-### P1 — BUILD 9: UI Scheduler + Estado de Resultados
-- Tab "Alertas Scheduler" en Settings: ver WA-logs con historial y disparar jobs manualmente desde UI (backend ya listo)
-- Estado de Resultados automático Alegra (P&L mensual/anual)
+### P1 — BUILD 9: Capa de Aprendizaje ✅ COMPLETADO (Marzo 2026)
+- **learning_engine.py** (nuevo): crear_outcome, resolver_outcomes_pendientes, procesar_patrones_semanales, get_recomendacion_contacto, get_alerta_deterioro, get_template_optimo, get_metricas_predictivas
+- **Colecciones nuevas**: `learning_outcomes` (1 doc/gestión) y `learning_patterns` (4 tipos: contactabilidad, template, señal_deterioro, patron_contable)
+- **GET /api/crm/{id}/learning**: recomendación de contacto + alerta predictiva
+- **3 CRONs BUILD 9**: alertas_predictivas (06:45), resolver_outcomes (07:30), procesar_patrones (Lun 08:00) — total 12 jobs
+- **CRMCliente.tsx**: Box azul (recomendación si confianza ≥ 0.6) y box naranja (alerta si DPD=0 y prob>0.60)
+- **CFO**: analizar_cartera + generar_semaforo + informe con clientes_en_riesgo, tendencia_mora, efectividad_canal
+- **AI Chat**: patron_contable por NIT incluido en prompt si confianza ≥ 0.7
+- **Settings**: 12 jobs con badges ML en "Alertas Predictivas ML", "Resolver Outcomes WA", "Procesar Patrones ML"
+- **Layout.js**: Badge rojo CFO en sidebar, polling cada 60s
+- **Recordatorios WA**: get_template_optimo() antes de enviar (fallback a default sin error)
+- TEST 9: 14/14 PASS
 
 ---
 
