@@ -729,8 +729,12 @@ async def generar_informe_cfo(db, triggered_by: str = "manual") -> dict:
     informe.pop("_id", None)
 
     # Generar alertas para dimensiones en ROJO / AMARILLO
+    # Dedup: no insertar si ya hay alerta no resuelta de la misma dimensión y periodo
+    alertas_existentes = await db.cfo_alertas.distinct(
+        "dimension", {"resuelta": False, "periodo": datos["periodo"]}
+    )
     for dim, color in semaforo.items():
-        if dim == "metricas":
+        if dim == "metricas" or dim in alertas_existentes:
             continue
         if color == "ROJO":
             await db.cfo_alertas.insert_one({
@@ -742,6 +746,7 @@ async def generar_informe_cfo(db, triggered_by: str = "manual") -> dict:
                 "timestamp": now_iso,
                 "urgencia":  3,
                 "resuelta":  False,
+                "estado":    "nueva",
             })
         elif color == "AMARILLO":
             await db.cfo_alertas.insert_one({
@@ -753,6 +758,7 @@ async def generar_informe_cfo(db, triggered_by: str = "manual") -> dict:
                 "timestamp": now_iso,
                 "urgencia":  2,
                 "resuelta":  False,
+                "estado":    "nueva",
             })
 
     return informe
