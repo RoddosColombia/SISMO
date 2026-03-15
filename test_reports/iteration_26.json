@@ -1,0 +1,36 @@
+{
+  "summary": "Build 8 testing complete — all 8 backend tests pass, all 6 frontend test flows pass. Dashboard KPIs load progressively, Loanbook DPD/Score/Mora columns work, GestionModal opens with dropdown and PTP field, RADAR mobile responsive (no horizontal scroll), scheduler trigger endpoints work, WA-logs returns array, E2E gestión flow persists in CRM timeline.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Settings tab label",
+        "issues": ["TEST 8E says 'Alertas Scheduler' tab but actual tab label is 'Scheduler' at /configuracion (not /settings). Minor naming discrepancy — functionally passes."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_build8.py",
+    "/app/test_reports/pytest/build8_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Settings page route is /configuracion (not /settings). The test spec referenced /settings — clarify in documentation.",
+    "trigger_job returns 404 for unknown jobs, not 400. Test spec says '400' but 404 is also acceptable and correct REST semantics."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_build8.py"
+  ],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% (6/6 test flows)"},
+  "test_credentials": "contabilidad@roddos.com / Admin@RODDOS2025!",
+  "seed_data_creation": "No new seed data created. Used existing TEST3-LB00x entries.",
+  "mocked_apis": "Alegra ERP (semáforo CFO shows N/D as expected), Mercately WhatsApp outbound (MOCKED — DNS restriction in preview)",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Build 8 fully tested: Dashboard progressive load OK, Loanbook Mora column + DPD/Score sort OK, RadarCards with BucketBadge/ScoreBadge/ultima_gestion OK, GestionModal canal+resultado+PTP OK, mobile RADAR (375px) no horizontal scroll, scheduler POST trigger OK, wa-logs OK, E2E gestión saved → CRM timeline shows 'WHATSAPP no contestó'. Settings/Scheduler tab at /configuracion (not /settings). All 8 backend tests in /app/backend/tests/test_build8.py pass."
+}
