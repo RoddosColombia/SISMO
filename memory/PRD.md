@@ -40,7 +40,14 @@ Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
 ### Módulos Operativos
 - Loanbook: CRUD, registro de pagos y entrega, KPIs
 - Cartera/RADAR: cola remota URGENTE/HOY/PREVENTIVO, vistas semanal/mensual
-- Inventario motos con carga PDFs Auteco
+- **BUILD 11 — Agente CFO Estratégico (✅ Mar 2026):**
+  - PASO 0: Limpieza 11 registros TEST de loanbook + 10 inventario + cartera + events
+  - `cfo_estrategico.py` router con 9 endpoints nuevos: indicadores, plan-ingresos, plan-deudas (avalancha), deudas/cargar (Excel), deudas/confirmar, cuotas-iniciales, config, reporte-lunes, reclasificar
+  - Reglas CFO 1-5 inyectadas en system prompt del agente IA + contexto en tiempo real
+  - Reporte del lunes automático (inyectado los lunes en el contexto del agente)
+  - Sección "Plan Estratégico CFO" en frontend: indicadores, plan ingresos 8 semanas, cuotas iniciales $5.3M, carga Excel deudas, plan avalancha, alertas
+  - openpyxl instalado (Excel parsing)
+  - cfo_financiero_config collection + cfo_deudas collection en MongoDB
 - **SPRINT VISUAL (✅ Mar 2026):**
   - MEJORA A: Badge `TareaActivaBadge` en chat — polling 3s, estados cyan/amarillo/verde, botones Pausar/Continuar, expansión de pasos
   - MEJORA B: Barra de filtros de estado en inventario motos — 6 filtros (TODAS/Disponible/Vendida/Entregada/Pendiente datos/Anulada), conteos en tiempo real, colores exactos del usuario, default=Disponible, TODAS excluye Anulada
