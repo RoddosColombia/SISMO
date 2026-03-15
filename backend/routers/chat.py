@@ -112,12 +112,40 @@ async def get_tarea_activa(current_user=Depends(get_current_user)):
 
 @router.patch("/tarea/avance")
 async def avanzar_tarea(
-    pasos_completados: int,
+    pasos_completados: Optional[int] = None,
     paso_completado: Optional[str] = None,
+    accion: Optional[str] = None,
     current_user=Depends(get_current_user),
 ):
-    """Actualiza el progreso de la tarea activa. Si se pasa paso_completado, lo elimina de pendientes."""
+    """Actualiza la tarea activa.
+    - accion='pausar': pausa la tarea en_curso
+    - accion='continuar': reanuda la tarea pausada
+    - pasos_completados (int): avanza el progreso (comportamiento original sin cambios)
+    """
     now = datetime.now(timezone.utc).isoformat()
+
+    if accion == "pausar":
+        result = await db.agent_memory.update_one(
+            {"tipo": "tarea_activa", "estado": "en_curso"},
+            {"$set": {"estado": "pausada", "ultimo_avance": now}},
+        )
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="No hay tarea activa en curso")
+        return {"ok": True, "estado": "pausada"}
+
+    if accion == "continuar":
+        result = await db.agent_memory.update_one(
+            {"tipo": "tarea_activa", "estado": "pausada"},
+            {"$set": {"estado": "en_curso", "ultimo_avance": now}},
+        )
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="No hay tarea pausada para reanudar")
+        return {"ok": True, "estado": "en_curso"}
+
+    # Comportamiento original: avanzar pasos_completados
+    if pasos_completados is None:
+        raise HTTPException(status_code=400, detail="Se requiere pasos_completados o accion=pausar|continuar")
+
     tarea = await db.agent_memory.find_one(
         {"tipo": "tarea_activa", "estado": "en_curso"}, {"_id": 0}
     )

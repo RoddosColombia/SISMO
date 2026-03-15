@@ -55,6 +55,14 @@ interface DocumentProposalData {
 interface AttachedFile { base64: string; name: string; type: string; preview: string | null; }
 interface MemorySuggestion { tipo?: string; descripcion?: string; monto?: number; }
 
+interface TareaActiva {
+  estado: "en_curso" | "pausada" | "completada" | "ninguna";
+  descripcion?: string;
+  pasos_total?: number;
+  pasos_completados?: number;
+  pasos_pendientes?: string[];
+}
+
 /* ── constants ── */
 const fmt = (n: number | string | null | undefined): string => Number(n || 0).toLocaleString("es-CO");
 
@@ -609,6 +617,112 @@ function DocumentProposalCard({ proposal, onConfirm, onCancel, loading }: {
   );
 }
 
+/* ── TareaActiva badge ── */
+
+function TareaActivaBadge({ tarea, onPausar, onContinuar }: {
+  tarea: TareaActiva;
+  onPausar: () => void;
+  onContinuar: () => void;
+}): React.ReactElement | null {
+  const [expanded, setExpanded] = useState(false);
+
+  if (!tarea || tarea.estado === "ninguna") return null;
+
+  const completados = tarea.pasos_completados ?? 0;
+  const total = tarea.pasos_total ?? 0;
+  const pct = total > 0 ? Math.min(100, Math.round((completados / total) * 100)) : 0;
+
+  const theme = tarea.estado === "completada"
+    ? { border: "#BBF7D0", accent: "#00C853", bg: "#F0FDF4", text: "#166534" }
+    : tarea.estado === "pausada"
+    ? { border: "#FDE68A", accent: "#F59E0B", bg: "#FFFBEB", text: "#92400E" }
+    : { border: "#BAE6FD", accent: "#00C4D4", bg: "#EFF6FF", text: "#0369A1" };
+
+  return (
+    <div
+      className="mx-5 mt-3 rounded-xl overflow-hidden flex-shrink-0"
+      style={{ border: `1px solid ${theme.border}`, background: theme.bg }}
+      data-testid="tarea-activa-badge"
+    >
+      {/* Main row */}
+      <div className="flex items-center gap-2 px-3 py-2">
+        <span
+          className="w-2 h-2 rounded-full flex-shrink-0"
+          style={{
+            background: theme.accent,
+            animation: tarea.estado === "en_curso" ? "pulse 2s cubic-bezier(0.4,0,0.6,1) infinite" : "none",
+          }}
+        />
+        <span className="text-xs font-semibold flex-1 truncate" style={{ color: theme.text }}>
+          {tarea.descripcion || "Tarea en progreso"}
+        </span>
+        <span className="text-xs font-bold font-mono flex-shrink-0" style={{ color: theme.accent }}>
+          [{completados}/{total}]
+        </span>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <button
+            onClick={() => setExpanded((p) => !p)}
+            className="text-[10px] px-2 py-0.5 rounded font-semibold transition"
+            style={{ background: `${theme.accent}22`, color: theme.accent }}
+            data-testid="tarea-ver-btn"
+          >
+            {expanded ? "Ocultar" : "Ver"}
+          </button>
+          {tarea.estado === "en_curso" && (
+            <button
+              onClick={onPausar}
+              className="text-[10px] px-2 py-0.5 rounded font-semibold transition"
+              style={{ background: "#FEF3C7", color: "#92400E", border: "1px solid #FDE68A" }}
+              data-testid="tarea-pausar-btn"
+            >
+              Pausar
+            </button>
+          )}
+          {tarea.estado === "pausada" && (
+            <button
+              onClick={onContinuar}
+              className="text-[10px] px-2 py-0.5 rounded font-semibold transition"
+              style={{ background: "#D1FAE5", color: "#166534", border: "1px solid #BBF7D0" }}
+              data-testid="tarea-continuar-btn"
+            >
+              Continuar
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      <div className="mx-3 mb-2 h-1.5 rounded-full overflow-hidden" style={{ background: theme.border }}>
+        <div
+          className="h-full rounded-full transition-all duration-500"
+          style={{ width: `${pct}%`, background: theme.accent }}
+        />
+      </div>
+
+      {/* Expanded step list */}
+      {expanded && (
+        <div className="mx-3 mb-2.5 space-y-1">
+          <div className="text-[10px] font-bold uppercase tracking-wide mb-1" style={{ color: theme.text }}>
+            Pasos pendientes:
+          </div>
+          {(tarea.pasos_pendientes ?? []).length > 0
+            ? (tarea.pasos_pendientes ?? []).map((paso, i) => (
+                <div key={i} className="flex items-center gap-1.5 text-[11px]" style={{ color: theme.text }}>
+                  <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: theme.accent }} />
+                  {paso}
+                </div>
+              ))
+            : (
+                <div className="text-[11px]" style={{ color: theme.text }}>
+                  {tarea.estado === "completada" ? "Todos los pasos completados." : "Sin pasos registrados."}
+                </div>
+              )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── main page ── */
 export default function AgentChatPage() {
   const { api, user } = useAuth();
@@ -623,6 +737,7 @@ export default function AgentChatPage() {
   const [isDragging, setIsDragging] = useState(false);
   const [memorySuggestions, setMemorySuggestions] = useState<MemorySuggestion[]>([]);
   const [docTypeHint, setDocTypeHint] = useState("auto");
+  const [tareaActiva, setTareaActiva] = useState<TareaActiva | null>(null);
 
   const sessionId = useRef(`chat-main-${user?.id || "guest"}`).current;
   const messagesRef = useRef<HTMLDivElement>(null);
@@ -671,8 +786,33 @@ export default function AgentChatPage() {
     init();
   }, []); // eslint-disable-line
 
-  /* document-level paste for images */
+  /* poll tarea activa every 3s */
   useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+    let completedTimer: ReturnType<typeof setTimeout>;
+
+    const poll = async () => {
+      try {
+        const res = await api.get("/chat/tarea");
+        const t: TareaActiva = res.data;
+        if (t.estado === "completada") {
+          setTareaActiva(t);
+          clearInterval(interval);
+          completedTimer = setTimeout(() => setTareaActiva(null), 3000);
+        } else if (t.estado === "ninguna") {
+          setTareaActiva(null);
+        } else {
+          setTareaActiva(t);
+        }
+      } catch {}
+    };
+
+    poll();
+    interval = setInterval(poll, 3000);
+    return () => { clearInterval(interval); clearTimeout(completedTimer); };
+  }, []); // eslint-disable-line
+
+  /* document-level paste for images */  useEffect(() => {
     const onPaste = (e) => {
       if (attachedFile) return;
       const items = e.clipboardData?.items;
@@ -832,6 +972,20 @@ export default function AgentChatPage() {
     setMessages((prev) => [...prev, { role: "assistant", content: "Acción cancelada. ¿En qué más te puedo ayudar?", timestamp: new Date().toISOString() }]);
   };
 
+  const handlePausarTarea = async () => {
+    try {
+      await api.patch("/chat/tarea/avance", null, { params: { accion: "pausar" } });
+      setTareaActiva((prev) => prev ? { ...prev, estado: "pausada" } : null);
+    } catch { toast.error("Error al pausar la tarea"); }
+  };
+
+  const handleContinuarTarea = async () => {
+    try {
+      await api.patch("/chat/tarea/avance", null, { params: { accion: "continuar" } });
+      setTareaActiva((prev) => prev ? { ...prev, estado: "en_curso" } : null);
+    } catch { toast.error("Error al reanudar la tarea"); }
+  };
+
   const clearChat = async () => {
     try {
       await api.delete(`/chat/history/${sessionId}`);
@@ -881,6 +1035,15 @@ export default function AgentChatPage() {
           <Trash2 size={15} />
         </button>
       </div>
+
+      {/* Task badge */}
+      {tareaActiva && tareaActiva.estado !== "ninguna" && (
+        <TareaActivaBadge
+          tarea={tareaActiva}
+          onPausar={handlePausarTarea}
+          onContinuar={handleContinuarTarea}
+        />
+      )}
 
       {/* Messages */}
       <div ref={messagesRef} className="flex-1 overflow-y-auto px-5 py-5" data-testid="chat-messages">

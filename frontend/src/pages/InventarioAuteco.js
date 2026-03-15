@@ -8,11 +8,43 @@ import { toast } from "sonner";
 import { formatCOP, formatDate } from "../utils/formatters";
 import { exportExcel } from "../utils/exportUtils";
 
-const ESTADO_COLORS = {
-  Disponible: "bg-emerald-100 text-emerald-700 border-emerald-200",
-  Vendida: "bg-blue-100 text-blue-700 border-blue-200",
-  Entregada: "bg-slate-100 text-slate-600 border-slate-200",
+const ESTADO_STYLE = {
+  Disponible: { bg: "#15803d", text: "#fff" },
+  Vendida: { bg: "#92400e", text: "#fff" },
+  Entregada: { bg: "#1d4ed8", text: "#fff" },
+  "Pendiente datos": { bg: "#9a3412", text: "#fff" },
+  Anulada: { bg: "#111827", text: "#fff" },
 };
+
+const FILTER_STATES = [
+  { key: "TODAS", label: "TODAS" },
+  { key: "Disponible", label: "Disponible" },
+  { key: "Vendida", label: "Vendida" },
+  { key: "Entregada", label: "Entregada" },
+  { key: "Pendiente datos", label: "Pendiente datos" },
+  { key: "Anulada", label: "Anulada" },
+];
+
+const FILTER_BG = {
+  TODAS: "#374151",
+  Disponible: "#15803d",
+  Vendida: "#92400e",
+  Entregada: "#1d4ed8",
+  "Pendiente datos": "#9a3412",
+  Anulada: "#111827",
+};
+
+function getFilterCount(key, stats) {
+  switch (key) {
+    case "TODAS": return Math.max(0, (stats.total || 0) - (stats.anuladas || 0));
+    case "Disponible": return stats.disponibles || 0;
+    case "Vendida": return stats.vendidas || 0;
+    case "Entregada": return stats.entregadas || 0;
+    case "Pendiente datos": return stats.pendiente_datos || 0;
+    case "Anulada": return stats.anuladas || 0;
+    default: return 0;
+  }
+}
 
 function StatCard({ label, value, sub, color }) {
   return (
@@ -25,8 +57,12 @@ function StatCard({ label, value, sub, color }) {
 }
 
 function EstadoBadge({ estado }) {
+  const style = ESTADO_STYLE[estado] || { bg: "#6B7280", text: "#fff" };
   return (
-    <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border ${ESTADO_COLORS[estado] || "bg-slate-100 text-slate-500 border-slate-200"}`}>
+    <span
+      className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
+      style={{ background: style.bg, color: style.text }}
+    >
       {estado}
     </span>
   );
@@ -39,7 +75,7 @@ export default function InventarioAuteco() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [registeringId, setRegisteringId] = useState(null);
-  const [filterEstado, setFilterEstado] = useState("");
+  const [filterEstado, setFilterEstado] = useState("Disponible");
   const [editId, setEditId] = useState(null);
   const [editData, setEditData] = useState({});
   const [selling, setSelling] = useState(null);
@@ -51,11 +87,19 @@ export default function InventarioAuteco() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
+      // TODAS: fetch all, then exclude Anulada client-side
+      // Anulada: fetch only Anulada
+      // Others: pass estado param directly
+      const apiEstado = filterEstado === "TODAS" ? undefined : filterEstado || undefined;
       const [motosRes, statsRes] = await Promise.all([
-        api.get("/inventario/motos", { params: { estado: filterEstado || undefined } }),
+        api.get("/inventario/motos", { params: { estado: apiEstado } }),
         api.get("/inventario/stats"),
       ]);
-      setMotos(motosRes.data);
+      let motosData = motosRes.data;
+      if (filterEstado === "TODAS") {
+        motosData = motosData.filter((m) => m.estado !== "Anulada");
+      }
+      setMotos(motosData);
       setStats(statsRes.data);
     } catch {
       toast.error("Error cargando inventario");
@@ -245,19 +289,30 @@ export default function InventarioAuteco() {
         </div>
       )}
 
-      {/* Filter */}
-      {motos.length > 0 && (
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-500">Filtrar por estado:</span>
-          {["", "Disponible", "Vendida", "Entregada"].map((e) => (
-            <button
-              key={e}
-              onClick={() => setFilterEstado(e)}
-              className={`text-xs px-3 py-1 rounded-full border transition ${filterEstado === e ? "bg-[#0F2A5C] text-white border-[#0F2A5C]" : "bg-white text-slate-600 border-slate-200 hover:border-[#0F2A5C]"}`}
-            >
-              {e || "Todos"}
-            </button>
-          ))}
+      {/* Filter bar */}
+      {!loading && stats.total !== undefined && (
+        <div className="flex items-center gap-2 flex-wrap" data-testid="inventory-filter-bar">
+          {FILTER_STATES.map((f) => {
+            const isActive = filterEstado === f.key;
+            const bg = FILTER_BG[f.key] || "#374151";
+            const count = getFilterCount(f.key, stats);
+            return (
+              <button
+                key={f.key}
+                onClick={() => setFilterEstado(f.key)}
+                data-testid={`filter-btn-${f.key.toLowerCase().replace(/ /g, "-")}`}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full font-semibold transition-all"
+                style={
+                  isActive
+                    ? { background: bg, color: "#fff", border: "2px solid #fff", boxShadow: `0 0 0 2px ${bg}` }
+                    : { background: "#F9FAFB", color: "#374151", border: "1px solid #E5E7EB" }
+                }
+              >
+                {f.label}
+                <span className="text-[10px] font-bold opacity-80 ml-0.5">{count}</span>
+              </button>
+            );
+          })}
         </div>
       )}
 
