@@ -87,7 +87,8 @@ function GestionModal({ open, onClose, onSubmit }: { open: boolean; onClose: () 
           <div>
             <Label className="text-xs text-slate-400 uppercase">Resultado</Label>
             <select value={resultado} onChange={e => setResultado(e.target.value)}
-              className="mt-1.5 w-full bg-[#091529] border border-[#1E3A5F] text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+              className="mt-1.5 w-full bg-[#091529] border border-[#1E3A5F] text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+              data-testid="crm-resultado-select">
               <option value="">— Resultado —</option>
               {RESULTADOS.map(r => <option key={r} value={r}>{r.replace(/_/g, " ")}</option>)}
             </select>
@@ -96,7 +97,7 @@ function GestionModal({ open, onClose, onSubmit }: { open: boolean; onClose: () 
             <div>
               <Label className="text-xs text-slate-400 uppercase">Fecha PTP</Label>
               <Input type="date" value={ptpFecha} onChange={e => setPtpFecha(e.target.value)}
-                className="mt-1 bg-[#091529] border-[#1E3A5F] text-white" />
+                className="mt-1 bg-[#091529] border-[#1E3A5F] text-white" data-testid="crm-ptp-fecha-input" />
             </div>
           )}
           <div>

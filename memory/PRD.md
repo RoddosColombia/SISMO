@@ -1,5 +1,5 @@
 # RODDOS Contable IA — Product Requirements Document
-**Versión**: 5.0.0 | **Actualizado**: Marzo 2026
+**Versión**: 6.0.0 | **Actualizado**: Marzo 2026
 
 ---
 
@@ -52,6 +52,7 @@ Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
 - **Plan de Cuentas RODDOS — Conocimiento Base (✅ Febrero 2026)**: Colección `roddos_cuentas` en MongoDB con 155 cuentas reales de Alegra. `gather_accounts_context` usa `roddos_cuentas` primero (<5ms). System prompt incluye PLAN DE CUENTAS RODDOS con IDs reales.
 - **Smart Retentions PN/PJ (✅ Marzo 2026)**: Detección automática de tipo de proveedor (`_detectar_tipo_proveedor`) y número de identificación (`_detectar_identificacion`). Flujo de 3 casos: (1) Tipo+ID → acción directa, (2) Tipo sin ID → pregunta SOLO cédula/NIT, (3) Tipo desconocido → pregunta tipo. Validado con TEST 4 oficial 49/49 + 3/3 retentions PASS.
 - **BUILD 5 — WhatsApp Mercately (✅ Marzo 2026)**: Canal WhatsApp via Mercately. `routers/mercately.py` con POST /api/mercately/webhook público. Flujos: CLIENTE (comprobante → propuesta → confirmación SI → registro Alegra → recibo digital), INTERNO (factura → ExecutionCard → confirmación SI → ejecución Alegra), DESCONOCIDO (bienvenida). Settings tab: api_key, phone_number, whitelist, ceo_number, destinatarios_resumen + botón "Probar Conexión". Sesiones TTL 5min en `mercately_sessions`. `resumen_semanal()` envía WhatsApp a destinatarios_resumen cada viernes 17:00. Backwards-compat: ceo_number auto-prepend. 14/14 TEST 5 PASS.
+- **BUILD 6 — CRM + RADAR (✅ Marzo 2026)**: Refactoring completo Cartera→RADAR. `routers/radar.py` (migrado): /queue, /semana, /portfolio-health, /roll-rate, /cola-remota (deprecated alias). `services/crm_service.py`: upsert_cliente, registrar_gestion (dual-write a loanbook+crm_clientes), registrar_ptp, agregar_nota. `routers/crm.py`: GET/PUT/POST CRUD 360° del cliente. Frontend: `Radar.tsx` (KpiBar, RadarCard, GestionModal), `CRMList.tsx` (búsqueda+filtros), `CRMCliente.tsx` (perfil 360°: crédito, contacto editable, timeline gestiones, notas). Archivos eliminados: cartera.py, Cartera.js. Declaración types `dialog.d.ts` para React 19. 22/22 TEST 6 PASS.
 - Credenciales Alegra, modo demo, cuentas predeterminadas
 - 2FA con Google Authenticator (TOTP)
 - Bot Telegram (infraestructura completa)
@@ -74,25 +75,27 @@ Política: Migrar a .tsx/.ts al tocar cada archivo. No migrar en bloque.
 
 ## BACKLOG (por prioridad — orden BUILD fijo)
 
-### P0 — BUILD 5: WhatsApp Mercately
+### P0 — BUILD 5: WhatsApp Mercately ✅ COMPLETADO
 - Integración WhatsApp (infraestructura en settings lista, Mercately config en DB)
 - Scheduler Viernes 17:00 → envío automático resumen CEO
 - Motor de alertas: mora día 1, DPD 8, DPD 15, DPD 22 → WhatsApp automático al cliente
 
-### P1 — BUILD 6: CRM + RADAR UI
+### P1 — BUILD 6: CRM + RADAR UI ✅ COMPLETADO
 - CRM clientes: ClientDetail, notas APPEND-ONLY, historial gestiones
 - RADAR UI completo: BucketBadge, RadarCard priorizada, scores A+..E visuales
 
-### P2 — BUILD 7: Scheduler WhatsApp + alertas automáticas
-- Motor de alertas completo (disparadores por DPD, estado, vencimiento DIAN)
+### P1 — BUILD 7: Scheduler WhatsApp + alertas automáticas (PRÓXIMO)
+- Motor de alertas completo: mora día 1, DPD 8, DPD 15, DPD 22 → WhatsApp automático al cliente
+- Disparadores por estado, vencimiento DIAN
 
-### P3 — BUILD 8: Frontend completo + Dashboard KPIs
+### P2 — BUILD 8: Frontend completo + Dashboard KPIs
 - Dashboard KPIs tiempo real con panel RADAR en vivo (buckets visuales)
 - Estado de Resultados automático Alegra
 - Renombrar módulo cartera → RADAR (frontend completo)
 
 ### Backlog Técnico
-- Migrar Cartera.js, contextos AuthContext/AlegraContext a TypeScript
+- Migrar contextos AuthContext/AlegraContext a TypeScript (Cartera.js ya eliminado)
+- Detección automática UVT para retenciones (actualmente hardcoded)
 - Integración DIAN para semáforo impuestos (actualmente hardcoded VERDE)
 - Nómina y Prestaciones NIIF Colombia
 
