@@ -42,9 +42,14 @@ async def save_proveedor_config(body: ProveedorConfigIn, user=Depends(get_curren
 
 @router.get("/config/{nombre}")
 async def get_proveedor_by_name(nombre: str, user=Depends(get_current_user)):
+    # Try exact match first, then partial (contains) match
     doc = await db.proveedores_config.find_one(
         {"nombre": {"$regex": f"^{re.escape(nombre)}$", "$options": "i"}}, {"_id": 0}
     )
+    if not doc:
+        doc = await db.proveedores_config.find_one(
+            {"nombre": {"$regex": re.escape(nombre), "$options": "i"}}, {"_id": 0}
+        )
     if not doc:
         return {"found": False}
     return {"found": True, **doc}
