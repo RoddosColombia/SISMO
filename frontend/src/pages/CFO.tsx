@@ -416,6 +416,22 @@ export default function CFO(): React.ReactElement {
     } catch { toast.error("Error guardando deudas"); } finally { setSavingDeudas(false); }
   };
 
+  const handleDescargarPlantilla = async () => {
+    try {
+      const response = await api.get("/cfo/deudas/plantilla", { responseType: "blob" });
+      const url  = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement("a");
+      link.href  = url;
+      link.setAttribute("download", "RODDOS_Plantilla_Deudas.xlsx");
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch {
+      toast.error("Error descargando la plantilla");
+    }
+  };
+
   const handleReclasificar = async (id: string, nuevoTipo: string) => {
     try {
       await api.patch(`/cfo/deudas/${id}`, { tipo: nuevoTipo });
@@ -770,17 +786,38 @@ export default function CFO(): React.ReactElement {
         <div className="rounded-xl border border-slate-200 bg-white p-4" data-testid="deudas-section">
           <div className="flex items-center justify-between mb-3">
             <p className="text-sm font-bold text-slate-800">Inventario de deudas</p>
-            <label className={`cursor-pointer inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition ${uploadingXls ? "bg-slate-100 text-slate-400" : "bg-[#0F2A5C] text-white hover:bg-[#1a3d7a]"}`} data-testid="upload-excel-btn">
-              {uploadingXls ? <Loader2 size={13} className="animate-spin" /> : <FileText size={13} />}
-              {uploadingXls ? "Procesando…" : "Cargar Excel (.xlsx)"}
-              <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleXlsUpload} disabled={uploadingXls} />
-            </label>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleDescargarPlantilla}
+                data-testid="descargar-plantilla-btn"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-[#0F2A5C] text-[#0F2A5C] hover:bg-[#0F2A5C]/5 transition"
+              >
+                <FileText size={13} />
+                Descargar plantilla Excel
+              </button>
+              <label className={`cursor-pointer inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition ${uploadingXls ? "bg-slate-100 text-slate-400" : "bg-[#0F2A5C] text-white hover:bg-[#1a3d7a]"}`} data-testid="upload-excel-btn">
+                {uploadingXls ? <Loader2 size={13} className="animate-spin" /> : <FileText size={13} />}
+                {uploadingXls ? "Procesando…" : "Cargar Excel (.xlsx)"}
+                <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleXlsUpload} disabled={uploadingXls} />
+              </label>
+            </div>
           </div>
+          <p className="text-xs text-slate-400 mb-3">
+            Descarga la plantilla, llena tus deudas y sube el archivo aquí. El sistema clasifica automáticamente cada deuda como productiva o no productiva.
+          </p>
 
           {/* Preview clasificación */}
           {preview && (
             <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3" data-testid="deudas-preview">
               <p className="text-sm font-bold text-blue-800 mb-2">Diagnóstico de deudas — revisa y confirma</p>
+              {(preview as any).advertencias?.length > 0 && (
+                <div className="mb-2 rounded bg-amber-50 border border-amber-200 p-2 space-y-0.5">
+                  <p className="text-xs font-semibold text-amber-800">Advertencias de formato:</p>
+                  {(preview as any).advertencias.map((w: string, i: number) => (
+                    <p key={i} className="text-xs text-amber-700">{w}</p>
+                  ))}
+                </div>
+              )}
               <div className="grid grid-cols-3 gap-2 text-xs text-center mb-3">
                 <div className="bg-white rounded p-2"><p className="text-slate-500">Productiva</p><p className="font-bold text-emerald-700">{fmt(preview.resumen.total_productiva)}</p></div>
                 <div className="bg-white rounded p-2"><p className="text-slate-500">No productiva</p><p className="font-bold text-red-600">{fmt(preview.resumen.total_no_productiva)}</p></div>

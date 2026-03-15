@@ -2,6 +2,7 @@
 
 Endpoints:
   GET/POST  /cfo/financiero/config          — gastos_fijos_semanales y parámetros
+  GET       /cfo/deudas/plantilla          — descarga plantilla Excel para carga de deudas
   POST      /cfo/deudas/cargar             — parse Excel → clasificación automática (preview)
   POST      /cfo/deudas/confirmar          — guardar deudas confirmadas en MongoDB
   GET       /cfo/deudas                    — listar deudas
@@ -15,11 +16,15 @@ Endpoints:
 import io
 import uuid
 import logging
+import unicodedata
 from datetime import datetime, timezone, date, timedelta
 from typing import Optional
 
 import openpyxl
+from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+from openpyxl.worksheet.datavalidation import DataValidation
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from database import db
@@ -112,7 +117,174 @@ async def save_financiero_config(req: FinancieroConfigReq, current_user=Depends(
     }
 
 
+# ── GET /cfo/deudas/plantilla ──────────────────────────────────────────────────
+HEADER_COLOR = "0F2A5C"
+EXAMPLE_ACREEDOR = "Auteco Kawasaki"
+
+_HEADER_COLS = [
+    "Acreedor", "Descripcion", "Monto_Total", "Monto_Pagado",
+    "Tasa_Mensual_Pct", "Fecha_Vencimiento", "Tipo", "Prioridad",
+]
+_INSTRUCT_ROWS = [
+    ("Acreedor",           "Nombre del banco, persona o empresa a quien se debe", "Auteco Kawasaki",           "✅"),
+    ("Descripcion",        "Concepto de la deuda",                                "Financiación inventario",   "✅"),
+    ("Monto_Total",        "Valor original de la deuda en pesos, sin puntos ni comas", "45000000",            "✅"),
+    ("Monto_Pagado",       "Cuánto se ha pagado hasta hoy. 0 si no se ha pagado nada", "5000000",             "✅"),
+    ("Tasa_Mensual_Pct",   "Tasa de interés mensual en porcentaje. 0 si no cobra intereses", "1.5",           "✅"),
+    ("Fecha_Vencimiento",  "Fecha límite de pago en formato YYYY-MM-DD",          "2026-06-30",                "✅"),
+    ("Tipo",               "productiva = genera ingresos | no_productiva = no genera ingresos", "productiva", "✅"),
+    ("Prioridad",          "Orden de pago. 1 = pagar primero",                    "1",                         "Opcional"),
+]
+
+
+@router.get("/deudas/plantilla")
+async def descargar_plantilla_deudas(current_user=Depends(get_current_user)):
+    """Genera y descarga la plantilla Excel oficial para carga de deudas RODDOS."""
+    wb = openpyxl.Workbook()
+
+    # ── Hoja 1: Deudas ────────────────────────────────────────────────────────
+    ws1 = wb.active
+    ws1.title = "Deudas"
+
+    hdr_fill  = PatternFill("solid", fgColor=HEADER_COLOR)
+    hdr_font  = Font(bold=True, color="FFFFFF", size=11)
+    hdr_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    thin_side = Side(style="thin", color="CCCCCC")
+    thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+
+    # Header row
+    for col_idx, col_name in enumerate(_HEADER_COLS, start=1):
+        cell = ws1.cell(row=1, column=col_idx, value=col_name)
+        cell.fill   = hdr_fill
+        cell.font   = hdr_font
+        cell.alignment = hdr_align
+        cell.border = thin_border
+
+    ws1.row_dimensions[1].height = 22
+
+    # Example row (row 2) — highlight lightly so user sees format
+    example_fill = PatternFill("solid", fgColor="E8F0FE")
+    example_vals = [EXAMPLE_ACREEDOR, "Financiación inventario motos", 45000000, 5000000, 1.5, "2026-06-30", "productiva", 1]
+    for col_idx, val in enumerate(example_vals, start=1):
+        cell = ws1.cell(row=2, column=col_idx, value=val)
+        cell.fill   = example_fill
+        cell.border = thin_border
+        cell.alignment = Alignment(horizontal="center" if col_idx > 2 else "left", vertical="center")
+
+    # Column widths
+    col_widths = [22, 28, 15, 15, 17, 18, 16, 12]
+    for i, w in enumerate(col_widths, start=1):
+        ws1.column_dimensions[openpyxl.utils.get_column_letter(i)].width = w
+
+    # Data validation: Tipo dropdown (col G = 7)
+    dv_tipo = DataValidation(
+        type="list",
+        formula1='"productiva,no_productiva"',
+        allow_blank=True,
+        showDropDown=False,
+    )
+    dv_tipo.error       = "Usa: productiva o no_productiva"
+    dv_tipo.errorTitle  = "Valor inválido"
+    dv_tipo.prompt      = "Selecciona el tipo de deuda"
+    dv_tipo.promptTitle = "Tipo de deuda"
+    ws1.add_data_validation(dv_tipo)
+    dv_tipo.sqref = "G2:G1000"
+
+    # ── Hoja 2: Instrucciones ─────────────────────────────────────────────────
+    ws2 = wb.create_sheet("Instrucciones")
+    ws2.sheet_state = "visible"
+
+    title_cell = ws2.cell(row=1, column=1, value="INSTRUCCIONES — Carga de Deudas RODDOS")
+    title_cell.font  = Font(bold=True, color=HEADER_COLOR, size=14)
+    title_cell.alignment = Alignment(horizontal="left", vertical="center")
+    ws2.row_dimensions[1].height = 28
+    ws2.merge_cells("A1:D1")
+
+    ws2.cell(row=3, column=1, value="Campo").font       = Font(bold=True)
+    ws2.cell(row=3, column=2, value="Descripción").font = Font(bold=True)
+    ws2.cell(row=3, column=3, value="Ejemplo").font     = Font(bold=True)
+    ws2.cell(row=3, column=4, value="Obligatorio").font = Font(bold=True)
+    for col in range(1, 5):
+        c = ws2.cell(row=3, column=col)
+        c.fill   = PatternFill("solid", fgColor="D9E1F2")
+        c.border = thin_border
+        c.alignment = Alignment(horizontal="center", vertical="center")
+
+    for r_idx, (campo, desc, ej, oblig) in enumerate(_INSTRUCT_ROWS, start=4):
+        ws2.cell(row=r_idx, column=1, value=campo).font  = Font(bold=True)
+        ws2.cell(row=r_idx, column=2, value=desc)
+        ws2.cell(row=r_idx, column=3, value=ej).font     = Font(italic=True, color="1F497D")
+        ws2.cell(row=r_idx, column=4, value=oblig).alignment = Alignment(horizontal="center")
+        for col in range(1, 5):
+            ws2.cell(row=r_idx, column=col).border = thin_border
+
+    ws2.column_dimensions["A"].width = 22
+    ws2.column_dimensions["B"].width = 50
+    ws2.column_dimensions["C"].width = 22
+    ws2.column_dimensions["D"].width = 12
+
+    # Notas
+    notes_start = len(_INSTRUCT_ROWS) + 6
+    notas = [
+        "NOTAS IMPORTANTES:",
+        "• No modificar los nombres de las columnas (fila 1 en hoja Deudas)",
+        "• No eliminar la fila de ejemplo — el sistema la ignora automáticamente",
+        "• Una fila por cada deuda",
+        "• Guardar como .xlsx antes de subir al sistema",
+    ]
+    for i, nota in enumerate(notas):
+        c = ws2.cell(row=notes_start + i, column=1, value=nota)
+        c.alignment = Alignment(wrap_text=True)
+        if i == 0:
+            c.font = Font(bold=True, color=HEADER_COLOR)
+        ws2.merge_cells(f"A{notes_start + i}:D{notes_start + i}")
+
+    # Serialize to bytes
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="RODDOS_Plantilla_Deudas.xlsx"'},
+    )
+
+
 # ── POST /cfo/deudas/cargar ────────────────────────────────────────────────────
+ALIASES = {
+    "acreedor":          ["acreedor", "nombre", "creditor", "entidad", "banco"],
+    "monto_total":       ["monto_total", "monto", "total", "valor", "saldo", "deuda"],
+    "monto_pagado":      ["monto_pagado", "pagado", "abonado", "paid"],
+    "tasa_mensual":      ["tasa_mensual_pct", "tasa_mensual", "tasa", "interes", "rate", "mensual"],
+    "fecha_vencimiento": ["fecha_vencimiento", "vencimiento", "fecha", "due", "vence"],
+    "descripcion":       ["descripcion", "descripción", "concepto", "detalle", "notas"],
+    "tipo":              ["tipo", "clasificacion", "clasificación", "type", "categoria"],
+    "prioridad":         ["prioridad", "priority", "orden"],
+}
+
+REQUIRED_FIELDS = ["acreedor", "monto_total"]
+
+
+def _normalize_header(h: str) -> str:
+    """Lower, strip accents and spaces for fuzzy matching."""
+    return unicodedata.normalize("NFD", h.strip().lower()).encode("ascii", "ignore").decode()
+
+
+def _parse_number(raw, field: str, row_num: int) -> tuple[float, str | None]:
+    """Parse a monetary/numeric value. Returns (value, error_msg|None)."""
+    if raw is None:
+        return 0.0, None
+    if isinstance(raw, (int, float)):
+        return float(raw), None
+    # string: remove $, dots used as thousands, commas
+    cleaned = str(raw).replace("$", "").replace(".", "").replace(",", ".").strip()
+    try:
+        return float(cleaned), None
+    except ValueError:
+        return 0.0, f"Fila {row_num} — {field}: '{raw}' no es un número válido. Usa solo dígitos, sin puntos ni símbolo $"
+
+
 @router.post("/deudas/cargar")
 async def cargar_deudas_excel(
     file: UploadFile = File(...),
@@ -130,81 +302,109 @@ async def cargar_deudas_excel(
         raise HTTPException(status_code=400, detail=f"Error al leer el archivo: {e}")
 
     # Read header row
-    headers_raw = [str(cell.value or "").strip().lower() for cell in ws[1]]
+    headers_raw = [str(cell.value or "").strip() for cell in ws[1]]
+    headers_norm = [_normalize_header(h) for h in headers_raw]
 
-    # Auto-map columns
-    col_map = {}
-    ALIASES = {
-        "acreedor":        ["acreedor", "nombre", "creditor", "entidad", "banco"],
-        "monto_total":     ["monto", "total", "valor", "saldo", "deuda", "monto_total"],
-        "tasa_mensual":    ["tasa", "interes", "tasa_mensual", "rate", "mensual"],
-        "fecha_vencimiento": ["vencimiento", "fecha", "due", "vence", "fecha_vencimiento"],
-        "descripcion":     ["descripcion", "concepto", "detalle", "notas", "descripción"],
-    }
-    for field, aliases in ALIASES.items():
-        for i, h in enumerate(headers_raw):
-            if any(a in h for a in aliases):
+    # Smart column mapping
+    col_map: dict[str, int] = {}
+    for field, field_aliases in ALIASES.items():
+        for i, h in enumerate(headers_norm):
+            if any(_normalize_header(a) in h or h in _normalize_header(a) for a in field_aliases):
                 col_map[field] = i
                 break
 
-    missing_critical = [f for f in ["acreedor", "monto_total"] if f not in col_map]
-    if missing_critical:
+    # Check required fields
+    missing = [f for f in REQUIRED_FIELDS if f not in col_map]
+    if missing:
         return {
             "ok": False,
-            "error": f"Columnas críticas no encontradas: {missing_critical}. "
-                     f"Columnas detectadas: {headers_raw}",
+            "error": (
+                f"El archivo no tiene las columnas requeridas. "
+                f"Columnas faltantes: {missing}. "
+                f"Descarga la plantilla correcta con el botón de arriba."
+            ),
             "columnas_detectadas": headers_raw,
+            "sugerencia": "Descarga la plantilla oficial y llena tus datos en ella.",
         }
 
     # Parse rows
     deudas_preview = []
-    for row in ws.iter_rows(min_row=2, values_only=True):
+    row_errors: list[str] = []
+    first_data_row = True
+
+    for row_num, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
         if all(v is None for v in row):
             continue
 
         def _get(field):
             idx = col_map.get(field)
-            return row[idx] if idx is not None else None
+            return row[idx] if idx is not None and idx < len(row) else None
 
         acreedor = str(_get("acreedor") or "").strip()
         if not acreedor:
             continue
 
-        monto = float(_get("monto_total") or 0)
-        tasa  = float(_get("tasa_mensual") or 0)
-        desc  = str(_get("descripcion") or "").strip()
-        venc  = _get("fecha_vencimiento")
+        # Skip example row (Auteco Kawasaki in first data position)
+        if first_data_row and acreedor.lower() == EXAMPLE_ACREEDOR.lower():
+            first_data_row = False
+            continue
+        first_data_row = False
+
+        # Parse numbers with validation
+        monto, err_monto = _parse_number(_get("monto_total"), "Monto_Total", row_num)
+        pagado, err_pag  = _parse_number(_get("monto_pagado"), "Monto_Pagado", row_num)
+        tasa,   err_tasa = _parse_number(_get("tasa_mensual"), "Tasa_Mensual_Pct", row_num)
+
+        for err in [err_monto, err_pag, err_tasa]:
+            if err:
+                row_errors.append(err)
+
+        desc = str(_get("descripcion") or "").strip()
+        venc = _get("fecha_vencimiento")
 
         if isinstance(venc, datetime):
             venc = venc.date().isoformat()
         elif venc:
             venc = str(venc)[:10]
 
-        tipo = _clasificar_deuda(acreedor, desc)
-        prioridad = _prioridad(tasa, tipo)
+        # Tipo: from column if present, else auto-classify
+        tipo_raw = str(_get("tipo") or "").strip().lower() if col_map.get("tipo") is not None else ""
+        if tipo_raw in ("productiva", "no_productiva"):
+            tipo = tipo_raw
+        else:
+            tipo = _clasificar_deuda(acreedor, desc)
 
-        hoy = date.today()
+        prioridad_raw = _get("prioridad")
+        prioridad = int(prioridad_raw) if prioridad_raw and str(prioridad_raw).isdigit() else _prioridad(tasa, tipo)
+
+        saldo = max(0.0, monto - pagado)
         estado = "activa"
         if venc:
             try:
-                if date.fromisoformat(venc) < hoy:
+                if date.fromisoformat(venc) < date.today():
                     estado = "vencida"
             except Exception:
                 pass
 
         deudas_preview.append({
-            "id":                  str(uuid.uuid4()),
-            "acreedor":            acreedor,
-            "monto_total":         monto,
-            "monto_pagado":        0,
-            "saldo_pendiente":     monto,
-            "tasa_mensual":        tasa,
-            "fecha_vencimiento":   venc,
-            "descripcion":         desc,
-            "tipo":                tipo,
-            "prioridad_pago":      prioridad,
-            "estado":              estado,
+            "id":                str(uuid.uuid4()),
+            "acreedor":          acreedor,
+            "monto_total":       monto,
+            "monto_pagado":      pagado,
+            "saldo_pendiente":   saldo,
+            "tasa_mensual":      tasa,
+            "fecha_vencimiento": venc,
+            "descripcion":       desc,
+            "tipo":              tipo,
+            "prioridad_pago":    prioridad,
+            "estado":            estado,
         })
+
+    if not deudas_preview and not row_errors:
+        return {
+            "ok": False,
+            "error": "El archivo no tiene filas con datos. Llena al menos una deuda y vuelve a subir.",
+        }
 
     # Compute summary
     total_prod = sum(d["monto_total"] for d in deudas_preview if d["tipo"] == "productiva")
@@ -212,24 +412,24 @@ async def cargar_deudas_excel(
     cfg = await db.cfo_financiero_config.find_one({}, {"_id": 0}) or {}
     gastos = cfg.get("gastos_fijos_semanales", 0)
 
-    # Carga financiera mensual (interest approximation)
     carga_mensual = sum(
         d["monto_total"] * (d["tasa_mensual"] / 100)
         for d in deudas_preview if d["tipo"] == "no_productiva"
     )
-    recaudo_mensual = RECAUDO_SEMANAL_BASE * 4
+    recaudo_mensual  = RECAUDO_SEMANAL_BASE * 4
     pct_comprometido = (((gastos * 4) + carga_mensual) / recaudo_mensual * 100) if recaudo_mensual else 0
-    meses_libres = round(total_np / max(1, RECAUDO_SEMANAL_BASE * 4 - gastos * 4), 1) if total_np > 0 else 0
+    meses_libres     = round(total_np / max(1, RECAUDO_SEMANAL_BASE * 4 - gastos * 4), 1) if total_np > 0 else 0
 
     return {
         "ok": True,
-        "deudas": deudas_preview,
+        "deudas":  deudas_preview,
+        "advertencias": row_errors,
         "resumen": {
-            "total_productiva":      total_prod,
-            "total_no_productiva":   total_np,
+            "total_productiva":         total_prod,
+            "total_no_productiva":      total_np,
             "carga_financiera_mensual": carga_mensual,
             "pct_recaudo_comprometido": round(pct_comprometido, 1),
-            "meses_para_liberar_np": meses_libres,
+            "meses_para_liberar_np":    meses_libres,
         },
         "columnas_mapeadas": col_map,
     }
