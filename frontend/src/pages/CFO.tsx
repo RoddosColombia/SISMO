@@ -70,6 +70,42 @@ interface Informe {
   generado_por?:   string;
 }
 
+interface CfoIndicadores {
+  recaudo_semanal_base:  number;
+  creditos_activos:      number;
+  creditos_minimos:      number;
+  sobre_el_piso:         number;
+  autosostenible:        boolean;
+  saldo_cartera:         number;
+  deuda_no_productiva:   number;
+  deuda_productiva:      number;
+  margen_semanal:        number;
+  pct_gastos_vs_recaudo: number;
+  gastos_fijos_config:   number;
+  configurado:           boolean;
+}
+
+interface PlanIngresosItem {
+  semana:          number;
+  miercoles:       string;
+  recaudo_cartera: number;
+  num_cuotas:      number;
+}
+
+interface DeudaItem {
+  id: string; acreedor: string; monto_total: number;
+  saldo_pendiente: number; tasa_mensual: number;
+  tipo: string; estado: string; descripcion: string;
+  fecha_vencimiento?: string;
+}
+
+interface PlanDeudaSemana {
+  semana: number; miercoles: string;
+  disponible_deuda: number; deuda_np_restante: number;
+  pagos: { acreedor: string; monto: number }[];
+}
+
+
 // ── semaphore helpers ─────────────────────────────────────────────────────────
 const COLOR_MAP: Record<string, { bg: string; border: string; text: string; badge: string }> = {
   VERDE:    { bg: "bg-emerald-50",  border: "border-emerald-400", text: "text-emerald-700", badge: "bg-emerald-500" },
@@ -177,6 +213,20 @@ export default function CFO(): React.ReactElement {
   const [generating, setGenerating]   = useState(false);
   const [selectedInformeId, setSelectedInformeId] = useState<string | null>(null);
 
+  // ── BUILD 11: Agente CFO Estratégico ─────────────────────────────────────
+  const [indicadores, setIndicadores] = useState<CfoIndicadores | null>(null);
+  const [planIngresos, setPlanIngresos] = useState<PlanIngresosItem[]>([]);
+  const [planDeuda, setPlanDeuda]       = useState<{ semanas: PlanDeudaSemana[]; total_np: number; fecha_liberacion?: string; semanas_liberacion?: number; error?: string; mensaje?: string } | null>(null);
+  const [deudas, setDeudas]             = useState<DeudaItem[]>([]);
+  const [cuotasIniciales, setCuotasIniciales] = useState<{ total_pendiente: number; detalle: any[] }>({ total_pendiente: 0, detalle: [] });
+  const [gastosInput, setGastosInput]   = useState("");
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [uploadingXls, setUploadingXls] = useState(false);
+  const [preview, setPreview]           = useState<{ deudas: DeudaItem[]; resumen: any } | null>(null);
+  const [savingDeudas, setSavingDeudas] = useState(false);
+  const [activeTab, setActiveTab]       = useState<"semaforo"|"estrategico">("estrategico");
+  const [reporteLunes, setReporteLunes] = useState<any>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     // Cargar historial de informes y plan (rápidos, sólo BD)
@@ -195,6 +245,27 @@ export default function CFO(): React.ReactElement {
     } finally {
       setLoading(false);
     }
+
+    // Build 11: CFO Estratégico data (parallel, non-blocking)
+    Promise.all([
+      api.get("/cfo/indicadores"),
+      api.get("/cfo/plan-ingresos?semanas=8"),
+      api.get("/cfo/plan-deudas"),
+      api.get("/cfo/deudas"),
+      api.get("/cfo/cuotas-iniciales"),
+      api.get("/cfo/financiero/config"),
+      api.get("/cfo/reporte-lunes"),
+    ]).then(([indR, piR, pdR, dR, ciR, cfgR, rlR]) => {
+      setIndicadores(indR.data);
+      setPlanIngresos(piR.data?.semanas || []);
+      setPlanDeuda(pdR.data);
+      setDeudas(dR.data || []);
+      setCuotasIniciales(ciR.data || { total_pendiente: 0, detalle: [] });
+      if (cfgR.data?.gastos_fijos_semanales) {
+        setGastosInput(String(cfgR.data.gastos_fijos_semanales));
+      }
+      setReporteLunes(rlR.data);
+    }).catch(() => {});
 
     // P&G — llama Alegra 3 veces (~30s), carga independiente
     setLoadingPyg(true);
@@ -302,6 +373,57 @@ export default function CFO(): React.ReactElement {
       };
     });
   }, [pyg, semaforo]);
+
+  // Build 11 handlers
+  const handleSaveConfig = async () => {
+    const val = parseFloat(gastosInput.replace(/[^0-9.]/g, ""));
+    if (!val || val <= 0) { toast.error("Ingresa un valor válido"); return; }
+    setSavingConfig(true);
+    try {
+      await api.post("/cfo/financiero/config", { gastos_fijos_semanales: val, reserva_minima_semanas: 2, limite_compromisos_pct: 0.6, objetivo_deuda_np_meses: 3 });
+      toast.success("Configuración guardada");
+      const [indR, pdR] = await Promise.all([api.get("/cfo/indicadores"), api.get("/cfo/plan-deudas")]);
+      setIndicadores(indR.data);
+      setPlanDeuda(pdR.data);
+    } catch { toast.error("Error guardando"); } finally { setSavingConfig(false); }
+  };
+
+  const handleXlsUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingXls(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await api.post("/cfo/deudas/cargar", form, { headers: { "Content-Type": "multipart/form-data" } });
+      if (!res.data.ok) { toast.error(res.data.error || "Error al leer el archivo"); return; }
+      setPreview(res.data);
+      toast.success(`${res.data.deudas.length} deudas detectadas. Revisa y confirma.`);
+    } catch { toast.error("Error subiendo archivo"); } finally { setUploadingXls(false); e.target.value = ""; }
+  };
+
+  const handleConfirmarDeudas = async () => {
+    if (!preview) return;
+    setSavingDeudas(true);
+    try {
+      await api.post("/cfo/deudas/confirmar", { deudas: preview.deudas });
+      toast.success("Deudas guardadas en MongoDB");
+      setPreview(null);
+      const [dR, pdR, indR] = await Promise.all([api.get("/cfo/deudas"), api.get("/cfo/plan-deudas"), api.get("/cfo/indicadores")]);
+      setDeudas(dR.data || []);
+      setPlanDeuda(pdR.data);
+      setIndicadores(indR.data);
+    } catch { toast.error("Error guardando deudas"); } finally { setSavingDeudas(false); }
+  };
+
+  const handleReclasificar = async (id: string, nuevoTipo: string) => {
+    try {
+      await api.patch(`/cfo/deudas/${id}`, { tipo: nuevoTipo });
+      setDeudas(prev => prev.map(d => d.id === id ? { ...d, tipo: nuevoTipo } : d));
+      if (preview) setPreview(prev => prev ? { ...prev, deudas: prev.deudas.map(d => d.id === id ? { ...d, tipo: nuevoTipo } : d) } : null);
+      toast.success("Reclasificado");
+    } catch { toast.error("Error"); }
+  };
 
   if (loading) {
     return (
@@ -542,7 +664,249 @@ export default function CFO(): React.ReactElement {
         )}
       </section>
 
-      {/* ── Botón flotante: Generar Informe CFO ─────────────────────────── */}
+      {/* ── BUILD 11 — PLAN ESTRATÉGICO CFO ──────────────────────────────────── */}
+      <section className="mt-8 space-y-6" data-testid="plan-estrategico-section">
+        {/* Header */}
+        <div className="flex items-center gap-3">
+          <DollarSign size={20} className="text-[#0F2A5C]" />
+          <h2 className="text-lg font-bold text-slate-800">Plan Estratégico CFO</h2>
+        </div>
+
+        {/* Indicadores clave */}
+        {indicadores && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="indicadores-cfo">
+            {[
+              { label: "Recaudo semanal", val: fmt(indicadores.recaudo_semanal_base), sub: "9 créditos activos", color: "emerald" },
+              { label: "Créditos activos", val: String(indicadores.creditos_activos), sub: `Mínimo: ${indicadores.creditos_minimos} | ${indicadores.autosostenible ? "✅ Autosostenible" : "⚠️ Bajo el piso"}`, color: indicadores.autosostenible ? "emerald" : "red" },
+              { label: "Deuda no productiva", val: fmt(indicadores.deuda_no_productiva), sub: indicadores.deuda_no_productiva === 0 ? "¡Sin deuda NP!" : "Prioridad: liquidar", color: indicadores.deuda_no_productiva === 0 ? "emerald" : "amber" },
+              { label: "Margen semanal", val: indicadores.configurado ? fmt(indicadores.margen_semanal) : "—", sub: indicadores.configurado ? "Recaudo - gastos - reserva" : "Configura gastos fijos", color: "blue" },
+            ].map(({ label, val, sub, color }) => (
+              <div key={label} className={`rounded-xl border border-${color}-200 bg-${color}-50 p-3`}>
+                <p className="text-xs text-slate-500 font-medium">{label}</p>
+                <p className={`text-xl font-bold text-${color}-700 my-1`}>{val}</p>
+                <p className="text-[11px] text-slate-500">{sub}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Cuotas iniciales pendientes */}
+        {cuotasIniciales.total_pendiente > 0 && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4" data-testid="cuotas-iniciales-card">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-bold text-amber-800">Cuotas iniciales pendientes de cobro — Marzo 2026</span>
+              <span className="text-lg font-bold text-amber-700">{fmt(cuotasIniciales.total_pendiente)}</span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+              {cuotasIniciales.detalle.map((d: any) => (
+                <div key={d.codigo} className="bg-white rounded-lg border border-amber-100 px-3 py-2">
+                  <p className="text-[11px] text-slate-500">{d.codigo}</p>
+                  <p className="text-xs font-semibold text-slate-700 leading-tight">{d.cliente}</p>
+                  <p className="text-sm font-bold text-amber-700">{fmt(d.pendiente)}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Configuración gastos fijos */}
+        <div className="rounded-xl border border-slate-200 bg-white p-4" data-testid="config-gastos-card">
+          <p className="text-sm font-bold text-slate-700 mb-3">Gastos fijos semanales</p>
+          <div className="flex gap-2 items-center">
+            <span className="text-slate-400 text-sm">$</span>
+            <input
+              type="text"
+              value={gastosInput}
+              onChange={e => setGastosInput(e.target.value)}
+              placeholder="ej: 800000"
+              className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F2A5C]/20"
+              data-testid="gastos-fijos-input"
+            />
+            <button
+              onClick={handleSaveConfig}
+              disabled={savingConfig}
+              className="bg-[#0F2A5C] text-white text-sm px-4 py-2 rounded-lg font-semibold hover:bg-[#1a3d7a] transition disabled:opacity-50"
+              data-testid="save-gastos-btn"
+            >
+              {savingConfig ? "Guardando…" : "Guardar"}
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-400 mt-1">Arriendo + nómina + servicios + otros fijos (semanal)</p>
+        </div>
+
+        {/* Plan de ingresos semanal */}
+        {planIngresos.length > 0 && (
+          <div className="rounded-xl border border-slate-200 bg-white overflow-hidden" data-testid="plan-ingresos-table">
+            <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2">
+              <TrendingUp size={16} className="text-emerald-600" />
+              <p className="text-sm font-bold text-slate-800">Plan de ingresos — próximas 8 semanas</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 text-xs text-slate-500 uppercase tracking-wide">
+                    <th className="px-4 py-2 text-left">Semana</th>
+                    <th className="px-4 py-2 text-center">Miércoles</th>
+                    <th className="px-4 py-2 text-right">Recaudo cartera</th>
+                    <th className="px-4 py-2 text-center">Cuotas</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {planIngresos.map((s) => (
+                    <tr key={s.semana} className="border-t border-slate-100 hover:bg-slate-50">
+                      <td className="px-4 py-2 text-slate-600">Sem {s.semana}</td>
+                      <td className="px-4 py-2 text-center font-mono text-slate-700">{s.miercoles}</td>
+                      <td className="px-4 py-2 text-right font-bold text-emerald-700">{fmt(s.recaudo_cartera)}</td>
+                      <td className="px-4 py-2 text-center text-slate-500">{s.num_cuotas}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Deudas — carga Excel */}
+        <div className="rounded-xl border border-slate-200 bg-white p-4" data-testid="deudas-section">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-bold text-slate-800">Inventario de deudas</p>
+            <label className={`cursor-pointer inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition ${uploadingXls ? "bg-slate-100 text-slate-400" : "bg-[#0F2A5C] text-white hover:bg-[#1a3d7a]"}`} data-testid="upload-excel-btn">
+              {uploadingXls ? <Loader2 size={13} className="animate-spin" /> : <FileText size={13} />}
+              {uploadingXls ? "Procesando…" : "Cargar Excel (.xlsx)"}
+              <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleXlsUpload} disabled={uploadingXls} />
+            </label>
+          </div>
+
+          {/* Preview clasificación */}
+          {preview && (
+            <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3" data-testid="deudas-preview">
+              <p className="text-sm font-bold text-blue-800 mb-2">Diagnóstico de deudas — revisa y confirma</p>
+              <div className="grid grid-cols-3 gap-2 text-xs text-center mb-3">
+                <div className="bg-white rounded p-2"><p className="text-slate-500">Productiva</p><p className="font-bold text-emerald-700">{fmt(preview.resumen.total_productiva)}</p></div>
+                <div className="bg-white rounded p-2"><p className="text-slate-500">No productiva</p><p className="font-bold text-red-600">{fmt(preview.resumen.total_no_productiva)}</p></div>
+                <div className="bg-white rounded p-2"><p className="text-slate-500">% recaudo comprometido</p><p className="font-bold text-amber-700">{preview.resumen.pct_recaudo_comprometido}%</p></div>
+              </div>
+              <div className="space-y-1 max-h-40 overflow-y-auto">
+                {preview.deudas.map(d => (
+                  <div key={d.id} className="flex items-center justify-between bg-white rounded px-3 py-1.5 text-xs">
+                    <span className="font-semibold text-slate-700">{d.acreedor}</span>
+                    <span className="font-mono text-slate-600">{fmt(d.monto_total)}</span>
+                    <div className="flex gap-1">
+                      {(["productiva","no_productiva"] as const).map(t => (
+                        <button key={t} onClick={() => handleReclasificar(d.id, t)}
+                          className={`px-2 py-0.5 rounded font-medium transition ${d.tipo === t ? (t === "productiva" ? "bg-emerald-500 text-white" : "bg-red-500 text-white") : "bg-slate-100 text-slate-500 hover:bg-slate-200"}`}>
+                          {t === "productiva" ? "Prod." : "No prod."}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <button onClick={handleConfirmarDeudas} disabled={savingDeudas}
+                className="mt-3 w-full bg-[#0F2A5C] text-white text-sm font-semibold py-2 rounded-lg hover:bg-[#1a3d7a] transition disabled:opacity-50"
+                data-testid="confirmar-deudas-btn">
+                {savingDeudas ? "Guardando…" : "Confirmar y guardar en MongoDB"}
+              </button>
+            </div>
+          )}
+
+          {/* Tabla deudas guardadas */}
+          {deudas.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-500 uppercase tracking-wide">
+                    <th className="px-3 py-2 text-left">Acreedor</th>
+                    <th className="px-3 py-2 text-right">Saldo</th>
+                    <th className="px-3 py-2 text-right">Tasa %</th>
+                    <th className="px-3 py-2 text-center">Tipo</th>
+                    <th className="px-3 py-2 text-center">Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deudas.map(d => (
+                    <tr key={d.id} className="border-t border-slate-100 hover:bg-slate-50">
+                      <td className="px-3 py-2 font-medium text-slate-700">{d.acreedor}</td>
+                      <td className="px-3 py-2 text-right font-mono text-slate-700">{fmt(d.saldo_pendiente)}</td>
+                      <td className="px-3 py-2 text-right text-slate-500">{d.tasa_mensual}%</td>
+                      <td className="px-3 py-2 text-center">
+                        <span className={`px-2 py-0.5 rounded-full font-semibold text-[10px] ${d.tipo === "productiva" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
+                          {d.tipo === "productiva" ? "Productiva" : "No prod."}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${d.estado === "vencida" ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}`}>
+                          {d.estado}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-xs text-slate-400 text-center py-4">Sin deudas cargadas. Sube un Excel para comenzar.</p>
+          )}
+        </div>
+
+        {/* Plan de pago deudas */}
+        {planDeuda && !planDeuda.error && planDeuda.semanas?.length > 0 && (
+          <div className="rounded-xl border border-slate-200 bg-white overflow-hidden" data-testid="plan-deudas-table">
+            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <TrendingDown size={16} className="text-red-500" />
+                <p className="text-sm font-bold text-slate-800">Plan de pago — Deuda no productiva</p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-slate-500">Método: AVALANCHA</p>
+                {planDeuda.fecha_liberacion && (
+                  <p className="text-xs font-bold text-emerald-600">Libre: {planDeuda.fecha_liberacion}</p>
+                )}
+              </div>
+            </div>
+            <div className="overflow-x-auto max-h-64 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-slate-50">
+                  <tr className="text-slate-500 uppercase tracking-wide">
+                    <th className="px-4 py-2 text-left">Sem</th>
+                    <th className="px-4 py-2 text-center">Miércoles</th>
+                    <th className="px-4 py-2 text-right">Disponible</th>
+                    <th className="px-4 py-2 text-left">Pagos</th>
+                    <th className="px-4 py-2 text-right">Deuda restante</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {planDeuda.semanas.map(s => (
+                    <tr key={s.semana} className="border-t border-slate-100 hover:bg-slate-50">
+                      <td className="px-4 py-2 text-slate-500">{s.semana}</td>
+                      <td className="px-4 py-2 text-center font-mono text-slate-700">{s.miercoles}</td>
+                      <td className="px-4 py-2 text-right text-emerald-700 font-mono">{fmt(s.disponible_deuda)}</td>
+                      <td className="px-4 py-2 text-slate-600">
+                        {s.pagos.map((p,i) => <span key={i} className="mr-2">{p.acreedor} <strong>{fmt(p.monto)}</strong></span>)}
+                      </td>
+                      <td className={`px-4 py-2 text-right font-bold font-mono ${s.deuda_np_restante === 0 ? "text-emerald-600" : "text-red-600"}`}>
+                        {s.deuda_np_restante === 0 ? "✅ $0" : fmt(s.deuda_np_restante)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Reporte del Lunes */}
+        {reporteLunes && reporteLunes.alertas?.length > 0 && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4" data-testid="reporte-lunes-card">
+            <p className="text-sm font-bold text-amber-800 mb-2">Alertas CFO</p>
+            <div className="space-y-1">
+              {reporteLunes.alertas.map((a: any, i: number) => (
+                <p key={i} className="text-xs text-amber-700">{a.msg}</p>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
       <div className="fixed bottom-6 right-6 z-50">
         <button
           onClick={handleGenerar}
@@ -560,3 +924,4 @@ export default function CFO(): React.ReactElement {
     </div>
   );
 }
+// force

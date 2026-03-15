@@ -101,8 +101,53 @@ TARIFAS VIGENTES Colombia 2025 (UVT = $49.799):
 • SMLMV 2025: $1.423.500 | Auxilio transporte: $200.000
 
 ═══════════════════════════════════════════════════
-TIPOS DE ACCIÓN DISPONIBLES:
+MÓDULO CFO ESTRATÉGICO — REGLAS PERMANENTES
 ═══════════════════════════════════════════════════
+Aplica estas reglas en CADA mensaje que involucre dinero, gastos o decisiones financieras.
+Los datos de cartera vienen del contexto {cfo_context}
+
+REGLA 1 — RESERVA MÍNIMA:
+Siempre mantener reserva para 2 semanas de gastos fijos.
+Si una acción deja la caja por debajo de esa reserva → alerta ANTES de confirmar:
+"⚠️ Esta operación deja la caja en $X, por debajo de la reserva mínima de $X (2 semanas de gastos)."
+
+REGLA 2 — DEUDA NO PRODUCTIVA PRIMERO:
+Si hay deuda NP vencida >30 días Y el usuario pide comprar inventario → advertir:
+"Tienes deuda no productiva vencida por $X. Recomiendo liquidarla antes de comprar motos.
+¿Quieres continuar de todas formas?"
+
+REGLA 3 — PISO DE CRÉDITOS:
+Monitorear permanentemente. Si créditos activos caen bajo el mínimo calculado → alerta proactiva:
+"⚠️ Tienes N créditos activos ($X/sem). El mínimo para cubrir gastos fijos es N.
+Prioriza nuevas ventas a crédito esta semana."
+
+REGLA 4 — LÍMITE DE COMPROMISOS:
+No comprometer más del 60% del recaudo semanal en gastos fijos + deuda combinados.
+Si se supera ese límite → advertir con el porcentaje real.
+
+REGLA 5 — CLASIFICACIÓN AUTOMÁTICA DE GASTOS:
+Cada nuevo gasto registrado → clasificarlo como productivo o no productivo automáticamente
+e informar al usuario cuál es la clasificación y por qué.
+
+DATOS CFO EN TIEMPO REAL (para responder consultas):
+• Recaudo semanal base (9 créditos activos): $1.509.500
+• Cuota inicial Sindy Beltrán (pendiente entrega): $1.460.000 ya pagada
+• Cartera total activa: $82.426.700
+• Ticket promedio cuota: $167.722
+• Cuotas iniciales pendientes de cobro en marzo 2026: $5.300.000
+  - Chenier Quintero: $1.460.000
+  - Ernesto Jaime: $1.060.000
+  - Ronaldo Carcamo: $1.460.000
+  - Beatriz García: $160.000
+  - José Altamiranda: $1.160.000
+• Al activar Sindy Beltrán → recaudo sube a $1.659.400
+
+CUANDO EL USUARIO PREGUNTE "¿cuántas motos necesito vender?":
+→ Calcula: motos_minimas = TECHO(deficit_mensual / ticket_promedio_cuota)
+→ deficit = gastos_fijos_mensuales + pagos_deuda_mes - recaudo_mes
+→ Si recaudo cubre todo → responde "Eres autosostenible. Las ventas nuevas son ganancia pura."
+
+TIPOS DE ACCIÓN DISPONIBLES:
 • crear_factura_venta   → POST /invoices
 • registrar_factura_compra → POST /bills
 • anular_factura_compra → DELETE /bills/{id}  ← anulación de factura de compra
@@ -1475,6 +1520,62 @@ async def process_chat(
         )
 
     # Build system prompt with all context
+    # ── CFO context + Monday report ───────────────────────────────────────────
+    from datetime import date as _date
+    _today = _date.today()
+    cfo_context_lines = []
+
+    # Real-time cartera data
+    _lbs_activos = await db.loanbook.count_documents({"estado": "activo"})
+    _cfg_fin = await db.cfo_financiero_config.find_one({}, {"_id": 0}) or {}
+    _gastos = _cfg_fin.get("gastos_fijos_semanales", 0)
+    _deuda_np_doc = await db.cfo_deudas.aggregate([
+        {"$match": {"tipo": "no_productiva", "estado": {"$ne": "pagada"}}},
+        {"$group": {"_id": None, "total": {"$sum": "$saldo_pendiente"}}}
+    ]).to_list(1)
+    _deuda_np = _deuda_np_doc[0]["total"] if _deuda_np_doc else 0
+    _ci_doc = await db.loanbook.aggregate([
+        {"$match": {"cuota_inicial_pendiente": {"$gt": 0}}},
+        {"$group": {"_id": None, "total": {"$sum": "$cuota_inicial_pendiente"}}}
+    ]).to_list(1)
+    _ci_pendiente = _ci_doc[0]["total"] if _ci_doc else 0
+    _creditos_min = int(-(-_gastos // 167722)) if _gastos > 0 else 0
+
+    cfo_context_lines.append(
+        f"ESTADO CARTERA HOY ({_today.isoformat()}): "
+        f"{_lbs_activos} créditos activos | Recaudo base $1,509,500/sem | "
+        f"Deuda NP: ${_deuda_np:,.0f} | CI pendientes: ${_ci_pendiente:,.0f} | "
+        f"Gastos fijos config: ${_gastos:,.0f}/sem | Mínimo créditos: {_creditos_min}"
+    )
+
+    # Alerta piso créditos
+    if _gastos > 0 and _lbs_activos < _creditos_min:
+        cfo_context_lines.append(
+            f"⚠️ ALERTA CFO REGLA 3: Solo {_lbs_activos} créditos activos, mínimo recomendado: {_creditos_min}"
+        )
+
+    # Monday report — inject automatically
+    if _today.weekday() == 0:  # Monday
+        try:
+            from routers.cfo_estrategico import get_reporte_lunes
+            _reporte = await get_reporte_lunes(current_user=user)
+            alertas_reporte = _reporte.get("alertas", [])
+            _rec = _reporte.get("ingresos", {}).get("recaudo_cartera", 0)
+            _gast = _reporte.get("egresos", {}).get("gastos_fijos", 0)
+            _caja = _reporte.get("caja", {}).get("proyectada", 0)
+            cfo_context_lines.append(
+                f"\n📊 REPORTE CFO LUNES ({_today.isoformat()}):\n"
+                f"  Recaudo esta semana: ${_rec:,.0f} ({_reporte['ingresos'].get('num_cuotas', 0)} cuotas)\n"
+                f"  Gastos fijos: ${_gast:,.0f}\n"
+                f"  Caja proyectada fin de semana: ${_caja:,.0f} {'✅' if _caja >= 0 else '🔴'}\n"
+                f"  Deuda NP: ${_reporte['deuda']['no_productiva']:,.0f}\n"
+                + ("\n".join(f"  {a['msg']}" for a in alertas_reporte) if alertas_reporte else "  Sin alertas.")
+            )
+        except Exception:
+            pass
+
+    cfo_ctx_str = "\n".join(cfo_context_lines)
+
     system_prompt = (
         AGENT_SYSTEM_PROMPT
         .replace("{context}", context_str + extra_context)
@@ -1482,7 +1583,9 @@ async def process_chat(
         .replace("{accounts_context}", accounts_str)
         .replace("{patterns_context}", patterns_str)
         .replace("{honorarios_instruccion}", honorarios_instruccion)
+        .replace("{cfo_context}", cfo_ctx_str)
     )
+
 
     # ── MEJORA 4: Comandos especiales de contexto ─────────────────────────────
     msg_lower_cmd = user_message.lower().strip()
