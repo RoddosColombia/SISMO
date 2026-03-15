@@ -99,6 +99,22 @@ Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
 
 ---
 
+## BUILD 12 — COMPLETADO (2026-03-15)
+
+### Correcciones críticas implementadas
+- **Déficit semanal real**: $1,659,400 recaudo - $7,500,000 gastos = **-$5,840,600/semana** (corregido de -$20,840,600)
+- **REGLA FUNDAMENTAL DE LIQUIDEZ** en system prompt: RODDOS vende 100% a cuotas, liquidez ≠ facturación
+- **Separación base caja vs base devengada** explicada al agente CFO
+
+### Features implementadas en BUILD 12
+- `GET /api/cfo/estado-resultados?periodo=YYYY-MM` — P&L real desde Alegra
+- `GET /api/cfo/estado-resultados/pdf` y `/excel` — Exportación
+- Widget Sostenibilidad (10/45 créditos activos, countdown Jun 20 2026)
+- UI Carga de costos de inventario (modal 2 pasos en InventarioAuteco.js)
+- PlExportCard en AgentChatPage.tsx
+
+---
+
 ## BACKLOG (por prioridad — orden BUILD fijo)
 
 ### P0 — GAPs v1.0 ✅ COMPLETADO (Marzo 2026)
