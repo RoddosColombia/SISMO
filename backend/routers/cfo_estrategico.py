@@ -1036,3 +1036,27 @@ async def get_reporte_lunes(current_user=Depends(get_current_user)):
             *([{"tipo": "deuda_np_alta", "msg": f"⚠️ Deuda no productiva: ${total_np:,.0f}. Prioriza liquidarla."}] if total_np > 0 else []),
         ],
     }
+
+
+
+# ── GET /cfo/recordatorios ────────────────────────────────────────────────────
+@router.get("/recordatorios")
+async def get_recordatorios(current_user=Depends(get_current_user)):
+    """Lista todos los recordatorios CFO (pendientes primero)."""
+    docs = await db.roddos_events.find(
+        {"event_type": "cfo.recordatorio"},
+        {"_id": 0},
+    ).sort("fecha_recordatorio", 1).to_list(20)
+    return docs
+
+
+@router.patch("/recordatorios/{rid}/completar")
+async def completar_recordatorio(rid: str, current_user=Depends(get_current_user)):
+    """Marca un recordatorio como completado."""
+    result = await db.roddos_events.update_one(
+        {"id": rid, "event_type": "cfo.recordatorio"},
+        {"$set": {"estado": "completado", "completado_en": datetime.now(timezone.utc).isoformat()}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Recordatorio no encontrado")
+    return {"ok": True, "id": rid, "estado": "completado"}

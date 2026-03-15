@@ -1574,6 +1574,26 @@ async def process_chat(
         except Exception:
             pass
 
+    # ── Recordatorios CFO pendientes ─────────────────────────────────────────
+    try:
+        _recordatorios = await db.roddos_events.find(
+            {
+                "event_type": "cfo.recordatorio",
+                "estado":     "pendiente",
+                "fecha_recordatorio": {"$lte": _today.isoformat()},
+            },
+            {"_id": 0},
+        ).to_list(5)
+        for r in _recordatorios:
+            cfo_context_lines.append(
+                f"\n🔔 RECORDATORIO PENDIENTE ({r.get('fecha_recordatorio', '')}) — {r.get('titulo', '')}:\n"
+                f"  {r.get('descripcion', '')}\n"
+                f"  Prioridad: {r.get('prioridad', 'normal').upper()} | "
+                f"  Acciones: {' | '.join(r.get('acciones_requeridas', [])[:3])}"
+            )
+    except Exception:
+        pass
+
     cfo_ctx_str = "\n".join(cfo_context_lines)
 
     system_prompt = (
