@@ -19,6 +19,7 @@ from routers import repuestos, loanbook, telegram, radar as radar_router, cfo as
 from routers import cfo_estrategico as cfo_est_router
 from routers import cfo_chat as cfo_chat_router
 from routers import mercately as mercately_router, crm as crm_router
+from routers import proveedores_config as proveedores_router
 from routers import scheduler as scheduler_router
 from routers import learning as learning_router
 from routers import estado_resultados as er_router
@@ -139,6 +140,40 @@ async def startup():
     except Exception as e:
         logger.warning(f"Index creation (non-fatal): {e}")
 
+    # ── Seed proveedores_config con AUTECO KAWASAKI como autoretenedor ────────
+    existing_auteco = await db.proveedores_config.find_one(
+        {"nombre": {"$regex": "auteco", "$options": "i"}}
+    )
+    if not existing_auteco:
+        await db.proveedores_config.insert_one({
+            "nombre": "AUTECO KAWASAKI S.A.S.",
+            "nit": "860024781",
+            "es_autoretenedor": True,
+            "tipo_retencion": "ninguna",
+            "notas": "Autoretenedor — no aplicar ReteFuente",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_by": "sistema",
+        })
+        logger.info("proveedores_config: AUTECO KAWASAKI seeded as autoretenedor")
+
+    # ── Migración: asegurar que IVA config sea cuatrimestral ─────────────────
+    _iva_cfg = await db.iva_config.find_one({}, {"_id": 0})
+    if _iva_cfg and _iva_cfg.get("tipo_periodo") == "bimestral":
+        await db.iva_config.update_one(
+            {},
+            {"$set": {
+                "tipo_periodo": "cuatrimestral",
+                "periodos": [
+                    {"nombre": "Ene–Abr", "inicio_mes": 1, "fin_mes": 4, "dia_limite": 30, "mes_limite_offset": 1},
+                    {"nombre": "May–Ago", "inicio_mes": 5, "fin_mes": 8, "dia_limite": 30, "mes_limite_offset": 1},
+                    {"nombre": "Sep–Dic", "inicio_mes": 9, "fin_mes": 12, "dia_limite": 30, "mes_limite_offset": 1},
+                ],
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "updated_by": "migración_cuatrimestral",
+            }}
+        )
+        logger.info("IVA config migrated from bimestral to cuatrimestral")
+
     await run_migration_v24(db)
     start_scheduler()
     start_loanbook_scheduler()
@@ -202,3 +237,4 @@ app.include_router(scheduler_router.router, prefix=PREFIX)
 app.include_router(learning_router.router,  prefix=PREFIX)
 app.include_router(er_router.router,        prefix=PREFIX)
 app.include_router(cfo_chat_router.router,  prefix=PREFIX)
+app.include_router(proveedores_router.router, prefix=PREFIX)

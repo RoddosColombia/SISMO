@@ -193,7 +193,7 @@ export default function CFOEstrategico() {
     "¿Cómo atacamos el déficit de $5.8M?",
     "¿Qué pasa si vendo 5 motos esta semana?",
     "¿Debo comprar motos a Auteco ahora?",
-    "¿Cuánto IVA debo declarar este bimestre?",
+    "¿Cuánto IVA debo declarar este cuatrimestre?",
     "¿Cómo va la ejecución del presupuesto?",
     "Meta: vender 15 motos este mes",
   ];

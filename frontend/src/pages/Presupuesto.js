@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Target, Plus, Trash2, Save, RefreshCw, Loader2 } from "lucide-react";
+import { Target, Plus, Trash2, Save, RefreshCw, Loader2, BookOpen, ChevronDown, ChevronUp, Info } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
 import { formatCOP } from "../utils/formatters";
@@ -9,6 +9,85 @@ const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "
 
 const EMPTY_ITEM = { concepto: "", categoria: CATEGORIAS[0], valor_presupuestado: 0 };
 
+function CfoInstruccionesPanel({ instrucciones }) {
+  const [open, setOpen] = useState(true);
+  if (!instrucciones || instrucciones.length === 0) return null;
+
+  return (
+    <div className="bg-white rounded-xl border border-amber-200 shadow-sm overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-5 py-3 border-b border-amber-100 hover:bg-amber-50 transition"
+      >
+        <span className="text-sm font-bold text-[#0F2A5C] flex items-center gap-2">
+          <BookOpen size={15} className="text-[#C9A84C]" />
+          Reglas CFO Estratégico para Presupuesto
+          <span className="bg-[#C9A84C] text-white text-[10px] px-1.5 py-0.5 rounded-full">
+            {instrucciones.length}
+          </span>
+        </span>
+        {open ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+      </button>
+      {open && (
+        <div className="p-4 space-y-2">
+          {instrucciones.map((inst, i) => (
+            <div key={i} className="flex items-start gap-2 bg-amber-50 rounded-lg p-3 border border-amber-100">
+              <Info size={13} className="text-[#C9A84C] mt-0.5 flex-shrink-0" />
+              <div>
+                <span className="text-[10px] font-semibold text-amber-700 uppercase">{inst.categoria}</span>
+                <p className="text-xs text-slate-700 mt-0.5">{inst.instruccion}</p>
+              </div>
+            </div>
+          ))}
+          <p className="text-[10px] text-slate-400 text-right">
+            Instrucciones guardadas desde el CFO Estratégico
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CfoPresupuestoPanel({ presupuestos, mesActual }) {
+  const [open, setOpen] = useState(false);
+  const cfoPres = presupuestos.filter(p =>
+    p.mes && p.mes.toLowerCase().includes(mesActual.toLowerCase().slice(0, 3))
+  );
+  if (cfoPres.length === 0) return null;
+  const last = cfoPres[cfoPres.length - 1];
+  const pres = last.presupuesto || {};
+
+  return (
+    <div className="bg-white rounded-xl border border-blue-200 shadow-sm overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between px-5 py-3 border-b border-blue-100 hover:bg-blue-50 transition"
+      >
+        <span className="text-sm font-bold text-[#0F2A5C] flex items-center gap-2">
+          <Target size={15} className="text-blue-500" />
+          Presupuesto CFO — {mesActual}
+        </span>
+        {open ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+      </button>
+      {open && (
+        <div className="p-4">
+          <div className="grid grid-cols-2 gap-3 text-xs">
+            {Object.entries(pres).map(([k, v], i) => (
+              <div key={i} className="bg-blue-50 rounded-lg px-3 py-2 flex justify-between">
+                <span className="text-slate-600 capitalize">{k.replace(/_/g, " ")}</span>
+                <span className="font-bold text-[#0F2A5C]">
+                  {typeof v === "number" ? formatCOP(v) : String(v)}
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] text-slate-400 mt-2">Generado por CFO Estratégico</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Presupuesto() {
   const { api } = useAuth();
   const [ano, setAno] = useState(new Date().getFullYear());
@@ -17,16 +96,35 @@ export default function Presupuesto() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [invoices, setInvoices] = useState([]);
+  const [cfoInstrucciones, setCfoInstrucciones] = useState([]);
+  const [cfoPresupuestos, setCfoPresupuestos] = useState([]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [presuRes, invRes] = await Promise.all([
+      const [presuRes, invRes, instRes, cfoPresRes] = await Promise.allSettled([
         api.get("/presupuesto", { params: { ano } }),
         api.get("/alegra/invoices", { params: { date_start: `${ano}-01-01`, date_end: `${ano}-12-31` } }),
+        api.get("/cfo/instrucciones"),
+        api.get("/cfo/presupuesto"),
       ]);
-      setItems(presuRes.data.length > 0 ? presuRes.data : [{ ...EMPTY_ITEM, mes: mesActual, ano, id: `new-${Date.now()}` }]);
-      setInvoices(Array.isArray(invRes.data) ? invRes.data : []);
+      if (presuRes.status === "fulfilled") {
+        setItems(presuRes.value.data.length > 0
+          ? presuRes.value.data
+          : [{ ...EMPTY_ITEM, mes: mesActual, ano, id: `new-${Date.now()}` }]
+        );
+      }
+      if (invRes.status === "fulfilled") {
+        setInvoices(Array.isArray(invRes.value.data) ? invRes.value.data : []);
+      }
+      if (instRes.status === "fulfilled") {
+        const all = instRes.value.data?.instrucciones || [];
+        setCfoInstrucciones(all.filter(i => i.modulo_afectado === "presupuesto" || i.categoria === "regla_presupuesto"));
+      }
+      if (cfoPresRes.status === "fulfilled") {
+        const data = cfoPresRes.value.data;
+        setCfoPresupuestos(Array.isArray(data) ? data : []);
+      }
     } catch { toast.error("Error cargando presupuesto"); }
     finally { setLoading(false); }
   }, [api, ano, mesActual]);
@@ -116,7 +214,12 @@ export default function Presupuesto() {
       {loading ? (
         <div className="flex items-center justify-center py-16"><Loader2 size={24} className="animate-spin text-[#0F2A5C]" /></div>
       ) : (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <>
+          {/* CFO Instructions sync */}
+          <CfoInstruccionesPanel instrucciones={cfoInstrucciones} />
+          <CfoPresupuestoPanel presupuestos={cfoPresupuestos} mesActual={mesActual} />
+
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
             <span className="text-sm font-semibold text-[#0F2A5C]">Ítems Presupuesto — {mesActual} {ano}</span>
             <button onClick={addItem} className="flex items-center gap-1 text-xs bg-[#0F2A5C] text-white px-3 py-1.5 rounded-lg hover:bg-[#163A7A]">
@@ -173,6 +276,7 @@ export default function Presupuesto() {
             </button>
           </div>
         </div>
+        </>
       )}
     </div>
   );

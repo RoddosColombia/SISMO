@@ -1298,6 +1298,37 @@ async def gather_accounts_context(user_message: str, alegra_service, db) -> tupl
     except Exception:
         pass
 
+    # ── 5. Autoretenedores — inyectar reglas para facturas de compra PJ ──────
+    _compra_kws = ["compra", "factura compra", "factura de compra", "bill", "proveedor",
+                   "auteco", "kawasaki", "comprar", "adquisicion", "adquisición", "proveedor externo"]
+    _is_compra_scenario = any(kw in msg_lower for kw in _compra_kws)
+    _is_pn = tipo_proveedor == "PN"  # personas naturales nunca son autoretenedoras
+    if _is_compra_scenario and not _is_pn:
+        try:
+            _autoretenedores = await db.proveedores_config.find(
+                {"es_autoretenedor": True}, {"_id": 0, "nombre": 1, "nit": 1}
+            ).to_list(100)
+            if _autoretenedores:
+                _lista = "\n".join(
+                    f"  • {a['nombre']}" + (f" (NIT: {a['nit']})" if a.get("nit") else "")
+                    for a in _autoretenedores
+                )
+            else:
+                _lista = "  (ninguno registrado aún)"
+            accounts_str += (
+                "\n\n══════════ REGLAS AUTORETENEDORES ══════════\n"
+                f"Proveedores AUTORETENEDORES (NO aplicar ReteFuente):\n{_lista}\n\n"
+                "REGLA 1 — Si el proveedor está en la lista: OMITIR ReteFuente completamente.\n"
+                "REGLA 2 — Si el proveedor PJ NO está en la lista: registra CON ReteFuente estándar. "
+                "Al finalizar incluye EXACTAMENTE esta nota:\n"
+                '  "ℹ️ Apliqué ReteFuente [X]% a **[Proveedor]**. ¿Es autoretenedora? '
+                "Responde 'Sí, [Proveedor] es autoretenedora' para revertir la retención.\"\n"
+                "REGLA 3 — Persona Natural: SIEMPRE ReteFuente. NUNCA preguntar si es autoretenedora.\n"
+                "════════════════════════════════════════════"
+            )
+        except Exception:
+            pass
+
     return accounts_str, patterns_str, honorarios_instruccion
 
 
@@ -1372,7 +1403,68 @@ async def process_document_chat(
     alegra_service = AlegraService(db)
 
     # Always load full accounts context for document analysis
-    accounts_str, _, _hon = await gather_accounts_context("causar registrar factura", alegra_service, db)
+    accounts_str, _, _hon = await gather_accounts_context("causar registrar factura proveedor compra", alegra_service, db)
+
+    # ── Memoria de preferencias (Parte 5): proveedor recurrente ──────────────
+    _prov_memory_ctx = ""
+    try:
+        # Try to detect provider name from filename or message
+        _fname_upper = (file_name or "").upper()
+        _msg_upper = (user_message or "").upper()
+        _search_text = f"{_fname_upper} {_msg_upper}"
+
+        # Look for known providers in filename/message
+        _known_provs = await db.agent_memory.find(
+            {"tipo": "registrar_factura_compra"},
+            {"_id": 0, "descripcion": 1, "frecuencia_count": 1, "payload_alegra": 1}
+        ).sort("frecuencia_count", -1).limit(10).to_list(10)
+
+        _matched_prov = None
+        for kp in _known_provs:
+            desc = (kp.get("descripcion") or "").upper()
+            # Check if any word from the description appears in filename/message
+            words = [w for w in desc.split() if len(w) > 4]
+            if any(w in _search_text for w in words):
+                _matched_prov = kp
+                break
+
+        if _matched_prov:
+            freq = _matched_prov.get("frecuencia_count", 1)
+            _prov_memory_ctx = (
+                f"\n\n[MEMORIA: PROVEEDOR RECURRENTE DETECTADO — {freq}x registrado]\n"
+                f"Descripción patrón habitual: {_matched_prov.get('descripcion', '')}\n"
+                "→ Usa este patrón si coincide con el documento actual. Indica al usuario si lo estás aplicando."
+            )
+        elif not _matched_prov:
+            # For unknown provider, inject instruction to ask if unclassifiable
+            _prov_memory_ctx = (
+                "\n\n[MEMORIA: Primer documento de este proveedor detectado]\n"
+                "Si el documento es ilegible o no puedes determinar el tipo → "
+                "pregunta al usuario: '¿Este documento es factura de compra, recibo de servicio o comprobante de pago?'"
+            )
+    except Exception:
+        pass
+
+    # ── Autoretenedores context para análisis de documentos ──────────────────
+    _autoret_doc_ctx = ""
+    try:
+        _autoretenedores_doc = await db.proveedores_config.find(
+            {"es_autoretenedor": True}, {"_id": 0, "nombre": 1, "nit": 1}
+        ).to_list(100)
+        if _autoretenedores_doc:
+            _lista_doc = "\n".join(
+                f"  • {a['nombre']}" + (f" (NIT: {a['nit']})" if a.get("nit") else "")
+                for a in _autoretenedores_doc
+            )
+            _autoret_doc_ctx = (
+                "\n\nREGLAS AUTORETENEDORES (CRÍTICO para calcular retenciones):\n"
+                f"Proveedores que NO aplican ReteFuente:\n{_lista_doc}\n"
+                "REGLA: Si el proveedor del documento está en la lista → retefuente_valor=0 y retefuente_tipo='ninguna'.\n"
+                "Si el proveedor PJ no está en la lista → aplica ReteFuente normal. "
+                "Al finalizar incluye: 'ℹ️ Apliqué ReteFuente X% a **[Proveedor]**. ¿Es autoretenedora?'"
+            )
+    except Exception:
+        pass
 
     # Get active loanbooks for payment detection
     loanbook_str = "Sin loanbooks activos."
@@ -1392,7 +1484,7 @@ async def process_document_chat(
     fecha_actual = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     system_prompt = (
         DOCUMENT_ANALYSIS_SYSTEM_PROMPT
-        .replace("{accounts_context}", accounts_str)
+        .replace("{accounts_context}", accounts_str + _autoret_doc_ctx + _prov_memory_ctx)
         .replace("{loanbook_context}", loanbook_str)
         .replace("{fecha_actual}", fecha_actual)
     )
@@ -1750,6 +1842,65 @@ async def process_chat(
             return {"message": resp_ci, "pending_action": None, "session_id": session_id, "cuotas_iniciales_card": cuotas_card}
         except Exception:
             pass  # fall through to LLM
+
+    # ── BUILD 13: Detectar confirmación autoretenedor ─────────────────────────
+    _autoret_sí_patterns = [
+        r'sí[,\s].*autoretenedor', r'si[,\s].*autoretenedor',
+        r'sí[,\s].*es\s+autoret', r'si[,\s].*es\s+autoret',
+        r'confirmo.*autoretenedor', r'es\s+autoretenedor',
+    ]
+    _is_autoret_confirm = any(
+        re.search(p, msg_lower_cmd, re.IGNORECASE) for p in _autoret_sí_patterns
+    )
+    if _is_autoret_confirm:
+        try:
+            # Find provider from recent assistant messages
+            _recent_msgs = await db.chat_messages.find(
+                {"session_id": session_id, "role": "assistant"},
+                {"_id": 0, "content": 1},
+            ).sort("timestamp", -1).limit(5).to_list(5)
+            _prov_autoret = None
+            for _rm in _recent_msgs:
+                _content = _rm.get("content", "")
+                _m = re.search(
+                    r'Apliqué ReteFuente.*?a \*?\*?([A-ZÁÉÍÓÚÑ][A-Za-záéíóúñ\s.]+?)\*?\*?[.?]',
+                    _content
+                )
+                if _m:
+                    _prov_autoret = _m.group(1).strip()
+                    break
+            # Also extract from current message: "Sí, [Proveedor] es autoretenedora"
+            _m2 = re.search(
+                r'(?:sí|si)[,\s]+([A-ZÁÉÍÓÚÑ][A-Za-záéíóúñ\s.]{3,50?})\s+es\s+autoretenedor',
+                user_message, re.IGNORECASE
+            )
+            if _m2:
+                _prov_autoret = _m2.group(1).strip()
+            if _prov_autoret:
+                await db.proveedores_config.update_one(
+                    {"nombre": {"$regex": f"^{re.escape(_prov_autoret)}$", "$options": "i"}},
+                    {"$set": {
+                        "nombre": _prov_autoret,
+                        "es_autoretenedor": True,
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                        "updated_by": user.get("email"),
+                    }},
+                    upsert=True,
+                )
+                # Inject reversal instruction into system_prompt
+                system_prompt += (
+                    f"\n\nINSTRUCCIÓN URGENTE — REVERSIÓN AUTORETENEDOR:\n"
+                    f"El usuario confirmó que **{_prov_autoret}** ES AUTORETENEDORA.\n"
+                    "Debes:\n"
+                    "1. Crear asiento de reversión (crear_causacion) para REVERTIR la ReteFuente aplicada:\n"
+                    "   Débito: cuenta ReteFuente por pagar (23654001 Compras 2.5% o la que corresponda)\n"
+                    f"   Crédito: cuenta por pagar a {_prov_autoret} (5070)\n"
+                    "   Concepto: 'Reversión ReteFuente — proveedor autoretenedor'\n"
+                    f"2. Confirmar: '{_prov_autoret} quedó registrada como AUTORETENEDORA. "
+                    "ReteFuente revertida correctamente.'"
+                )
+        except Exception:
+            pass
 
     is_context_cmd = any(kw in msg_lower_cmd for kw in [
         "en qué íbamos", "en que ibamos", "qué falta", "que falta",
