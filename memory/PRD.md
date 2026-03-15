@@ -45,7 +45,14 @@ Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
   - `cfo_estrategico.py` router con 9 endpoints nuevos: indicadores, plan-ingresos, plan-deudas (avalancha), deudas/cargar (Excel), deudas/confirmar, cuotas-iniciales, config, reporte-lunes, reclasificar
   - **GET /cfo/deudas/plantilla**: Genera Excel descargable con 2 hojas (Deudas + Instrucciones), encabezado #0F2A5C, fila de ejemplo, dropdown Tipo, instrucciones completas
   - **POST /cfo/deudas/cargar mejorado**: Skip fila ejemplo, parseo inteligente de montos ($3.500.000 → 3500000), mapeo fuzzy de columnas, mensajes de error accionables con sugerencia de plantilla
-  - Botón "Descargar plantilla Excel" en UI CFO antes del botón de carga, con texto de ayuda
+  - Botón "Descargar plantilla Excel" + "Ver campos requeridos" en UI CFO
+  - Modal de preview con tabla de 8 campos + botón de descarga integrado
+  - **GET /cfo/financiero/calcular-desde-alegra**: Calcula gastos fijos desde facturas Alegra, filtra compras de inventario (>$15M), agrupa por mes; retorna ok=False con mensaje claro si no hay gastos operativos
+  - Botón "Calcular desde Alegra" en UI con panel de resultados y botón "Actualizar configuración"
+  - **POST /cfo/presupuesto/generar**: Genera presupuesto mensual (ej: Abril 2026) con 5 miércoles, recaudo proyectado, gastos, pago deuda, resultado neto, motos necesarias para equilibrio
+  - **GET /cfo/presupuesto**: Retorna presupuestos guardados en cfo_presupuesto_mensual
+  - Sección "Presupuesto mensual" en UI CFO con KPIs + tabla semanal + alerta de motos necesarias
+  - **CRON job #13**: `revisar_gastos_mensuales` — días 1-7 de cada mes (hábiles), alerta si gastos Alegra difieren >10% del valor configurado
   - Reglas CFO 1-5 inyectadas en system prompt del agente IA + contexto en tiempo real
   - Reporte del lunes automático (inyectado los lunes en el contexto del agente)
   - Sección "Plan Estratégico CFO" en frontend: indicadores, plan ingresos 8 semanas, cuotas iniciales $5.3M, carga Excel deudas, plan avalancha, alertas
