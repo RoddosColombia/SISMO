@@ -323,11 +323,13 @@ async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depen
     # ─────────────────────────────────────────────────────────────────────────
     # RODDOS rule: first payment = first Wednesday >= (fecha_entrega + 7 days)
     fecha_primer_pago = _first_wednesday(fecha_entrega)
-    num_cuotas = loan["num_cuotas"]
-    valor_cuota = loan["valor_cuota"]
+    num_cuotas  = loan["num_cuotas"]
+    valor_cuota = loan.get("cuota_valor") or loan.get("valor_cuota") or 0
+    valor_financiado = loan.get("valor_financiado") or (valor_cuota * num_cuotas)
 
-    # Keep cuota inicial (index 0), generate weekly cuotas 1..N (all Wednesdays)
-    cuotas = [loan["cuotas"][0]]  # preserve cuota inicial
+    # Keep cuota inicial (index 0) if present, else start fresh
+    cuotas_base = loan.get("cuotas") or []
+    cuotas = [cuotas_base[0]] if cuotas_base else []
     for i in range(1, num_cuotas + 1):
         fecha_cuota = fecha_primer_pago + timedelta(weeks=i - 1)
         cuotas.append({
@@ -348,7 +350,7 @@ async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depen
         "fecha_primer_pago": fecha_primer_pago.isoformat(),
         "cuotas": cuotas,
         "estado": "activo",
-        "saldo_pendiente": loan["valor_financiado"],
+        "saldo_pendiente": valor_financiado,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.loanbook.update_one({"id": loan_id}, {"$set": update})

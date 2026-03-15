@@ -917,11 +917,15 @@ async def get_indicadores(current_user=Depends(get_current_user)):
     total_p = deuda_p[0]["total"] if deuda_p else 0
 
     creditos_min = int(-(-gastos // TICKET_PROMEDIO)) if gastos > 0 else 0
-    margen = RECAUDO_SEMANAL_BASE - gastos - (gastos * 2) if gastos > 0 else 0
-    pct_gastos = ((gastos / RECAUDO_SEMANAL_BASE) * 100) if RECAUDO_SEMANAL_BASE > 0 else 0
+
+    # Recaudo dinámico: suma de cuota_valor de todos los créditos activos
+    recaudo_base = sum(lb.get("cuota_valor") or 0 for lb in lbs)
+
+    margen     = recaudo_base - gastos - (gastos * 2) if gastos > 0 else 0
+    pct_gastos = ((gastos / recaudo_base) * 100) if recaudo_base > 0 else 0
 
     return {
-        "recaudo_semanal_base":  RECAUDO_SEMANAL_BASE,
+        "recaudo_semanal_base":  recaudo_base,
         "creditos_activos":      activos,
         "creditos_minimos":      creditos_min,
         "sobre_el_piso":         activos - creditos_min,
@@ -931,8 +935,10 @@ async def get_indicadores(current_user=Depends(get_current_user)):
         "deuda_productiva":      total_p,
         "margen_semanal":        round(margen),
         "pct_gastos_vs_recaudo": round(pct_gastos, 1),
+        "gastos_fijos_semanales": gastos,
         "gastos_fijos_config":   gastos,
         "configurado":           gastos > 0,
+        "ultima_actualizacion":  datetime.now(timezone.utc).isoformat(),
     }
 
 
