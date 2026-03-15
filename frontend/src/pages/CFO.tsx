@@ -226,6 +226,14 @@ export default function CFO(): React.ReactElement {
   const [savingDeudas, setSavingDeudas] = useState(false);
   const [activeTab, setActiveTab]       = useState<"semaforo"|"estrategico">("estrategico");
   const [reporteLunes, setReporteLunes] = useState<any>(null);
+  // Modal plantilla
+  const [showPlantillaModal, setShowPlantillaModal] = useState(false);
+  // Calcular desde Alegra
+  const [calcAlegra, setCalcAlegra]     = useState<any>(null);
+  const [loadingCalcAlegra, setLoadingCalcAlegra] = useState(false);
+  // Presupuesto mensual
+  const [presupuesto, setPresupuesto]   = useState<any>(null);
+  const [generandoPresupuesto, setGenerandoPresupuesto] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -255,7 +263,8 @@ export default function CFO(): React.ReactElement {
       api.get("/cfo/cuotas-iniciales"),
       api.get("/cfo/financiero/config"),
       api.get("/cfo/reporte-lunes"),
-    ]).then(([indR, piR, pdR, dR, ciR, cfgR, rlR]) => {
+      api.get("/cfo/presupuesto"),
+    ]).then(([indR, piR, pdR, dR, ciR, cfgR, rlR, presR]) => {
       setIndicadores(indR.data);
       setPlanIngresos(piR.data?.semanas || []);
       setPlanDeuda(pdR.data);
@@ -265,6 +274,7 @@ export default function CFO(): React.ReactElement {
         setGastosInput(String(cfgR.data.gastos_fijos_semanales));
       }
       setReporteLunes(rlR.data);
+      if (presR.data?.length > 0) setPresupuesto(presR.data[0]);
     }).catch(() => {});
 
     // P&G — llama Alegra 3 veces (~30s), carga independiente
@@ -427,9 +437,50 @@ export default function CFO(): React.ReactElement {
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
+      setShowPlantillaModal(false);
     } catch {
       toast.error("Error descargando la plantilla");
     }
+  };
+
+  const handleCalcularDesdeAlegra = async () => {
+    setLoadingCalcAlegra(true);
+    try {
+      const res = await api.get("/cfo/financiero/calcular-desde-alegra");
+      setCalcAlegra(res.data);
+      if (!res.data.ok) toast.warning(res.data.mensaje || "Sin datos de Alegra");
+    } catch {
+      toast.error("Error consultando Alegra");
+    } finally {
+      setLoadingCalcAlegra(false);
+    }
+  };
+
+  const handleAplicarCalculoAlegra = async () => {
+    if (!calcAlegra?.equivalente_semanal) return;
+    setGastosInput(String(calcAlegra.equivalente_semanal));
+    setSavingConfig(true);
+    try {
+      await api.post("/cfo/financiero/config", {
+        gastos_fijos_semanales: calcAlegra.equivalente_semanal,
+        reserva_minima_semanas: 2,
+        limite_compromisos_pct: 0.6,
+        objetivo_deuda_np_meses: 3,
+      });
+      toast.success(`Gastos actualizados a ${fmt(calcAlegra.equivalente_semanal)}/semana`);
+      setCalcAlegra(null);
+      const indR = await api.get("/cfo/indicadores");
+      setIndicadores(indR.data);
+    } catch { toast.error("Error guardando"); } finally { setSavingConfig(false); }
+  };
+
+  const handleGenerarPresupuesto = async (mes: string) => {
+    setGenerandoPresupuesto(true);
+    try {
+      const res = await api.post("/cfo/presupuesto/generar", { mes });
+      setPresupuesto(res.data.presupuesto);
+      toast.success(`Presupuesto ${mes} generado`);
+    } catch { toast.error("Error generando presupuesto"); } finally { setGenerandoPresupuesto(false); }
   };
 
   const handleReclasificar = async (id: string, nuevoTipo: string) => {
@@ -734,7 +785,7 @@ export default function CFO(): React.ReactElement {
               type="text"
               value={gastosInput}
               onChange={e => setGastosInput(e.target.value)}
-              placeholder="ej: 800000"
+              placeholder="ej: 7500000"
               className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F2A5C]/20"
               data-testid="gastos-fijos-input"
             />
@@ -746,8 +797,54 @@ export default function CFO(): React.ReactElement {
             >
               {savingConfig ? "Guardando…" : "Guardar"}
             </button>
+            <button
+              onClick={handleCalcularDesdeAlegra}
+              disabled={loadingCalcAlegra}
+              className="border border-[#0F2A5C] text-[#0F2A5C] text-sm px-3 py-2 rounded-lg font-semibold hover:bg-[#0F2A5C]/5 transition disabled:opacity-50 whitespace-nowrap"
+              data-testid="calcular-alegra-btn"
+            >
+              {loadingCalcAlegra ? <Loader2 size={14} className="animate-spin inline" /> : "Calcular desde Alegra"}
+            </button>
           </div>
           <p className="text-[11px] text-slate-400 mt-1">Arriendo + nómina + servicios + otros fijos (semanal)</p>
+
+          {/* Resultado cálculo Alegra */}
+          {calcAlegra && (
+            <div className={`mt-3 rounded-lg border p-3 text-xs ${calcAlegra.ok ? "border-blue-200 bg-blue-50" : "border-amber-200 bg-amber-50"}`} data-testid="calc-alegra-result">
+              {calcAlegra.ok ? (
+                <>
+                  <p className="font-bold text-blue-800 mb-2">Gastos históricos en Alegra (últimos 3 meses)</p>
+                  <div className="grid grid-cols-3 gap-2 mb-2">
+                    {calcAlegra.meses?.map((m: any) => (
+                      <div key={m.mes} className="bg-white rounded p-2 text-center">
+                        <p className="text-slate-500">{m.mes}</p>
+                        <p className="font-bold text-slate-700">{fmt(m.total)}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center justify-between bg-white rounded p-2 mb-2">
+                    <div>
+                      <p className="text-slate-500">Promedio mensual → semanal</p>
+                      <p className="font-bold text-slate-800">{fmt(calcAlegra.promedio_mensual)}/mes → <span className="text-blue-700">{fmt(calcAlegra.equivalente_semanal)}/sem</span></p>
+                    </div>
+                    {calcAlegra.requiere_actualizacion && (
+                      <span className="text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">Dif. {calcAlegra.diferencia_pct}%</span>
+                    )}
+                  </div>
+                  <button
+                    onClick={handleAplicarCalculoAlegra}
+                    disabled={savingConfig}
+                    className="w-full bg-[#0F2A5C] text-white text-xs font-semibold py-1.5 rounded-lg hover:bg-[#1a3d7a] transition disabled:opacity-50"
+                    data-testid="aplicar-calculo-alegra-btn"
+                  >
+                    Actualizar configuración con {fmt(calcAlegra.equivalente_semanal)}/sem
+                  </button>
+                </>
+              ) : (
+                <p className="text-amber-700">{calcAlegra.mensaje}</p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Plan de ingresos semanal */}
@@ -787,6 +884,13 @@ export default function CFO(): React.ReactElement {
           <div className="flex items-center justify-between mb-3">
             <p className="text-sm font-bold text-slate-800">Inventario de deudas</p>
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowPlantillaModal(true)}
+                data-testid="ver-campos-btn"
+                className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 transition"
+              >
+                Ver campos requeridos
+              </button>
               <button
                 onClick={handleDescargarPlantilla}
                 data-testid="descargar-plantilla-btn"
@@ -943,7 +1047,142 @@ export default function CFO(): React.ReactElement {
             </div>
           </div>
         )}
+
+        {/* ── Presupuesto Mensual ─────────────────────────────────────────── */}
+        <div className="rounded-xl border border-slate-200 bg-white p-4" data-testid="presupuesto-section">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <BarChart2 size={16} className="text-[#0F2A5C]" />
+              <p className="text-sm font-bold text-slate-800">
+                Presupuesto mensual {presupuesto ? `— ${presupuesto.mes_label}` : ""}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleGenerarPresupuesto("2026-04")}
+                disabled={generandoPresupuesto}
+                className="text-xs bg-[#0F2A5C] text-white px-3 py-1.5 rounded-lg font-semibold hover:bg-[#1a3d7a] transition disabled:opacity-50"
+                data-testid="generar-presupuesto-btn"
+              >
+                {generandoPresupuesto ? <Loader2 size={12} className="animate-spin inline" /> : "Generar Abril 2026"}
+              </button>
+            </div>
+          </div>
+
+          {presupuesto ? (
+            <div className="space-y-3">
+              {/* KPIs del presupuesto */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                {[
+                  { label: "Recaudo proyectado", val: fmt(presupuesto.recaudo_total), color: "emerald" },
+                  { label: "Gastos del mes",      val: fmt(presupuesto.gastos_total),   color: "red"     },
+                  { label: "Pago deuda",          val: fmt(presupuesto.pago_deuda_mes), color: "amber"   },
+                  { label: "Resultado neto",       val: fmt(presupuesto.resultado_neto), color: presupuesto.resultado_neto >= 0 ? "emerald" : "red" },
+                ].map(({ label, val, color }) => (
+                  <div key={label} className={`rounded-lg border border-${color}-100 bg-${color}-50 p-2 text-center`}>
+                    <p className="text-[11px] text-slate-500">{label}</p>
+                    <p className={`text-sm font-bold text-${color}-700`}>{val}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Semanas */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-500 uppercase tracking-wide">
+                      <th className="px-3 py-1.5 text-center">Miércoles</th>
+                      <th className="px-3 py-1.5 text-right">Recaudo</th>
+                      <th className="px-3 py-1.5 text-right">Gastos</th>
+                      <th className="px-3 py-1.5 text-right">Saldo sem.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {presupuesto.semanas?.map((s: any) => (
+                      <tr key={s.miercoles} className="border-t border-slate-100">
+                        <td className="px-3 py-1.5 text-center font-mono text-slate-600">{s.miercoles}</td>
+                        <td className="px-3 py-1.5 text-right text-emerald-700 font-mono">{fmt(s.recaudo)}</td>
+                        <td className="px-3 py-1.5 text-right text-red-600 font-mono">{fmt(s.gastos_fijos)}</td>
+                        <td className={`px-3 py-1.5 text-right font-bold font-mono ${s.saldo_semana >= 0 ? "text-emerald-600" : "text-red-600"}`}>{fmt(s.saldo_semana)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {presupuesto.motos_para_equilibrio > 0 && (
+                <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-700">
+                  Necesitas vender al menos <strong>{presupuesto.motos_para_equilibrio} motos</strong> en {presupuesto.mes_label} para cerrar en equilibrio.
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-slate-400 text-center py-4">
+              Haz clic en "Generar Abril 2026" para ver el presupuesto proyectado.
+            </p>
+          )}
+        </div>
       </section>
+
+      {/* ── Modal Plantilla ─────────────────────────────────────────────────── */}
+      {showPlantillaModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" data-testid="plantilla-modal">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <FileText size={20} className="text-[#0F2A5C]" />
+              <h3 className="text-base font-bold text-slate-800">Plantilla de Deudas RODDOS</h3>
+            </div>
+            <table className="w-full text-xs mb-4">
+              <thead>
+                <tr className="bg-[#0F2A5C] text-white">
+                  <th className="px-3 py-2 text-left rounded-tl-lg">Campo</th>
+                  <th className="px-3 py-2 text-left">Ejemplo</th>
+                  <th className="px-3 py-2 text-center rounded-tr-lg">Req.</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  ["Acreedor",          "Auteco Kawasaki",       "✅"],
+                  ["Descripcion",       "Financiación inv.",     "✅"],
+                  ["Monto_Total",       "45000000",              "✅"],
+                  ["Monto_Pagado",      "5000000",               "✅"],
+                  ["Tasa_Mensual_Pct",  "1.5",                   "✅"],
+                  ["Fecha_Vencimiento", "2026-06-30",            "✅"],
+                  ["Tipo",              "productiva",            "✅"],
+                  ["Prioridad",         "1",                     "Opt."],
+                ].map(([campo, ej, req], i) => (
+                  <tr key={campo} className={`border-b border-slate-100 ${i % 2 === 0 ? "bg-slate-50" : "bg-white"}`}>
+                    <td className="px-3 py-1.5 font-semibold text-slate-700">{campo}</td>
+                    <td className="px-3 py-1.5 font-mono text-blue-700">{ej}</td>
+                    <td className="px-3 py-1.5 text-center">{req}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="space-y-1 text-xs text-slate-500 mb-4 bg-slate-50 rounded-lg p-3">
+              <p>Tipo acepta: <code className="bg-slate-200 px-1 rounded">productiva</code> o <code className="bg-slate-200 px-1 rounded">no_productiva</code></p>
+              <p>Montos: solo números, sin $ ni puntos (ej: 3500000)</p>
+              <p>Fecha: formato YYYY-MM-DD (ej: 2026-06-30)</p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowPlantillaModal(false)}
+                className="flex-1 border border-slate-200 text-slate-600 text-sm font-medium py-2 rounded-lg hover:bg-slate-50 transition"
+              >
+                Cerrar
+              </button>
+              <button
+                onClick={handleDescargarPlantilla}
+                className="flex-1 bg-[#0F2A5C] text-white text-sm font-semibold py-2 rounded-lg hover:bg-[#1a3d7a] transition flex items-center justify-center gap-2"
+                data-testid="modal-descargar-btn"
+              >
+                <FileText size={14} /> Descargar plantilla
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="fixed bottom-6 right-6 z-50">
         <button
           onClick={handleGenerar}

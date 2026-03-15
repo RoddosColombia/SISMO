@@ -27,6 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from alegra_service import AlegraService
 from database import db
 from dependencies import get_current_user
 
@@ -115,6 +116,210 @@ async def save_financiero_config(req: FinancieroConfigReq, current_user=Depends(
             "margen_semanal": margen,
         },
     }
+
+
+# ── GET /cfo/financiero/calcular-desde-alegra ─────────────────────────────────
+_UMBRAL_MOTO = 15_000_000  # facturas > 15M son compras de inventario, no gastos operativos
+
+@router.get("/financiero/calcular-desde-alegra")
+async def calcular_gastos_desde_alegra(current_user=Depends(get_current_user)):
+    """Consulta bills de Alegra, filtra gastos operativos y propone gastos fijos semanales."""
+    alegra = AlegraService(db)
+    hoy    = date.today()
+
+    # Fetch all bills (without date filter — Alegra plan may not support it)
+    _MESES_ES = ["enero","febrero","marzo","abril","mayo","junio",
+                 "julio","agosto","septiembre","octubre","noviembre","diciembre"]
+    try:
+        bills_raw = await alegra.request("bills") or []
+    except Exception as e:
+        logger.warning("calcular_gastos_desde_alegra error Alegra: %s", e)
+        bills_raw = []
+
+    # Filter: exclude inventory/moto purchases (>15M) and keep last 90 days
+    cutoff = (hoy - timedelta(days=90)).isoformat()
+    gastos_operativos = [
+        b for b in bills_raw
+        if float(b.get("total") or 0) <= _UMBRAL_MOTO
+        and (b.get("date") or "9999") >= cutoff
+    ]
+
+    # Group by month
+    por_mes: dict[str, float] = {}
+    for b in gastos_operativos:
+        fecha = (b.get("date") or "")[:7]  # YYYY-MM
+        if fecha:
+            por_mes[fecha] = por_mes.get(fecha, 0) + float(b.get("total") or 0)
+
+    totales_mes = sorted(
+        [{"mes": f"{_MESES_ES[int(k[5:7])-1].capitalize()} {k[:4]}", "fecha": k, "total": round(v)} for k, v in por_mes.items()],
+        key=lambda x: x["fecha"],
+    )
+
+    cfg = await db.cfo_financiero_config.find_one({}, {"_id": 0}) or {}
+    gastos_conf = cfg.get("gastos_fijos_semanales", 0)
+
+    if not totales_mes:
+        return {
+            "ok": False,
+            "mensaje": (
+                "No se encontraron gastos operativos en Alegra para los últimos 90 días. "
+                "Los registros encontrados son compras de inventario (motos), "
+                "que se excluyen del cálculo de gastos fijos."
+            ),
+            "sugerencia": "Registra facturas de arriendo, nómina y servicios en Alegra para habilitar este cálculo.",
+            "valor_actual": gastos_conf,
+            "facturas_encontradas": len(bills_raw),
+            "facturas_filtradas_inventario": len(bills_raw) - len(gastos_operativos),
+        }
+
+    promedio_mensual    = round(sum(m["total"] for m in totales_mes) / max(1, len(totales_mes)))
+    equivalente_semanal = round(promedio_mensual / 4.33)
+    diferencia_pct      = abs((equivalente_semanal - gastos_conf) / max(1, gastos_conf)) * 100 if gastos_conf else 100
+
+    return {
+        "ok": True,
+        "meses": totales_mes,
+        "promedio_mensual":   promedio_mensual,
+        "equivalente_semanal": equivalente_semanal,
+        "valor_configurado":  gastos_conf,
+        "diferencia_pct":     round(diferencia_pct, 1),
+        "requiere_actualizacion": diferencia_pct > 10,
+        "facturas_analizadas": len(gastos_operativos),
+        "mensaje": (
+            f"Basado en {len(gastos_operativos)} facturas de gastos operativos en Alegra, "
+            f"el promedio mensual es {_fmt_cop(promedio_mensual)}, "
+            f"equivalente a {_fmt_cop(equivalente_semanal)}/semana. "
+            + (f"Difiere un {diferencia_pct:.0f}% del valor configurado. ¿Actualizo la configuración?"
+               if diferencia_pct > 10 else "Está alineado con el valor configurado.")
+        ),
+    }
+
+
+# ── POST /cfo/presupuesto/generar ─────────────────────────────────────────────
+class PresupuestoReq(BaseModel):
+    mes: str  # YYYY-MM format, e.g. "2026-04"
+
+
+@router.post("/presupuesto/generar")
+async def generar_presupuesto_mensual(req: PresupuestoReq, current_user=Depends(get_current_user)):
+    """Genera el presupuesto mensual con ingresos y gastos reales del loanbook."""
+    try:
+        ano, mes = int(req.mes[:4]), int(req.mes[5:7])
+    except (ValueError, IndexError):
+        raise HTTPException(status_code=400, detail="Formato mes inválido. Usa YYYY-MM")
+
+    # Límites del mes
+    first_day = date(ano, mes, 1)
+    if mes == 12:
+        last_day = date(ano + 1, 1, 1) - timedelta(days=1)
+    else:
+        last_day = date(ano, mes + 1, 1) - timedelta(days=1)
+
+    # Miércoles del mes
+    miercoles_mes = []
+    d = first_day
+    while d <= last_day:
+        if d.weekday() == 2:  # miércoles
+            miercoles_mes.append(d)
+        d += timedelta(days=1)
+
+    # Config financiera
+    cfg    = await db.cfo_financiero_config.find_one({}, {"_id": 0}) or {}
+    gastos = cfg.get("gastos_fijos_semanales", 0)
+
+    # Cuotas activas en ese mes
+    lbs = await db.loanbook.find(
+        {"estado": "activo", "cuota_valor": {"$gt": 0}}, {"_id": 0}
+    ).to_list(100)
+
+    semanas: list[dict] = []
+    total_recaudo = 0
+
+    for wed in miercoles_mes:
+        ws_start = wed - timedelta(days=wed.weekday())  # lunes de esa semana
+
+        cuotas_sem = []
+        for lb in lbs:
+            cv = lb.get("cuota_valor", 0) or 0
+            for c in lb.get("cuotas", []):
+                if c.get("estado") == "pendiente":
+                    fv = c.get("fecha_vencimiento", "")
+                    if fv:
+                        try:
+                            d_c = date.fromisoformat(fv[:10])
+                            if d_c == wed:  # cuota exacta ese miércoles
+                                cuotas_sem.append({"cliente": lb.get("cliente_nombre", ""), "valor": cv})
+                        except Exception:
+                            pass
+
+        recaudo = sum(c["valor"] for c in cuotas_sem) or RECAUDO_SEMANAL_BASE
+        total_recaudo += recaudo
+
+        semanas.append({
+            "miercoles":     wed.isoformat(),
+            "recaudo":       recaudo,
+            "gastos_fijos":  gastos,
+            "num_cuotas":    len(cuotas_sem),
+            "saldo_semana":  recaudo - gastos,
+        })
+
+    # Deuda no productiva — pago mensual del plan
+    deuda_np_docs = await db.cfo_deudas.find(
+        {"tipo": "no_productiva", "estado": {"$ne": "pagada"}}, {"_id": 0}
+    ).to_list(50)
+    total_np = sum(d.get("saldo_pendiente", 0) for d in deuda_np_docs)
+
+    reserva_semanal = gastos * cfg.get("reserva_minima_semanas", 2)
+    margen_mensual  = RECAUDO_SEMANAL_BASE * len(miercoles_mes) - gastos * len(miercoles_mes) - reserva_semanal
+    pago_deuda_mes  = round(min(total_np, max(0, margen_mensual))) if total_np > 0 else 0
+
+    gastos_mes     = gastos * len(miercoles_mes)
+    resultado_mes  = total_recaudo - gastos_mes - pago_deuda_mes
+    motos_necesarias = max(0, -(-(-resultado_mes) // TICKET_PROMEDIO)) if resultado_mes < 0 else 0
+
+    # Cuotas iniciales pendientes
+    ci_lbs = await db.loanbook.find(
+        {"cuota_inicial_pendiente": {"$gt": 0}}, {"_id": 0}
+    ).to_list(20)
+    ci_pendiente = sum(lb.get("cuota_inicial_pendiente", 0) for lb in ci_lbs)
+
+    MESES_ES = ["enero","febrero","marzo","abril","mayo","junio",
+                "julio","agosto","septiembre","octubre","noviembre","diciembre"]
+    mes_label_es = f"{MESES_ES[mes-1].capitalize()} {ano}"
+
+    presupuesto = {
+        "mes":             req.mes,
+        "mes_label":       mes_label_es,
+        "semanas":         semanas,
+        "num_miercoles":   len(miercoles_mes),
+        "recaudo_total":   total_recaudo,
+        "gastos_total":    gastos_mes,
+        "pago_deuda_mes":  pago_deuda_mes,
+        "resultado_neto":  resultado_mes,
+        "ci_pendiente":    ci_pendiente,
+        "motos_para_equilibrio": int(motos_necesarias),
+        "estado":          "superavit" if resultado_mes >= 0 else "deficit",
+        "generado_en":     datetime.now(timezone.utc).isoformat(),
+        "generado_por":    current_user.get("email", ""),
+    }
+
+    await db.cfo_presupuesto_mensual.update_one(
+        {"mes": req.mes},
+        {"$set": presupuesto},
+        upsert=True,
+    )
+
+    return {"ok": True, "presupuesto": presupuesto}
+
+
+# ── GET /cfo/presupuesto ──────────────────────────────────────────────────────
+@router.get("/presupuesto")
+async def get_presupuesto(mes: Optional[str] = None, current_user=Depends(get_current_user)):
+    """Retorna el presupuesto guardado. Si mes=None, retorna el más reciente."""
+    query = {"mes": mes} if mes else {}
+    pres = await db.cfo_presupuesto_mensual.find(query, {"_id": 0}).sort("mes", -1).to_list(6)
+    return pres
 
 
 # ── GET /cfo/deudas/plantilla ──────────────────────────────────────────────────

@@ -845,10 +845,81 @@ async def procesar_patrones() -> None:
         logger.error("[LoanScheduler] procesar_patrones error: %s", e)
 
 
+# ─── BUILD 11 — Verificación mensual de gastos fijos ─────────────────────────
+
+async def revisar_gastos_mensuales():
+    """Corre los días 1-7 de cada mes a las 08:30. Solo actúa en días hábiles (lun-vie).
+    Consulta bills de Alegra del mes anterior, compara con el valor configurado.
+    Si difiere >10% notifica al usuario en el chat como tarea de agente."""
+    hoy = date.today()
+    # Solo días hábiles
+    if hoy.weekday() >= 5:
+        logger.info("[LoanScheduler] revisar_gastos_mensuales: fin de semana, skip")
+        return
+
+    from database import db
+    try:
+        from alegra_service import AlegraService
+        alegra  = AlegraService(db)
+
+        # Mes anterior completo
+        mes_actual = hoy.month
+        ano_actual = hoy.year
+        mes_ant    = mes_actual - 1 if mes_actual > 1 else 12
+        ano_ant    = ano_actual if mes_actual > 1 else ano_actual - 1
+        first_day  = date(ano_ant, mes_ant, 1)
+        if mes_ant == 12:
+            last_day = date(ano_ant + 1, 1, 1) - timedelta(days=1)
+        else:
+            last_day = date(ano_ant, mes_ant + 1, 1) - timedelta(days=1)
+
+        bills = await alegra.request(
+            "bills",
+            params={"date_afterOrNow": first_day.isoformat(), "date_beforeOrNow": last_day.isoformat()},
+        )
+        total_mes = sum(float(b.get("total") or 0) for b in (bills or []))
+        equivalente_semanal = round(total_mes / 4.33)
+
+        cfg = await db.cfo_financiero_config.find_one({}, {"_id": 0}) or {}
+        gastos_conf = cfg.get("gastos_fijos_semanales", 0)
+
+        if gastos_conf <= 0 or total_mes <= 0:
+            return
+
+        diferencia_pct = abs((equivalente_semanal - gastos_conf) / gastos_conf) * 100
+
+        if diferencia_pct > 10:
+            mes_label = first_day.strftime("%B %Y").capitalize()
+            msg = (
+                f"[Revisión mensual gastos] Los gastos de {mes_label} en Alegra fueron "
+                f"${total_mes:,.0f}/mes (${equivalente_semanal:,.0f}/sem). "
+                f"El valor configurado es ${gastos_conf:,.0f}/sem. "
+                f"Difieren un {diferencia_pct:.0f}%. ¿Actualizo la configuración?"
+            )
+            await db.roddos_events.insert_one({
+                "event_type":   "cfo.gastos.revision_mensual",
+                "fecha":        hoy.isoformat(),
+                "mes_revisado": mes_label,
+                "total_alegra": total_mes,
+                "semanal_alegra": equivalente_semanal,
+                "semanal_config": gastos_conf,
+                "diferencia_pct": round(diferencia_pct, 1),
+                "mensaje":      msg,
+                "estado":       "pendiente_revision",
+                "created_at":   datetime.now(timezone.utc).isoformat(),
+            })
+            logger.info("[LoanScheduler] revisar_gastos_mensuales: diferencia %.0f%% detectada — evento registrado", diferencia_pct)
+        else:
+            logger.info("[LoanScheduler] revisar_gastos_mensuales: gastos alineados (dif %.1f%%)", diferencia_pct)
+
+    except Exception as e:
+        logger.error("[LoanScheduler] revisar_gastos_mensuales error: %s", e)
+
+
 # ─── Ciclo de vida ────────────────────────────────────────────────────────────
 
 def start_loanbook_scheduler() -> None:
-    """Registra los 12 CRON jobs y arranca el scheduler."""
+    """Registra los 13 CRON jobs y arranca el scheduler."""
     _jobs = [
         (calcular_dpd_todos,       {"hour": 6, "minute": 0},                        "calcular_dpd_todos"),
         (alertar_buckets_criticos, {"hour": 6, "minute": 5},                        "alertar_buckets_criticos"),
@@ -864,6 +935,8 @@ def start_loanbook_scheduler() -> None:
         (resumen_semanal_ceo,      {"day_of_week": "fri", "hour": 17, "minute": 0}, "resumen_semanal_ceo"),
         # BUILD 9 — semanal
         (procesar_patrones,        {"day_of_week": "mon", "hour": 8, "minute": 0},  "procesar_patrones"),
+        # BUILD 11 — verificación mensual gastos fijos (primer día hábil del mes)
+        (revisar_gastos_mensuales, {"day": "1-7", "hour": 8, "minute": 30},           "revisar_gastos_mensuales"),
     ]
 
     for func, kwargs, job_id in _jobs:
@@ -876,11 +949,11 @@ def start_loanbook_scheduler() -> None:
 
     _loanbook_scheduler.start()
     logger.info(
-        "[LoanScheduler] Iniciado — 12 jobs: "
+        "[LoanScheduler] Iniciado — 13 jobs: "
         "DPD@06:00 · Buckets@06:05 · CFO@06:10 · Scores@06:30 · Predictivo@06:45 · "
         "RADAR@07:00 · Outcomes@07:30 · "
         "Prev@Mar09:00 · Venc@Mié09:00 · Mora@Jue09:00 · Resumen@Vie17:00 · "
-        "Patrones@Lun08:00 (America/Bogota)"
+        "Patrones@Lun08:00 · GastosMes@1-7@08:30 (America/Bogota)"
     )
 
 
