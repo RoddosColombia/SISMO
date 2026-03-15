@@ -106,7 +106,12 @@ Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
 - **REGLA FUNDAMENTAL DE LIQUIDEZ** en system prompt: RODDOS vende 100% a cuotas, liquidez ≠ facturación
 - **Separación base caja vs base devengada** explicada al agente CFO
 
-### Features implementadas en BUILD 12
+### Verificación P&L Marzo 2026 — COMPLETADA (2026-03-15)
+- Listado completo de 11 facturas Alegra con fecha/cliente/monto verificados ✅ todas en 01/03-31/03/2026
+- Alerta automática de posible duplicado FV-6 vs FV-448 (José Altamiranda, mismo monto/fecha)
+- **SECCIÓN A (Base Devengada)**: $78,345,567 facturado (contable)
+- **SECCIÓN B (Base Caja)**: $8,024,500 recibido realmente ($6.7M cuotas iniciales + $1.3M cuotas semanales)
+- UI con tablas collapsibles por sección, alertas en rojo, cuotas pendientes visibles
 - `GET /api/cfo/estado-resultados?periodo=YYYY-MM` — P&L real desde Alegra
 - `GET /api/cfo/estado-resultados/pdf` y `/excel` — Exportación
 - Widget Sostenibilidad (10/45 créditos activos, countdown Jun 20 2026)
