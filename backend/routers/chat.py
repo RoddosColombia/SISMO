@@ -1,7 +1,10 @@
 """Chat router — AI agent messaging and action execution."""
 import logging
+import uuid
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from typing import Optional, List
 
 from ai_chat import process_chat, execute_chat_action
 from database import db
@@ -59,3 +62,79 @@ async def chat_history(session_id: str, current_user=Depends(get_current_user)):
 async def clear_chat(session_id: str, current_user=Depends(get_current_user)):
     await db.chat_messages.delete_many({"session_id": session_id})
     return {"message": "Historial eliminado"}
+
+
+# ── MEJORA 2: Endpoints de Tarea Activa ───────────────────────────────────────
+
+class TareaActivaRequest(BaseModel):
+    descripcion: str
+    pasos_total: int
+    pasos_pendientes: List[str]
+    datos_contexto: Optional[dict] = {}
+
+
+@router.post("/tarea")
+async def crear_tarea_activa(req: TareaActivaRequest, current_user=Depends(get_current_user)):
+    """Crea o reemplaza la tarea activa en agent_memory."""
+    now = datetime.now(timezone.utc).isoformat()
+    # Close any existing en_curso task
+    await db.agent_memory.update_many(
+        {"tipo": "tarea_activa", "estado": "en_curso"},
+        {"$set": {"estado": "reemplazada", "updated_at": now}},
+    )
+    doc = {
+        "id": str(uuid.uuid4()),
+        "tipo": "tarea_activa",
+        "descripcion": req.descripcion,
+        "pasos_total": req.pasos_total,
+        "pasos_completados": 0,
+        "pasos_pendientes": req.pasos_pendientes,
+        "datos_contexto": req.datos_contexto,
+        "iniciada": now,
+        "ultimo_avance": now,
+        "estado": "en_curso",
+        "creado_por": current_user.get("email", ""),
+    }
+    await db.agent_memory.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@router.get("/tarea")
+async def get_tarea_activa(current_user=Depends(get_current_user)):
+    """Retorna la tarea activa actual (en_curso o pausada)."""
+    tarea = await db.agent_memory.find_one(
+        {"tipo": "tarea_activa", "estado": {"$in": ["en_curso", "pausada"]}},
+        {"_id": 0},
+    )
+    return tarea or {"estado": "ninguna"}
+
+
+@router.patch("/tarea/avance")
+async def avanzar_tarea(
+    pasos_completados: int,
+    paso_completado: Optional[str] = None,
+    current_user=Depends(get_current_user),
+):
+    """Actualiza el progreso de la tarea activa. Si se pasa paso_completado, lo elimina de pendientes."""
+    now = datetime.now(timezone.utc).isoformat()
+    tarea = await db.agent_memory.find_one(
+        {"tipo": "tarea_activa", "estado": "en_curso"}, {"_id": 0}
+    )
+    if not tarea:
+        raise HTTPException(status_code=404, detail="No hay tarea activa en curso")
+
+    updates: dict = {"pasos_completados": pasos_completados, "ultimo_avance": now}
+    pendientes = tarea.get("pasos_pendientes", [])
+    if paso_completado and paso_completado in pendientes:
+        pendientes.remove(paso_completado)
+        updates["pasos_pendientes"] = pendientes
+
+    if pasos_completados >= tarea.get("pasos_total", 0):
+        updates["estado"] = "completada"
+
+    await db.agent_memory.update_one(
+        {"tipo": "tarea_activa", "estado": "en_curso"},
+        {"$set": updates},
+    )
+    return {"ok": True, "completada": updates.get("estado") == "completada"}

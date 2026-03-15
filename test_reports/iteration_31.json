@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 31 — 10/10 tests pass for MEJORA 1-4 (memoria y contexto IA). Found and fixed 1 critical bug: KeyError 'cuentas_contables' in ai_chat.py line 1470 that caused all /api/chat/message calls to return 503.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration31_memoria_ia.py",
+    "/app/test_reports/pytest/iteration31.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "BUG FIXED: ai_chat.py line 1470 — `context_data['cuentas_contables']` raised KeyError when actividad_hoy was present but message didn't contain causacion keywords (cuentas_contables is only populated conditionally). Fixed to `context_data.get('cuentas_contables', [])`. This was causing ALL /api/chat/message calls to return 503.",
+    "TEST 1 PASS: GET /api/inventario/stats → 200 ✅",
+    "TEST 2 PASS: POST /api/chat/tarea creates doc with tipo='tarea_activa', estado='en_curso' ✅",
+    "TEST 3 PASS: GET /api/chat/tarea returns en_curso tarea ✅",
+    "TEST 4 PASS: PATCH /api/chat/tarea/avance updates pasos_completados=1, removes 'Paso A' from pendientes ✅",
+    "TEST 5 PASS: 'pausa la tarea' → returns ⏸️ confirmation + changes estado to 'pausada' ✅",
+    "TEST 6 PASS: 'continúa la tarea' → returns ▶️ confirmation + changes estado to 'en_curso' ✅",
+    "TEST 7 PASS: '¿en qué íbamos?' → returns direct context response without 503 ✅",
+    "TEST 8 PASS: 3 messages in same session; history has >= 4 items before 3rd message ✅",
+    "TEST 9 PASS: /api/chat/tarea returns 401 without auth, 200 with auth ✅",
+    "TEST 10 PASS: All keywords (raw_history, initial_messages, summary_msg, tarea_activa, actividad_hoy) found in ai_chat.py ✅"
+  ],
+  "updated_files": [
+    "/app/backend/ai_chat.py",
+    "/app/backend/tests/test_iteration31_memoria_ia.py"
+  ],
+  "success_rate": {
+    "backend": "100% (10/10)",
+    "frontend": "N/A — backend-only testing"
+  },
+  "test_credentials": "contabilidad@roddos.com / Admin@RODDOS2025!",
+  "seed_data_creation": "Test tarea_activa created in agent_memory during tests (auto-replaced by cleanup logic in POST /tarea).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 10 MEJORA 1-4 tests pass. Critical bug fixed: ai_chat.py L1470 KeyError 'cuentas_contables' → now uses .get() with default []. Tarea activa endpoints (GET/POST/PATCH /api/chat/tarea) all work. Special commands (pausa/continúa/¿en qué íbamos?) return direct responses without calling Claude. Historial persistente works: session messages stored in db.chat_messages and loaded in subsequent requests.",
+  "rca_of_issue": "RCA: In ai_chat.py's process_chat, the block starting at line 1465 `if context_data.get('actividad_hoy'):` also unconditionally accessed `context_data['cuentas_contables']` at line 1470. However, `cuentas_contables` is only injected into context when the user message contains causacion keywords (line 853). For all other messages (including special commands like 'pausa la tarea'), actividad_hoy could be populated from roddos_events while cuentas_contables would be absent, causing KeyError → unhandled exception → 503. Fix: changed dict access to .get() with empty list default."
+}

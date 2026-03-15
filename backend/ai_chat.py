@@ -791,6 +791,41 @@ async def gather_context(user_message: str, alegra_service, db) -> dict:
         "cuentas_bancarias": [],
         "iva_status": None,
     }
+
+    # ── MEJORA 3: Actividad del día desde roddos_events ──────────────────────
+    try:
+        from datetime import timezone as _tz
+        hoy_inicio = datetime.now(_tz.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        eventos_hoy = await db.roddos_events.find(
+            {"timestamp": {"$gte": hoy_inicio}},
+            {"_id": 0, "event_type": 1, "timestamp": 1, "data": 1},
+        ).sort("timestamp", -1).limit(10).to_list(10)
+
+        if eventos_hoy:
+            lineas = []
+            for ev in reversed(eventos_hoy):
+                ts = ev.get("timestamp", "")[:16].replace("T", " ")
+                tipo = ev.get("event_type", "")
+                data = ev.get("data") or {}
+                detalle = ""
+                if tipo == "factura.venta.creada":
+                    detalle = f"FV {data.get('factura_numero','')} — {data.get('cliente_nombre','')} ${data.get('total',0):,.0f}"
+                elif tipo in ("pago.cuota.registrado", "cuota_pagada"):
+                    detalle = f"{data.get('cliente_nombre','')} cuota ${data.get('monto',0):,.0f}"
+                elif tipo == "asiento.contable.creado":
+                    detalle = data.get("concepto", data.get("observations", ""))[:40]
+                elif tipo == "factura.compra.creada":
+                    detalle = f"{data.get('proveedor','')} ${data.get('total',0):,.0f}"
+                elif tipo == "loanbook.activado":
+                    detalle = f"Entrega moto — {data.get('cliente','')}"
+                elif tipo == "inventario.moto.baja":
+                    detalle = f"Venta {data.get('moto_desc','')} chasis {data.get('moto_chasis','')}"
+                else:
+                    detalle = str(data)[:40]
+                lineas.append(f"  - {ts} {tipo}: {detalle}")
+            context["actividad_hoy"] = "\n".join(lineas)
+    except Exception:
+        pass
     try:
         contacts = await alegra_service.request("contacts")
         context["contactos"] = [
@@ -1427,8 +1462,12 @@ async def process_chat(
         ]
         extra_context += "\n\nLOANBOOK_ACTIVOS:\n" + "\n".join(lines)
 
-    if context_data.get("cuentas_contables"):
-        acct_list = context_data["cuentas_contables"]
+    if context_data.get("actividad_hoy"):
+        extra_context += (
+            "\n\nACTIVIDAD DE HOY (" + context_data["fecha_actual"] + "):\n"
+            + context_data["actividad_hoy"]
+        )
+        acct_list = context_data.get("cuentas_contables", [])
         lines = [f"  • id={a['id']} | code={a.get('code','')} | {a['name']}" for a in acct_list]
         extra_context += (
             "\n\nCUENTAS_CONTABLES_ALEGRA — USA ESTOS IDs EN crear_causacion (NO inventes IDs):\n"
@@ -1445,6 +1484,168 @@ async def process_chat(
         .replace("{honorarios_instruccion}", honorarios_instruccion)
     )
 
+    # ── MEJORA 4: Comandos especiales de contexto ─────────────────────────────
+    msg_lower_cmd = user_message.lower().strip()
+    is_context_cmd = any(kw in msg_lower_cmd for kw in [
+        "en qué íbamos", "en que ibamos", "qué falta", "que falta",
+        "resumen", "qué hice", "que hice", "qué pasó hoy", "que paso hoy",
+        "qué se hizo", "que se hizo",
+    ])
+    is_pausa = any(kw in msg_lower_cmd for kw in ["pausa la tarea", "pausar la tarea", "pausar tarea"])
+    is_continua = any(kw in msg_lower_cmd for kw in ["continúa la tarea", "continua la tarea", "retomar tarea", "retoma la tarea"])
+
+    # ── MEJORA 2: Cargar tarea activa ─────────────────────────────────────────
+    tarea_activa = await db.agent_memory.find_one(
+        {"tipo": "tarea_activa", "estado": "en_curso"},
+        {"_id": 0},
+    )
+
+    if is_pausa and tarea_activa:
+        await db.agent_memory.update_one(
+            {"tipo": "tarea_activa", "estado": "en_curso"},
+            {"$set": {"estado": "pausada", "ultimo_avance": datetime.now(timezone.utc).isoformat()}},
+        )
+        return {
+            "message": f"⏸️ Tarea pausada: **{tarea_activa['descripcion']}** (paso {tarea_activa.get('pasos_completados',0)}/{tarea_activa.get('pasos_total',0)}).\nPuedes continuar cuando quieras diciendo **\"Continúa la tarea\"**.",
+            "pending_action": None,
+            "session_id": session_id,
+        }
+
+    if is_continua:
+        tarea_pausada = await db.agent_memory.find_one(
+            {"tipo": "tarea_activa", "estado": "pausada"},
+            {"_id": 0},
+        )
+        if tarea_pausada:
+            await db.agent_memory.update_one(
+                {"tipo": "tarea_activa", "estado": "pausada"},
+                {"$set": {"estado": "en_curso", "ultimo_avance": datetime.now(timezone.utc).isoformat()}},
+            )
+            tarea_activa = {**tarea_pausada, "estado": "en_curso"}
+            pendientes = tarea_activa.get("pasos_pendientes", [])
+            proximo = pendientes[0] if pendientes else "No hay pasos pendientes"
+            return {
+                "message": (
+                    f"▶️ Retomando tarea: **{tarea_activa['descripcion']}**\n"
+                    f"Progreso: {tarea_activa.get('pasos_completados',0)}/{tarea_activa.get('pasos_total',0)} pasos\n"
+                    f"Siguiente paso: {proximo}"
+                ),
+                "pending_action": None,
+                "session_id": session_id,
+            }
+
+    if is_context_cmd:
+        from datetime import timezone as _tz
+        lines = [f"## Resumen de contexto operativo ({datetime.now(_tz.utc).strftime('%Y-%m-%d')})"]
+
+        if tarea_activa:
+            pendientes = tarea_activa.get("pasos_pendientes", [])
+            lines.append(
+                f"\n**TAREA EN CURSO:** {tarea_activa['descripcion']}\n"
+                f"Progreso: {tarea_activa.get('pasos_completados',0)}/{tarea_activa.get('pasos_total',0)} pasos\n"
+                + ("Pendiente:\n" + "\n".join(f"  • {p}" for p in pendientes[:5]) if pendientes else "")
+            )
+        else:
+            lines.append("\n*Sin tarea activa en curso.*")
+
+        actividad = context_data.get("actividad_hoy", "")
+        if actividad:
+            lines.append(f"\n**Actividad de hoy:**\n{actividad}")
+        else:
+            lines.append("\n*Sin actividad registrada hoy.*")
+
+        alertas = await db.cfo_alertas.find(
+            {}, {"_id": 0, "mensaje": 1, "tipo": 1}
+        ).sort("created_at", -1).limit(3).to_list(3)
+        if alertas:
+            lines.append("\n**Alertas pendientes CFO:**")
+            for a in alertas:
+                lines.append(f"  • {a.get('tipo','')}: {a.get('mensaje','')}")
+
+        await db.chat_messages.insert_one({
+            "id": str(uuid.uuid4()), "session_id": session_id, "role": "user",
+            "content": user_message, "timestamp": datetime.now(timezone.utc).isoformat(),
+            "user_id": user.get("id"),
+        })
+        resp = "\n".join(lines)
+        await db.chat_messages.insert_one({
+            "id": str(uuid.uuid4()), "session_id": session_id, "role": "assistant",
+            "content": resp, "timestamp": datetime.now(timezone.utc).isoformat(),
+            "user_id": user.get("id"),
+        })
+        return {"message": resp, "pending_action": None, "session_id": session_id}
+
+    # ── MEJORA 1: Cargar historial de la sesión y resumir si es largo ─────────
+    CHARS_PER_TOKEN = 4
+    MAX_HISTORY_TOKENS = 6000
+    KEEP_RECENT_PAIRS = 6
+
+    raw_history = await db.chat_messages.find(
+        {"session_id": session_id},
+        {"_id": 0, "role": 1, "content": 1, "timestamp": 1},
+    ).sort("timestamp", 1).to_list(200)
+
+    # Convert to LiteLLM message dicts (omit system messages already in initial_messages)
+    history_msgs = [
+        {"role": m["role"], "content": str(m.get("content", ""))}
+        for m in raw_history
+        if m["role"] in ("user", "assistant")
+    ]
+
+    total_chars = sum(len(m["content"]) for m in history_msgs)
+    total_tokens_est = total_chars // CHARS_PER_TOKEN
+
+    summary_msg = None
+    if total_tokens_est > MAX_HISTORY_TOKENS and len(history_msgs) > KEEP_RECENT_PAIRS * 2:
+        # Split: old messages to summarize + recent messages to keep
+        split_idx = len(history_msgs) - KEEP_RECENT_PAIRS * 2
+        old_msgs  = history_msgs[:split_idx]
+        recent_msgs = history_msgs[split_idx:]
+
+        # Summarize the old portion
+        try:
+            summary_chat = LlmChat(
+                api_key=api_key,
+                session_id=f"{session_id}-summary",
+                system_message=(
+                    "Eres un asistente que resume conversaciones de contabilidad. "
+                    "Extrae: tareas completadas, datos mencionados (clientes, montos, facturas, NITs), pendientes. "
+                    "Máximo 200 palabras en español."
+                ),
+                initial_messages=(
+                    [{"role": "system", "content": "Resume la siguiente conversación en máximo 200 palabras."}]
+                    + old_msgs[:60]
+                ),
+            ).with_model("anthropic", "claude-sonnet-4-5-20250929")
+            summary_text = await summary_chat.send_message(
+                UserMessage(text="Resume los puntos clave de esta conversación.")
+            )
+            summary_msg = {
+                "role": "system",
+                "content": f"RESUMEN DE CONVERSACIÓN ANTERIOR:\n{summary_text}",
+            }
+            history_msgs = recent_msgs
+        except Exception:
+            history_msgs = history_msgs[-(KEEP_RECENT_PAIRS * 2):]
+
+    # Build initial_messages for this request
+    initial_messages: list = [{"role": "system", "content": system_prompt}]
+    if summary_msg:
+        initial_messages.append(summary_msg)
+
+    # ── MEJORA 2: Inyectar tarea activa en el contexto ────────────────────────
+    if tarea_activa:
+        pendientes = tarea_activa.get("pasos_pendientes", [])
+        tarea_ctx = (
+            f"TAREA EN CURSO: {tarea_activa['descripcion']}\n"
+            f"Progreso: {tarea_activa.get('pasos_completados',0)}/{tarea_activa.get('pasos_total',0)} pasos completados.\n"
+            + (f"Pasos pendientes: {', '.join(pendientes[:5])}\n" if pendientes else "")
+            + "Continúa exactamente desde donde quedaste sin repetir pasos ya completados."
+        )
+        initial_messages.append({"role": "system", "content": tarea_ctx})
+
+    initial_messages.extend(history_msgs)
+
     # Save user message to MongoDB
     await db.chat_messages.insert_one({
         "id": str(uuid.uuid4()),
@@ -1455,11 +1656,12 @@ async def process_chat(
         "user_id": user.get("id"),
     })
 
-    # Call Claude
+    # Call Claude with full history context
     chat = LlmChat(
         api_key=api_key,
         session_id=session_id,
         system_message=system_prompt,
+        initial_messages=initial_messages,
     ).with_model("anthropic", "claude-sonnet-4-5-20250929")
 
     msg = UserMessage(text=user_message)
