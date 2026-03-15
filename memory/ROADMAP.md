@@ -22,6 +22,12 @@
 
 ## COMPLETADO
 
+### HOTFIX Agente Contador (2026-03-15)
+- **Causa raíz:** `import re` duplicado en línea 1758 dentro de `process_chat` (ai_chat.py). Python marcaba `re` como variable local en todo el scope de la función async → UnboundLocalError en TODOS los mensajes.
+- **Fix:** Eliminado el import duplicado (re ya importado a nivel módulo en línea 2)
+- **Blindaje:** Nuevo `GET /api/health` con diagnóstico completo (MongoDB, Alegra, Anthropic, loanbooks, proveedores_config). Logging de errores del agente a colección `agent_errors`. Mensajes de error descriptivos en lugar del genérico "Hubo un error".
+- **Test:** 13/13 grupos G1–G6 verificados (básicos, MongoDB, Alegra, contables, BUILD13, CFO).
+
 ### BUILD 13 COMPLETO (2026-03-15)
 - Menú simplificado: 10 items exactos
 - Chat CFO Estratégico: /cfo-estrategico con Claude Sonnet
