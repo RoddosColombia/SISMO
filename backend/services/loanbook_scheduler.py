@@ -20,6 +20,7 @@ import logging
 from datetime import datetime, timezone, date, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from services.crm_service import normalizar_telefono
 
 logger = logging.getLogger(__name__)
 
@@ -212,7 +213,7 @@ async def alertar_buckets_criticos() -> None:
 
         enviados = 0
         for loan in loans:
-            tel    = loan.get("cliente_telefono", "")
+            tel    = normalizar_telefono(loan.get("cliente_telefono", ""))
             dpd    = loan.get("dpd_actual", 0)
             nombre = _nombre_corto(loan.get("cliente_nombre", ""))
             modelo = (loan.get("moto_descripcion", "") or "la moto").strip()
@@ -432,7 +433,7 @@ async def calcular_scores() -> None:
             # ── PTP Follow-up ────────────────────────────────────────────────
             ptp_fecha = loan.get("ptp_fecha", "")
             ptp_monto = loan.get("ptp_monto", 0)
-            tel       = loan.get("cliente_telefono", "")
+            tel       = normalizar_telefono(loan.get("cliente_telefono", ""))
             if ptp_fecha == today_str and tel and ptp_monto:
                 nombre = _nombre_corto(loan.get("cliente_nombre", ""))
                 msg = (
@@ -486,7 +487,7 @@ async def recordatorio_preventivo() -> None:
 
         enviados = 0
         for loan in loans:
-            tel = loan.get("cliente_telefono", "")
+            tel = normalizar_telefono(loan.get("cliente_telefono", ""))
             if not tel:
                 continue
             for cuota in loan.get("cuotas", []):
@@ -551,7 +552,7 @@ async def recordatorio_vencimiento() -> None:
 
         enviados = 0
         for loan in loans:
-            tel = loan.get("cliente_telefono", "")
+            tel = normalizar_telefono(loan.get("cliente_telefono", ""))
             if not tel:
                 continue
             for cuota in loan.get("cuotas", []):
@@ -612,7 +613,7 @@ async def notificar_mora_nueva() -> None:
 
         enviados = 0
         for loan in loans:
-            tel = loan.get("cliente_telefono", "")
+            tel = normalizar_telefono(loan.get("cliente_telefono", ""))
             if not tel:
                 continue
 

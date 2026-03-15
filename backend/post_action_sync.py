@@ -6,11 +6,93 @@ Flow: AI confirms action → execute_chat_action calls Alegra → calls this fun
 
 Supports metadata dict (passed from execute_chat_action after stripping _metadata from payload).
 """
+import logging
 import uuid
 from datetime import datetime, timezone, date, timedelta
 from math import ceil
 
 from services.shared_state import emit_state_change
+
+logger = logging.getLogger(__name__)
+
+
+# ─── Sync inventario desde factura de compra ─────────────────────────────────
+
+async def sync_inventario_desde_compra(
+    db,
+    motos: list,
+    proveedor: str,
+    alegra_bill_id: str,
+    now_iso: str,
+) -> list:
+    """Crea ítems en Alegra + documenta en inventario_motos para cada moto comprada.
+
+    Returns lista de sync_messages.
+    """
+    from alegra_service import AlegraService
+    service = AlegraService(db)
+    msgs: list[str] = []
+
+    for m in motos:
+        marca      = m.get("marca", "")
+        version    = m.get("version", "")
+        cantidad   = int(m.get("cantidad", 1))
+        costo_unit = float(m.get("precio_unitario", 0))
+        chasis     = m.get("chasis", "")
+        motor_num  = m.get("motor", "")
+
+        nombre_item = f"{marca} {version}".strip()
+
+        # 1. Intentar crear ítem en Alegra (catálogo de productos)
+        alegra_item_id = None
+        try:
+            item_payload = {
+                "name": nombre_item,
+                "description": f"Moto {marca} {version} — Proveedor: {proveedor}",
+                "price": [{"idPriceList": 1, "price": costo_unit}],
+                "inventory": {
+                    "unit": "unit",
+                    "unitCost": costo_unit,
+                    "initialQuantity": cantidad,
+                    "minQuantity": 0,
+                },
+                "category": {"id": 5},  # categoría inventario por defecto
+            }
+            alegra_resp = await service.request("items", "POST", item_payload)
+            alegra_item_id = str(alegra_resp.get("id", "")) if isinstance(alegra_resp, dict) else None
+            if alegra_item_id:
+                msgs.append(f"✅ **Alegra ítem** '{nombre_item}' creado (ID: {alegra_item_id})")
+        except Exception as exc:
+            logger.warning("[sync_inventario] No se pudo crear ítem en Alegra: %s", exc)
+
+        # 2. Insertar N unidades en inventario_motos
+        for _ in range(cantidad):
+            existing = None
+            if chasis:
+                existing = await db.inventario_motos.find_one({"chasis": chasis}, {"_id": 0, "id": 1})
+            if not existing:
+                doc = {
+                    "id": str(uuid.uuid4()),
+                    "marca": marca,
+                    "version": version,
+                    "estado": "Disponible",
+                    "costo": costo_unit,
+                    "total": costo_unit,
+                    "factura_compra_alegra_id": alegra_bill_id,
+                    "alegra_item_id": alegra_item_id,
+                    "proveedor": proveedor,
+                    "chasis": chasis,
+                    "motor": motor_num,
+                    "created_at": now_iso,
+                }
+                await db.inventario_motos.insert_one(doc)
+                doc.pop("_id", None)
+
+        msgs.append(
+            f"✅ **Inventario**: {cantidad} unidad(es) {nombre_item} → Disponible"
+        )
+
+    return msgs
 
 
 # ─── Loanbook stat recompute ──────────────────────────────────────────────────
@@ -325,28 +407,13 @@ async def post_action_sync(
             f"✅ **Factura de compra** registrada — Proveedor: {proveedor} · Total: ${total:,.0f}"
         )
 
-        # Add moto units to inventory if metadata has them
+        # Sync motos al inventario interno + ítem en Alegra (nueva función)
         motos_a_agregar = meta.get("motos_a_agregar", [])
-        for m in motos_a_agregar:
-            marca       = m.get("marca", "")
-            version     = m.get("version", "")
-            cantidad    = int(m.get("cantidad", 1))
-            costo_unit  = float(m.get("precio_unitario", 0))
-            for _ in range(cantidad):
-                await db.inventario_motos.insert_one({
-                    "id": str(uuid.uuid4()),
-                    "marca": marca,
-                    "version": version,
-                    "estado": "Disponible",
-                    "costo": costo_unit,
-                    "total": costo_unit,
-                    "factura_compra_alegra_id": alegra_id,
-                    "proveedor": proveedor,
-                    "created_at": now_iso,
-                    "chasis": "",
-                    "motor": "",
-                })
-            sync_msgs.append(f"✅ **Inventario**: {cantidad} unidad(es) {marca} {version} agregadas (Disponible)")
+        if motos_a_agregar:
+            inv_msgs = await sync_inventario_desde_compra(
+                db, motos_a_agregar, proveedor, alegra_id, now_iso
+            )
+            sync_msgs.extend(inv_msgs)
             modules.append("inventario")
 
         if plazo_dias > 0:

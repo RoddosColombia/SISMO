@@ -3,11 +3,39 @@
 All mutations are append-only on historical arrays (gestiones, notas, score_historial).
 Never overwrite historical records.
 """
+import re
 import uuid
 import asyncio
 from datetime import datetime, timezone, date
 
 from services.shared_state import emit_state_change
+
+
+def normalizar_telefono(telefono: str) -> str:
+    """Normaliza teléfonos colombianos al formato canónico +57XXXXXXXXXX.
+
+    Casos manejados:
+      3XXXXXXXXX      (10 dígitos móvil) → +573XXXXXXXXX
+      573XXXXXXXXX    (12 dígitos sin +)  → +573XXXXXXXXX
+      +573XXXXXXXXX   (ya normalizado)    → +573XXXXXXXXX
+      Otros / vacío                       → devuelve tal como está
+    """
+    t = re.sub(r"[\s\-().]+", "", (telefono or ""))
+    if not t:
+        return t
+    # Already correct
+    if re.fullmatch(r"\+57[3]\d{9}", t):
+        return t
+    # 573XXXXXXXXX → +57...
+    if re.fullmatch(r"57[3]\d{9}", t):
+        return "+" + t
+    # 3XXXXXXXXX → +57...
+    if re.fullmatch(r"[3]\d{9}", t):
+        return "+57" + t
+    # +3XXXXXXXXX (bad prefix) → +57...
+    if re.fullmatch(r"\+[3]\d{9}", t):
+        return "+57" + t[1:]
+    return t
 
 RESULTADO_VALIDOS = {
     "contestó_pagará_hoy",
@@ -25,6 +53,10 @@ RESULTADO_VALIDOS = {
 
 async def upsert_cliente(db, telefono: str, datos: dict) -> dict:
     """Update or create a crm_clientes document identified by telefono_principal."""
+    telefono = normalizar_telefono(telefono)
+    # Also normalize alternate phone if provided
+    if datos.get("telefono_alternativo"):
+        datos["telefono_alternativo"] = normalizar_telefono(datos["telefono_alternativo"])
     now = datetime.now(timezone.utc).isoformat()
     existing = await db.crm_clientes.find_one(
         {"telefono_principal": telefono}, {"_id": 0}

@@ -41,11 +41,9 @@ def _fmt(n) -> str:
 
 
 def _normalize_phone(phone: str) -> str:
-    """Normalize phone: strip spaces/dashes, ensure leading +."""
-    phone = (phone or "").strip().replace(" ", "").replace("-", "")
-    if phone and not phone.startswith("+"):
-        phone = "+" + phone
-    return phone
+    """Normalize Colombian phone numbers to +57XXXXXXXXXX format."""
+    from services.crm_service import normalizar_telefono
+    return normalizar_telefono(phone)
 
 
 async def enviar_whatsapp(phone: str, mensaje: str) -> bool:
@@ -89,7 +87,14 @@ async def _detect_sender(phone: str, whitelist: list) -> tuple:
     if norm in norm_whitelist:
         return "INTERNO", None
 
-    # Match by last 10 digits (handles +57 prefix variations)
+    # Direct match (all DB entries should be +57... after migration)
+    cliente = await db.crm_clientes.find_one(
+        {"telefono_principal": norm}, {"_id": 0}
+    )
+    if cliente:
+        return "CLIENTE", cliente
+
+    # Fallback: match by last 10 digits (handles any remaining legacy formats)
     digits10 = norm[-10:]
     cliente = await db.crm_clientes.find_one(
         {"telefono_principal": {"$regex": digits10}}, {"_id": 0}

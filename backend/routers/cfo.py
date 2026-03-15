@@ -1,7 +1,8 @@
 """cfo.py — RODDOS Agente CFO: semáforo financiero, informes, plan de acción."""
 import logging
+import uuid
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from database import db
@@ -62,15 +63,71 @@ async def get_informes(current_user=Depends(get_current_user)):
     return docs
 
 
+# ── Background task helper ────────────────────────────────────────────────────
+
+async def _generar_informe_background(job_id: str, triggered_by: str):
+    """Ejecuta la generación del informe CFO y actualiza el estado del job en cfo_jobs."""
+    try:
+        await db.cfo_jobs.update_one(
+            {"id": job_id},
+            {"$set": {"estado": "en_proceso", "iniciado_en": datetime.now(timezone.utc).isoformat()}},
+        )
+        informe = await generar_informe_cfo(db, triggered_by=triggered_by)
+        await db.cfo_jobs.update_one(
+            {"id": job_id},
+            {"$set": {
+                "estado": "completado",
+                "completado_en": datetime.now(timezone.utc).isoformat(),
+                "informe_id": informe.get("id", ""),
+            }},
+        )
+        logger.info("[CFO] Job %s completado — informe %s", job_id, informe.get("id"))
+    except Exception as exc:
+        logger.error("[CFO] Job %s falló: %s", job_id, exc)
+        await db.cfo_jobs.update_one(
+            {"id": job_id},
+            {"$set": {
+                "estado": "error",
+                "error": str(exc)[:500],
+                "completado_en": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+
+
 # ── POST /generar ─────────────────────────────────────────────────────────────
 @router.post("/generar")
-async def generar_informe(current_user=Depends(get_current_user)):
-    """Genera un informe CFO completo con análisis IA. Puede tomar 10-20 s."""
-    try:
-        return await generar_informe_cfo(db, triggered_by=current_user.get("email", "manual"))
-    except Exception as e:
-        logger.error(f"[CFO] /generar error: {e}")
-        raise HTTPException(status_code=500, detail=f"Error generando informe: {str(e)}")
+async def generar_informe(
+    background_tasks: BackgroundTasks,
+    current_user=Depends(get_current_user),
+):
+    """Dispara la generación asíncrona del informe CFO. Retorna job_id para polling."""
+    job_id = str(uuid.uuid4())
+    triggered_by = current_user.get("email", "manual")
+    now = datetime.now(timezone.utc).isoformat()
+
+    await db.cfo_jobs.insert_one({
+        "id": job_id,
+        "estado": "pendiente",
+        "triggered_by": triggered_by,
+        "created_at": now,
+        "iniciado_en": None,
+        "completado_en": None,
+        "informe_id": None,
+        "error": None,
+    })
+
+    background_tasks.add_task(_generar_informe_background, job_id, triggered_by)
+    return {"job_id": job_id, "estado": "pendiente"}
+
+
+# ── GET /status/{job_id} ──────────────────────────────────────────────────────
+@router.get("/status/{job_id}")
+async def get_job_status(job_id: str, current_user=Depends(get_current_user)):
+    """Polling endpoint para conocer el estado de un job de generación de informe CFO."""
+    job = await db.cfo_jobs.find_one({"id": job_id}, {"_id": 0})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job no encontrado")
+    return job
 
 
 # ── GET /plan-accion ──────────────────────────────────────────────────────────

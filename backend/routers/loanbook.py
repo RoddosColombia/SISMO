@@ -10,6 +10,7 @@ from alegra_service import AlegraService
 from database import db
 from dependencies import get_current_user, require_admin, log_action
 from event_bus import emit_event
+from services.crm_service import normalizar_telefono
 
 router = APIRouter(prefix="/loanbook", tags=["loanbook"])
 
@@ -236,7 +237,7 @@ async def create_loan(req: LoanCreate, current_user=Depends(get_current_user)):
         "cliente_id": req.cliente_id,
         "cliente_nombre": req.cliente_nombre,
         "cliente_nit": req.cliente_nit,
-        "cliente_telefono": req.cliente_telefono,
+        "cliente_telefono": normalizar_telefono(req.cliente_telefono or ""),
         "plan": req.plan,
         "fecha_factura": req.fecha_factura,
         "fecha_entrega": None,

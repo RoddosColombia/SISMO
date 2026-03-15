@@ -1,0 +1,51 @@
+{
+  "summary": "Iteration 28 — GAP 1/2/3 testing. 13/13 backend tests pass. All 3 GAPs verified: phone normalization, inventory stats, CFO async polling. CFO frontend page stuck loading due to slow AI call on /api/cfo/semaforo (>30s).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET /api/cfo/semaforo",
+        "issue": "AI call takes >30s, blocking the CFO page initial load — all 4 concurrent Promise.all calls wait for this"
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "CFO page (Agente CFO)",
+        "issue": "Page stuck on loading spinner because Promise.all in load() waits for /cfo/semaforo which takes >30s (AI call). Users see only a spinner with no content.",
+        "selector": "loading spinner",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_gaps_iteration28.py",
+    "/app/test_reports/pytest/gaps_iteration28.xml"
+  ],
+  "action_items": [
+    "Optional: Decouple /cfo/semaforo from the initial Promise.all in CFO.tsx to avoid blocking page render. Load semaforo independently with its own loading state, so the rest of the page content (P&G, informes list) renders first."
+  ],
+  "critical_code_review_comments": [
+    "GAP 1 (normalizar_telefono): Function correctly handles all 4 phone formats. Webhook _detect_sender normalizes before DB lookup. loanbook.py normalizes at line 240. All good.",
+    "GAP 2 (sync_inventario_desde_compra): Function present in post_action_sync.py, CASO 4 (registrar_factura_compra) invokes it via meta.get('motos_a_agregar'). GET /api/inventario/stats returns all required fields.",
+    "GAP 3 (CFO async): POST /api/cfo/generar uses BackgroundTasks and returns job_id in <1s. GET /api/cfo/status/{job_id} returns current state. Full polling flow completed successfully in ~90s (AI call takes time). CFO.tsx uses setInterval every 2s with max 45 attempts (90s). Code is correct.",
+    "CFO page UX: /cfo/semaforo blocks page render for 30+ seconds. Consider making it load independently."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_gaps_iteration28.py"
+  ],
+  "success_rate": {
+    "backend": "100% (13/13)",
+    "frontend": "75% — page loads, navigation works, CFO page stuck on spinner due to slow AI"
+  },
+  "test_credentials": "contabilidad@roddos.com / Admin@RODDOS2025!",
+  "seed_data_creation": "1 test loan created (TEST_GapUser, plan P39S, telefono normalized to +573109999888)",
+  "mocked_apis": "Mercately WhatsApp send API (MOCKED — enviar_whatsapp returns False)",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "GAP 1/2/3 all verified working via backend tests. normalizar_telefono: 4 formats tested OK. Webhook returns 200/ok. Loanbook phones all +57. Inventario stats: total/disponibles/vendidas/entregadas/total_inversion all returned. CFO async: generar returns job_id in <1s, polling flow completes in ~90s with informe_id. CFO frontend page stuck on spinner due to /cfo/semaforo taking 30+s. This is a known slow AI call issue.",
+  "rca_of_issues": "CFO page spinner: load() in CFO.tsx calls Promise.all([semaforo, pyg, informe-mensual, informes]). The /cfo/semaforo endpoint calls AI (consolidar_datos_financieros + generar_semaforo via LLM), taking >30s. Fix: either make semaforo load independently (not blocking), or add timeout/fallback. The GAP 3 button itself (handleGenerar) is correctly async."
+}

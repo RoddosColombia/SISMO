@@ -203,13 +203,51 @@ export default function CFO(): React.ReactElement {
   const handleGenerar = async () => {
     setGenerating(true);
     try {
-      const res = await api.post("/cfo/generar");
-      setInforme(res.data);
-      setPlanAcciones(res.data?.plan_acciones || []);
-      toast.success("Informe CFO generado correctamente");
-      await load();
+      // 1. Disparar job asíncrono
+      const triggerRes = await api.post("/cfo/generar");
+      const jobId: string = triggerRes.data?.job_id;
+      if (!jobId) throw new Error("No se recibió job_id");
+
+      toast.info("Generando informe CFO… esto puede tomar 15–30 segundos.");
+
+      // 2. Polling cada 2 s hasta completado o error (máx 90 s)
+      let attempts = 0;
+      const MAX_ATTEMPTS = 45;
+      await new Promise<void>((resolve, reject) => {
+        const interval = setInterval(async () => {
+          attempts++;
+          try {
+            const statusRes = await api.get(`/cfo/status/${jobId}`);
+            const { estado, informe_id, error } = statusRes.data;
+
+            if (estado === "completado" && informe_id) {
+              clearInterval(interval);
+              // Cargar el informe recién generado
+              try {
+                const infRes = await api.get("/cfo/informe-mensual");
+                if (!infRes.data?.mensaje) {
+                  setInforme(infRes.data);
+                  setPlanAcciones(infRes.data?.plan_acciones || []);
+                }
+                await load();
+              } catch { /* datos actualizados en load() */ }
+              toast.success("Informe CFO generado correctamente");
+              resolve();
+            } else if (estado === "error") {
+              clearInterval(interval);
+              reject(new Error(error || "Error generando informe"));
+            } else if (attempts >= MAX_ATTEMPTS) {
+              clearInterval(interval);
+              reject(new Error("El informe tardó demasiado. Intenta nuevamente."));
+            }
+          } catch (pollErr: any) {
+            clearInterval(interval);
+            reject(pollErr);
+          }
+        }, 2000);
+      });
     } catch (e: any) {
-      toast.error(e?.response?.data?.detail || "Error generando informe");
+      toast.error(e?.message || e?.response?.data?.detail || "Error generando informe");
     } finally {
       setGenerating(false);
     }
@@ -478,7 +516,7 @@ export default function CFO(): React.ReactElement {
           className="flex items-center gap-2 bg-[#0F2A5C] hover:bg-[#1a3d7a] text-white font-semibold px-5 py-3 rounded-full shadow-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {generating ? (
-            <><Loader2 size={16} className="animate-spin" /> Generando…</>
+            <><Loader2 size={16} className="animate-spin" /> Analizando datos CFO…</>
           ) : (
             <><Zap size={16} /> Generar Informe CFO</>
           )}
