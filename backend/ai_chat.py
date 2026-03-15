@@ -187,8 +187,26 @@ Cuando el usuario quiera vender una moto:
 
 PASO 1 — Verificar disponibilidad:
 Si el contexto incluye INVENTARIO_DISPONIBLE, verifica que la moto esté listada.
-Si su estado ≠ "Disponible", RECHAZA la operación:
-  "La moto [descripción] no está disponible (estado: [X]). No se puede facturar."
+
+Si el usuario especificó chasis o moto_id:
+  - Si no existe en inventario → RECHAZA:
+    "❌ No encontré la moto con chasis [X] en el inventario. 
+     Verifica el chasis o registra primero la entrada de esa unidad."
+  - Si existe pero estado ≠ "Disponible" → RECHAZA con detalle:
+    "❌ La moto [chasis X] tiene estado '[estado]'. No se puede facturar.
+     [Si estado=Vendida]: Vinculada a factura [numero] del [fecha_venta]."
+
+Si el usuario NO especificó chasis (venta genérica por modelo):
+  - Cuenta cuántas unidades del modelo tienen estado "Disponible" en INVENTARIO_DISPONIBLE.
+  - Si count == 0 → RECHAZA:
+    "❌ No hay unidades disponibles de [modelo]. Stock actual: 0.
+     Registra una compra primero para agregar unidades."
+  - Si count > 0 → muestra las opciones:
+    "Hay [N] unidades disponibles de [modelo]:
+     • Chasis [A] — [color A]
+     • Chasis [B] — [color B]
+     ¿Cuál vas a vender? (responde el número de chasis)"
+    Espera confirmación antes de continuar.
 
 PASO 2 — Confirmar plan y cuota:
 Si el usuario no indicó el plan, PREGUNTA:
@@ -314,17 +332,46 @@ NUNCA uses "items" en el nivel raíz para bills — SIEMPRE usa "purchases.items
 NUNCA uses un item de servicio (type=service) en bills — solo type=product.
 NUNCA omitas dueDate ni paymentForm.
 
-Solo para compras de motos/inventario, incluye _metadata para auto-registro en inventario:
+Solo para compras de motos/inventario, incluye _metadata para auto-registro en inventario.
+REGLA OBLIGATORIA: Si la compra involucra motos o vehículos, el campo _metadata.motos_a_agregar
+es OBLIGATORIO. Nunca omitirlo en compras de motos.
+
+PROTOCOLO DE COMPRA DE MOTOS — sigue este orden:
+
+PASO 1 — Verificar datos mínimos:
+Si el usuario NO especificó color y chasis de cada unidad, PREGUNTA ANTES de ejecutar:
+  "Para registrar las motos en inventario necesito datos de cada unidad:
+   • ¿Cuál es el color?
+   • ¿Número de chasis? (recomendado)
+   • ¿Número de motor? (opcional)
+   Si no tienes los datos ahora, responde 'sin datos' y las motos quedarán pendientes."
+
+PASO 2 — Si el usuario responde "sin datos" o "sin chasis":
+   Crea las motos en inventario con estado "Pendiente datos" (no "Disponible").
+   Indica al usuario: "Las motos se agregaron con estado 'Pendiente datos'. 
+   Completa chasis/color en Módulo Motos antes de venderlas."
+
+PASO 3 — Formato _metadata obligatorio para compra de motos:
 {
   "_metadata": {
+    "es_compra_motos": true,
     "proveedor_nombre": "[nombre]",
     "plazo_dias": 90,
     "motos_a_agregar": [
-      {"marca": "Honda", "version": "CB190R", "cantidad": 3, "precio_unitario": 8400000}
+      {
+        "marca": "Honda",        // REQUERIDO
+        "version": "CB190R",     // REQUERIDO
+        "cantidad": 2,           // REQUERIDO
+        "precio_unitario": 8400000, // REQUERIDO
+        "color": "Rojo",         // opcional — si el usuario lo dio
+        "chasis": "ABC123456",   // opcional pero recomendado — si el usuario lo dio
+        "motor": "MOT987654"     // opcional
+      }
     ]
   }
 }
-Esto agrega las motos automáticamente al inventario con estado "Disponible".
+Si cantidad > 1 y hay varios chasis, crea un objeto por chasis distinto con cantidad: 1 cada uno.
+Esto agrega las motos automáticamente al inventario con estado "Disponible" (o "Pendiente datos").
 
 ═══════════════════════════════════════════════════
 MAPA DE CUENTAS CONTABLES — RODDOS SAS (IDs reales Alegra)
@@ -1550,13 +1597,48 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
     if action_type == "crear_factura_venta":
         moto_id   = internal_metadata.get("moto_id", "")
         moto_chas = internal_metadata.get("moto_chasis", "")
+        moto_desc = internal_metadata.get("moto_descripcion", "")
+
         if moto_id or moto_chas:
             query = {"id": moto_id} if moto_id else {"chasis": moto_chas}
-            moto = await db.inventario_motos.find_one(query, {"_id": 0, "estado": 1, "chasis": 1})
-            if moto and moto.get("estado") not in ("Disponible", None, ""):
+            moto = await db.inventario_motos.find_one(
+                query,
+                {"_id": 0, "estado": 1, "chasis": 1, "marca": 1, "version": 1,
+                 "factura_numero": 1, "fecha_venta": 1, "cliente_nombre": 1},
+            )
+            if not moto:
                 raise ValueError(
-                    f"La moto {moto_chas or moto_id} ya fue registrada como '{moto.get('estado')}'. "
-                    "No se puede vender una moto que no está disponible."
+                    f"❌ No encontré la moto con {'chasis' if moto_chas else 'ID'} "
+                    f"'{moto_chas or moto_id}' en el inventario. "
+                    "Verifica el chasis o registra la entrada de esa unidad primero."
+                )
+            estado = moto.get("estado", "")
+            if estado not in ("Disponible", None, ""):
+                detalle = ""
+                if estado == "Vendida":
+                    fv = moto.get("factura_numero", "")
+                    fecha = moto.get("fecha_venta", "")
+                    cli   = moto.get("cliente_nombre", "")
+                    detalle = (
+                        f" Vinculada a factura {fv} del {fecha}"
+                        f"{(' — ' + cli) if cli else ''}."
+                    )
+                raise ValueError(
+                    f"❌ La moto {moto_chas or moto_id} tiene estado '{estado}'. "
+                    f"No se puede facturar.{detalle}"
+                )
+
+        elif moto_desc:
+            # Generic sale by model — verify stock exists
+            partes = (moto_desc or "").split()
+            marca_q = partes[0] if partes else ""
+            disponibles = await db.inventario_motos.count_documents(
+                {"estado": "Disponible", **({"marca": {"$regex": marca_q, "$options": "i"}} if marca_q else {})}
+            )
+            if disponibles == 0:
+                raise ValueError(
+                    f"❌ No hay unidades disponibles de {moto_desc}. "
+                    "Registra una compra primero para agregar unidades al inventario."
                 )
 
     result = await service.request(endpoint, method, payload)

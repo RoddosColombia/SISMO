@@ -66,6 +66,11 @@ async def sync_inventario_desde_compra(
             logger.warning("[sync_inventario] No se pudo crear ítem en Alegra: %s", exc)
 
         # 2. Insertar N unidades en inventario_motos
+        # Estado: "Disponible" si tiene chasis/color, "Pendiente datos" si no
+        tiene_datos = bool(chasis or m.get("color", ""))
+        estado_inicial = "Disponible" if tiene_datos else "Pendiente datos"
+        color = m.get("color", "")
+
         for _ in range(cantidad):
             existing = None
             if chasis:
@@ -75,21 +80,23 @@ async def sync_inventario_desde_compra(
                     "id": str(uuid.uuid4()),
                     "marca": marca,
                     "version": version,
-                    "estado": "Disponible",
+                    "color": color,
+                    "estado": estado_inicial,
                     "costo": costo_unit,
                     "total": costo_unit,
                     "factura_compra_alegra_id": alegra_bill_id,
                     "alegra_item_id": alegra_item_id,
                     "proveedor": proveedor,
-                    "chasis": chasis,
-                    "motor": motor_num,
+                    "chasis": chasis or None,
+                    "motor": motor_num or None,
                     "created_at": now_iso,
                 }
                 await db.inventario_motos.insert_one(doc)
                 doc.pop("_id", None)
 
+        estado_label = estado_inicial
         msgs.append(
-            f"✅ **Inventario**: {cantidad} unidad(es) {nombre_item} → Disponible"
+            f"✅ **Inventario**: {cantidad} unidad(es) {nombre_item} → {estado_label}"
         )
 
     return msgs
@@ -300,6 +307,23 @@ async def post_action_sync(
             {"alegra_id": alegra_id, "factura_numero": numero,
              "cliente_nombre": cliente_nombre, "plan": plan, "total": total},
         )
+        # Evento específico de baja de inventario (para auditoría y ML)
+        if moto_id or moto_chasis:
+            await db.roddos_events.insert_one({
+                "id": str(uuid.uuid4()),
+                "event_type": "inventario.moto.baja",
+                "timestamp": now_iso,
+                "data": {
+                    "moto_id":         moto_id,
+                    "moto_chasis":     moto_chasis,
+                    "moto_desc":       moto_desc,
+                    "factura_alegra_id": alegra_id,
+                    "factura_numero":  numero,
+                    "cliente_nombre":  cliente_nombre,
+                    "fecha_venta":     today_s,
+                    "registrado_por":  user.get("email", ""),
+                },
+            })
 
     # ── CASO 2: Pago de Cuota ─────────────────────────────────────────────────
     elif action_type == "registrar_pago":
@@ -409,12 +433,31 @@ async def post_action_sync(
 
         # Sync motos al inventario interno + ítem en Alegra (nueva función)
         motos_a_agregar = meta.get("motos_a_agregar", [])
+        es_compra_motos = meta.get("es_compra_motos", False)
+
         if motos_a_agregar:
             inv_msgs = await sync_inventario_desde_compra(
                 db, motos_a_agregar, proveedor, alegra_id, now_iso
             )
             sync_msgs.extend(inv_msgs)
             modules.append("inventario")
+        elif es_compra_motos:
+            # Moto purchase but no unit data provided → log alert + warn user
+            await db.roddos_events.insert_one({
+                "id": str(uuid.uuid4()),
+                "event_type": "inventario.sync.pendiente",
+                "timestamp": now_iso,
+                "data": {
+                    "causa": "motos_a_agregar ausente en _metadata",
+                    "bill_id": alegra_id,
+                    "proveedor": proveedor,
+                },
+            })
+            sync_msgs.append(
+                "⚠️ **Factura de compra registrada en Alegra pero las motos NO se agregaron al inventario.**\n"
+                "Razón: datos de unidades no especificados (marca, versión, cantidad).\n"
+                "Ve a **Módulo Motos → Agregar** para registrar las unidades manualmente."
+            )
 
         if plazo_dias > 0:
             vencimiento = (date.today() + timedelta(days=plazo_dias)).isoformat()

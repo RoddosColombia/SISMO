@@ -1,0 +1,46 @@
+{
+  "summary": "Iteration 29 — 12/12 tests pass for Guard anti-double-sale (B1-B6), sync_inventario_desde_compra (A1-A3), and verification tests (C1-C3). Fixed 1 bug in post_action_sync.py.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "post_action_sync.py sync_inventario_desde_compra",
+        "issue": "Bug fixed: chasis='' (empty string) was inserted into inventario_motos which has a unique sparse index on 'chasis'. Sparse indexes only skip null, not empty strings. Caused DuplicateKeyError on second moto without chasis. Fixed by using 'chasis or None' so sparse index skips it.",
+        "priority": "MEDIUM — now fixed"
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration29_features.py",
+    "/app/test_reports/pytest/iteration29.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "B1-B6 Guard logic (ai_chat.py ~line 1597): All guard cases work correctly — blocks Vendida with factura/fecha/cliente details, blocks inexistent chasis, passes Disponible, blocks zero-stock generic, passes with-stock generic, blocks after state change.",
+    "A1 sync_inventario_desde_compra: chasis+color → estado='Disponible' ✅",
+    "A2 sync_inventario_desde_compra: no chasis, no color → estado='Pendiente datos' ✅ (after bug fix)",
+    "A3 CASO 4: es_compra_motos=True + motos_a_agregar=[] → inserts event 'inventario.sync.pendiente' in roddos_events ✅",
+    "C1 GET /api/inventario/stats: returns 'pendiente_datos' int field ✅",
+    "C2 inventario_motos: docs with estado='Pendiente datos' exist ✅",
+    "C3 ai_chat.py system prompt: contains 'es_compra_motos', 'Pendiente datos', 'OBLIGATORIO' ✅"
+  ],
+  "updated_files": [
+    "/app/backend/post_action_sync.py",
+    "/app/backend/tests/test_iteration29_features.py"
+  ],
+  "success_rate": {
+    "backend": "100% (12/12)",
+    "frontend": "N/A — backend-only testing"
+  },
+  "test_credentials": "contabilidad@roddos.com / Admin@RODDOS2025!",
+  "seed_data_creation": "Test motos inserted and cleaned up during tests (prefixed TEST_). No permanent seed data left.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All B/A/C tests pass. Guard in ai_chat.py execute_chat_action (line 1597) works for all 6 cases. sync_inventario_desde_compra correctly creates Disponible (with chasis) or Pendiente datos (without). CASO 4 event creation works. Bug fixed: chasis='' → now stored as None to satisfy sparse unique index.",
+  "rca_of_issue": "post_action_sync.py inserted 'chasis': '' when no chasis provided. MongoDB unique sparse index on chasis only skips null/missing, not empty string. Fix: use 'chasis or None' (and 'motor or None') so empty values become null and are ignored by the sparse index. Same fix applied to motor field for consistency."
+}

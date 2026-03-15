@@ -60,9 +60,10 @@ async def get_inventario(
 @router.get("/stats")
 async def get_inventario_stats(current_user=Depends(get_current_user)):
     total = await db.inventario_motos.count_documents({})
-    disponibles = await db.inventario_motos.count_documents({"estado": "Disponible"})
-    vendidas = await db.inventario_motos.count_documents({"estado": "Vendida"})
-    entregadas = await db.inventario_motos.count_documents({"estado": "Entregada"})
+    disponibles      = await db.inventario_motos.count_documents({"estado": "Disponible"})
+    vendidas         = await db.inventario_motos.count_documents({"estado": "Vendida"})
+    entregadas       = await db.inventario_motos.count_documents({"estado": "Entregada"})
+    pendiente_datos  = await db.inventario_motos.count_documents({"estado": "Pendiente datos"})
     pipeline = [{"$group": {"_id": None, "total_inversion": {"$sum": "$total"}, "total_costo": {"$sum": "$costo"}}}]
     agg = await db.inventario_motos.aggregate(pipeline).to_list(1)
     totals = agg[0] if agg else {"total_inversion": 0, "total_costo": 0}
@@ -71,6 +72,7 @@ async def get_inventario_stats(current_user=Depends(get_current_user)):
         "disponibles": disponibles,
         "vendidas": vendidas,
         "entregadas": entregadas,
+        "pendiente_datos": pendiente_datos,
         "total_inversion": totals.get("total_inversion", 0),
         "total_costo": totals.get("total_costo", 0),
     }
