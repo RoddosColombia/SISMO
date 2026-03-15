@@ -34,7 +34,7 @@ from dependencies import get_current_user
 router = APIRouter(prefix="/cfo", tags=["cfo-estrategico"])
 logger = logging.getLogger(__name__)
 
-RECAUDO_SEMANAL_BASE = 1_509_500
+RECAUDO_SEMANAL_BASE = 1_659_400   # actualizado: 10 loanbooks activos (incluye Sindy Beltrán)
 TICKET_PROMEDIO      = 167_722
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -107,7 +107,7 @@ async def save_financiero_config(req: FinancieroConfigReq, current_user=Depends(
 
     # Recalculate indicadores
     creditos_minimos = -(-data["gastos_fijos_semanales"] // TICKET_PROMEDIO)
-    margen = RECAUDO_SEMANAL_BASE - data["gastos_fijos_semanales"] - (data["gastos_fijos_semanales"] * data["reserva_minima_semanas"])
+    margen = RECAUDO_SEMANAL_BASE - data["gastos_fijos_semanales"]  # déficit semanal real: recaudo - gastos
     return {
         "ok": True,
         "config": data,
@@ -921,7 +921,7 @@ async def get_indicadores(current_user=Depends(get_current_user)):
     # Recaudo dinámico: suma de cuota_valor de todos los créditos activos
     recaudo_base = sum(lb.get("cuota_valor") or 0 for lb in lbs)
 
-    margen     = recaudo_base - gastos - (gastos * 2) if gastos > 0 else 0
+    margen     = recaudo_base - gastos if gastos > 0 else 0  # déficit semanal = recaudo - gastos fijos
     pct_gastos = ((gastos / recaudo_base) * 100) if recaudo_base > 0 else 0
 
     return {

@@ -1153,6 +1153,7 @@ export default function CFO(): React.ReactElement {
         </div>
       </section>
 
+      <section data-testid="pl-section-wrapper">
         {/* ── Estado de Resultados (P&L) ─────────────────────────────────── */}
         <div className="rounded-xl border border-slate-200 bg-white p-4" data-testid="pl-section">
           <div className="flex items-center justify-between mb-3">

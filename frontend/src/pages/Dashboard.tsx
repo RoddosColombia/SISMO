@@ -166,6 +166,9 @@ export default function Dashboard() {
     ? Math.round((semana.valor_pagado ?? 0) / semana.valor_esperado * 100)
     : 0;
   const tasaMora    = ph?.tasa_mora ?? 0;
+  const rollRateNum = ph?.activos
+    ? `${Math.round((semana.nuevas_moras ?? 0) / ph.activos * 100)}%`
+    : "—";
 
   if (loadingInit) {
     return (

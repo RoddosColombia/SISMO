@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Upload, RefreshCw, CheckCircle2, XCircle, Loader2, Bike,
-  TrendingUp, Package, Tag, AlertCircle, Edit2, Trash2, Link, ShoppingBag, FileDown
+  TrendingUp, Package, Tag, AlertCircle, Edit2, Trash2, Link, ShoppingBag, FileDown,
+  DollarSign, Download, X, CheckCircle
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
@@ -82,7 +83,13 @@ export default function InventarioAuteco() {
   const [contacts, setContacts] = useState([]);
   const [sellForm, setSellForm] = useState({ cliente_id: "", cliente_nombre: "", precio_venta: "", tipo_pago: "contado", cuotas: 12, valor_cuota: "", include_iva: true, ipoc_pct: 8 });
   const [sellLoading, setSellLoading] = useState(false);
+  const [showCostModal, setShowCostModal] = useState(false);
+  const [costosFile, setCostosFile] = useState(null);
+  const [costosLoading, setCostosLoading] = useState(false);
+  const [costosPreview, setCostosPreview] = useState(null);
+  const [confirming, setConfirming] = useState(false);
   const fileRef = useRef();
+  const costFileRef = useRef();
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -203,8 +210,7 @@ export default function InventarioAuteco() {
     setEditData({ placa: moto.placa || "", estado: moto.estado, ubicacion: moto.ubicacion || "" });
   };
 
-  const handleExportExcel = () => {
-    exportExcel({
+  const handleExportExcel = () => {    exportExcel({
       filename: `inventario-auteco-${new Date().toISOString().slice(0, 10)}`,
       sheets: [{
         name: "Inventario Motos",
@@ -242,6 +248,49 @@ export default function InventarioAuteco() {
     });
   };
 
+  const handleDownloadCostTemplate = async () => {
+    const API = process.env.REACT_APP_BACKEND_URL;
+    window.open(`${API}/api/inventario/plantilla-costos`, "_blank");
+  };
+
+  const handleCostFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCostosFile(file);
+    setCostosLoading(true);
+    setCostosPreview(null);
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const res = await api.post("/inventario/cargar-costos/preview", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setCostosPreview(res.data);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Error procesando plantilla");
+      setCostosFile(null);
+    } finally {
+      setCostosLoading(false);
+    }
+  };
+
+  const handleConfirmCostos = async () => {
+    if (!costosPreview?.actualizadas) return;
+    setConfirming(true);
+    try {
+      const res = await api.post("/inventario/cargar-costos/confirmar", { actualizadas: costosPreview.actualizadas });
+      toast.success(`${res.data.guardadas} motos actualizadas con costos de compra`);
+      setShowCostModal(false);
+      setCostosPreview(null);
+      setCostosFile(null);
+      loadData();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Error guardando costos");
+    } finally {
+      setConfirming(false);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-full">
       {/* Header */}
@@ -269,6 +318,13 @@ export default function InventarioAuteco() {
             {uploading ? "Procesando PDF..." : "Importar Factura PDF"}
             <input ref={fileRef} type="file" accept=".pdf" className="hidden" onChange={handleUpload} disabled={uploading} />
           </label>
+          <button
+            onClick={() => setShowCostModal(true)}
+            data-testid="carga-costos-btn"
+            className="flex items-center gap-1.5 text-sm font-medium bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg transition"
+          >
+            <DollarSign size={14} /> Cargar Costos
+          </button>
         </div>
       </div>
 
@@ -540,6 +596,88 @@ export default function InventarioAuteco() {
                 Crear Factura en Alegra
               </button>
               <button onClick={() => setSelling(null)} className="px-4 py-3 border rounded-xl text-sm text-slate-600 hover:bg-slate-50">Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal Carga de Costos */}
+      {showCostModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" data-testid="cost-modal">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <div>
+                <h3 className="font-bold text-[#0F2A5C] text-base">Carga inicial de costos de compra</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Actualiza el precio de compra de cada moto para el cálculo de margen</p>
+              </div>
+              <button onClick={() => { setShowCostModal(false); setCostosPreview(null); setCostosFile(null); }} className="text-slate-400 hover:text-slate-700">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold flex-shrink-0">1</div>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-blue-800">Descarga la plantilla Excel</p>
+                    <p className="text-xs text-blue-600 mt-0.5">Contiene todas las motos con sus datos actuales</p>
+                    <button onClick={handleDownloadCostTemplate} data-testid="download-cost-template-btn"
+                      className="mt-2 flex items-center gap-1.5 text-xs font-bold text-blue-700 bg-blue-100 hover:bg-blue-200 px-3 py-1.5 rounded-lg transition">
+                      <Download size={12} /> Descargar Plantilla (.xlsx)
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-7 h-7 rounded-full bg-amber-500 text-white flex items-center justify-center text-xs font-bold flex-shrink-0">2</div>
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-amber-800">Sube la plantilla con los costos llenados</p>
+                    <p className="text-xs text-amber-700 mt-0.5">Llena columnas: precio_compra, iva_compra, ipoc_compra</p>
+                    <label className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 bg-amber-100 hover:bg-amber-200 px-3 py-1.5 rounded-lg transition cursor-pointer" data-testid="upload-cost-file-btn">
+                      {costosLoading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+                      {costosFile ? costosFile.name : "Seleccionar archivo .xlsx"}
+                      <input ref={costFileRef} type="file" accept=".xlsx" className="hidden" onChange={handleCostFileChange} disabled={costosLoading} />
+                    </label>
+                  </div>
+                </div>
+              </div>
+              {costosPreview && (
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <div className="bg-slate-50 px-4 py-2 border-b border-slate-200 flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-700">Vista previa — {costosPreview.actualizadas?.length || 0} motos</span>
+                    {costosPreview.no_encontradas?.length > 0 && <span className="text-xs text-amber-600 font-medium">{costosPreview.no_encontradas.length} no encontradas</span>}
+                  </div>
+                  <div className="max-h-52 overflow-y-auto">
+                    <table className="w-full text-xs">
+                      <thead className="bg-slate-100 sticky top-0">
+                        <tr>
+                          <th className="px-3 py-1.5 text-left">Chasis</th>
+                          <th className="px-3 py-1.5 text-right">P. Compra</th>
+                          <th className="px-3 py-1.5 text-right">IVA</th>
+                          <th className="px-3 py-1.5 text-right">IPOC</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {costosPreview.actualizadas?.map((r, i) => (
+                          <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                            <td className="px-3 py-1.5 font-mono font-semibold text-[#0F2A5C] text-[10px]">{r.chasis}</td>
+                            <td className="px-3 py-1.5 text-right">{formatCOP(r.precio_compra || 0)}</td>
+                            <td className="px-3 py-1.5 text-right">{formatCOP(r.iva_compra || 0)}</td>
+                            <td className="px-3 py-1.5 text-right">{formatCOP(r.ipoc_compra || 0)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="px-4 py-3 bg-emerald-50 border-t border-slate-200">
+                    <button onClick={handleConfirmCostos} disabled={confirming} data-testid="confirm-costos-btn"
+                      className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-lg text-sm transition disabled:opacity-50">
+                      {confirming ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                      Confirmar y guardar {costosPreview.actualizadas?.length} costos
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

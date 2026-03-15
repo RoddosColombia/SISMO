@@ -1,8 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Bot, Send, Trash2, Paperclip, X, Play,
   CheckCircle2, Loader2, FileText, AlertCircle, Zap,
-  Bike, CreditCard, Receipt, ScanLine, UserPlus, ArrowRight
+  Bike, CreditCard, Receipt, ScanLine, UserPlus, ArrowRight,
+  Download, Sheet
 } from "lucide-react";
+
+const API = process.env.REACT_APP_BACKEND_URL;
 import ReactMarkdown from "react-markdown";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
@@ -11,6 +14,13 @@ import { Textarea } from "../components/ui/textarea";
 
 /* ── types ── */
 interface AttachedFileInfo { name: string; type: string; preview: string | null; }
+
+interface PlExportCardData {
+  type: "pl_export_card";
+  titulo: string;
+  periodo: string;
+  periodo_label: string;
+}
 
 interface Message {
   role: "user" | "assistant";
@@ -492,6 +502,64 @@ function TerceroCard({ action, onConfirm, onCancel, executing }: {
 }
 
 
+function PlExportCard({ card, token }: { card: PlExportCardData; token?: string }): React.ReactElement {
+  const [downloading, setDownloading] = useState<"pdf" | "excel" | null>(null);
+
+  const handlePdf = () => {
+    const url = `${API}/api/cfo/estado-resultados/pdf?periodo=${card.periodo}`;
+    window.open(url, "_blank");
+  };
+
+  const handleExcel = async () => {
+    setDownloading("excel");
+    try {
+      const res = await fetch(`${API}/api/cfo/estado-resultados/excel?periodo=${card.periodo}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error("Error");
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `RODDOS_PL_${card.periodo}.xlsx`;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a); window.URL.revokeObjectURL(url);
+    } catch { /* silent */ } finally { setDownloading(null); }
+  };
+
+  return (
+    <div className="mb-4 rounded-xl overflow-hidden shadow-sm" style={{ border: "1px solid #BFDBFE" }} data-testid="pl-export-card">
+      <div className="px-4 py-2.5 flex items-center gap-2 flex-wrap" style={{ background: "#EFF6FF", borderBottom: "1px solid #BFDBFE" }}>
+        <FileText size={13} className="text-blue-600" />
+        <span className="text-xs font-bold text-blue-700 uppercase tracking-wide">Estado de Resultados</span>
+        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700 border border-blue-200">{card.periodo_label}</span>
+      </div>
+      <div className="px-4 py-3 bg-white">
+        <p className="text-sm font-semibold text-slate-700 mb-3">{card.titulo}</p>
+        <div className="flex gap-2">
+          <button
+            onClick={handleExcel}
+            disabled={downloading === "excel"}
+            data-testid="pl-export-excel-btn"
+            className="flex-1 flex items-center justify-center gap-1.5 text-xs font-bold py-2 px-3 rounded-lg border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition disabled:opacity-50"
+          >
+            {downloading === "excel" ? <Loader2 size={12} className="animate-spin" /> : <Sheet size={12} />}
+            Excel (.xlsx)
+          </button>
+          <button
+            onClick={handlePdf}
+            data-testid="pl-export-pdf-btn"
+            className="flex-1 flex items-center justify-center gap-1.5 text-xs font-bold py-2 px-3 rounded-lg border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100 transition"
+          >
+            <Download size={12} />
+            PDF Ejecutivo
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function DocumentProposalCard({ proposal, onConfirm, onCancel, loading }: {
   proposal: DocumentProposalData;
   onConfirm: (data: DocumentProposalData & { total: number }) => void;
@@ -733,6 +801,7 @@ export default function AgentChatPage() {
   const [confirming, setConfirming] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [documentProposal, setDocumentProposal] = useState<DocumentProposalData | null>(null);
+  const [plExportCard, setPlExportCard] = useState<PlExportCardData | null>(null);
   const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [memorySuggestions, setMemorySuggestions] = useState<MemorySuggestion[]>([]);
@@ -876,7 +945,7 @@ export default function AgentChatPage() {
       docTypeLabel: sentFile && selectedType?.value !== "auto" ? selectedType.label : null,
     }]);
     setInput(""); setAttachedFile(null); setDocTypeHint("auto"); setLoading(true);
-    setDocumentProposal(null); setPendingAction(null);
+    setDocumentProposal(null); setPendingAction(null); setPlExportCard(null);
 
     try {
       const baseMessage = sentInput || "Analiza este comprobante contable y extrae los datos para su registro en Alegra.";
@@ -886,9 +955,10 @@ export default function AgentChatPage() {
         ...(sentFile ? { file_content: sentFile.base64, file_name: sentFile.name, file_type: sentFile.type } : {}),
       };
       const resp = await api.post("/chat/message", payload);
-      const { message, pending_action, document_proposal } = resp.data;
+      const { message, pending_action, document_proposal, export_card } = resp.data;
       setMessages((prev) => [...prev, { role: "assistant", content: message, timestamp: new Date().toISOString() }]);
       if (document_proposal) setDocumentProposal(document_proposal);
+      else if (export_card?.type === "pl_export_card") setPlExportCard(export_card);
       else if (pending_action?.type && pending_action?.payload) setPendingAction(pending_action);
     } catch {
       setMessages((prev) => [...prev, { role: "assistant", content: "Hubo un error. Por favor intenta de nuevo.", timestamp: new Date().toISOString() }]);
@@ -1087,6 +1157,10 @@ export default function AgentChatPage() {
                 onCancel={handleCancelAction} executing={executing} />
             : <ExecutionCard action={pendingAction} onConfirm={handleExecute}
                 onCancel={handleCancelAction} executing={executing} />
+        )}
+
+        {plExportCard && !loading && (
+          <PlExportCard card={plExportCard} token={(api as any).defaults?.headers?.Authorization?.replace("Bearer ", "")} />
         )}
       </div>
 
