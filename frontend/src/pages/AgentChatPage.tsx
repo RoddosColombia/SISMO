@@ -560,6 +560,106 @@ function PlExportCard({ card, token }: { card: PlExportCardData; token?: string 
 }
 
 
+function CuotasInicialesCard({ card }: { card: any }): React.ReactElement {
+  const fmt = (n: number) => new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n);
+  const RODDOS_MSG = (nombre: string, monto: number) =>
+    `Hola ${nombre.split(" ")[0]}, te recordamos que tienes pendiente el pago de tu cuota inicial de ${fmt(monto)} para tu moto. Por favor comunícate con nosotros. — RODDOS Motos Colombia`;
+
+  const handleWA = (cliente: any) => {
+    if (!cliente.telefono) { alert("Sin número de teléfono registrado"); return; }
+    const num = cliente.telefono.replace(/\D/g, "");
+    window.open(`https://wa.me/57${num}?text=${encodeURIComponent(RODDOS_MSG(cliente.cliente, cliente.monto))}`, "_blank");
+  };
+
+  const handleWAAll = () => {
+    card.clientes?.filter((c: any) => c.telefono).forEach((c: any) => handleWA(c));
+  };
+
+  return (
+    <div className="mb-4 rounded-xl overflow-hidden shadow-sm border border-emerald-200" data-testid="cuotas-iniciales-card">
+      <div className="px-4 py-2.5 flex items-center gap-2" style={{ background: "#064E3B" }}>
+        <CreditCard size={13} className="text-emerald-300" />
+        <span className="text-xs font-bold text-emerald-100 uppercase tracking-wide">Cuotas Iniciales Pendientes</span>
+        <span className="ml-auto text-xs font-bold text-emerald-200">{fmt(card.total)} · {card.count} clientes</span>
+      </div>
+      <div className="bg-white divide-y divide-slate-100">
+        {card.clientes?.map((c: any, i: number) => (
+          <div key={i} className="flex items-center justify-between px-4 py-2.5" data-testid={`cuota-client-row-${i}`}>
+            <div>
+              <p className="text-sm font-semibold text-slate-800">{c.cliente}</p>
+              <p className="text-xs text-slate-500">{c.codigo}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-bold text-emerald-700">{fmt(c.monto)}</span>
+              <button
+                onClick={() => handleWA(c)}
+                data-testid={`wa-btn-${i}`}
+                className="flex items-center gap-1 text-[10px] font-bold text-white bg-green-600 hover:bg-green-700 px-2.5 py-1.5 rounded-lg transition"
+              >
+                <span>💬</span> WhatsApp
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+      {card.clientes?.some((c: any) => c.telefono) && (
+        <div className="px-4 py-2.5 bg-emerald-50 border-t border-emerald-100">
+          <button
+            onClick={handleWAAll}
+            data-testid="wa-all-btn"
+            className="w-full text-xs font-bold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 py-2 rounded-lg transition"
+          >
+            💬 Generar WhatsApp para todos ({card.clientes?.filter((c: any) => c.telefono).length} con teléfono)
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+function MultiFilePreview({ files, onProcess, onClear, processing, processingIdx }: {
+  files: any[]; onProcess: () => void; onClear: () => void; processing: boolean; processingIdx: number;
+}): React.ReactElement {
+  const getType = (name: string, mime: string) => {
+    if (mime === "application/pdf") return "📄 PDF";
+    if (mime.startsWith("image/")) return "🖼️ Imagen";
+    return "📎 Archivo";
+  };
+  return (
+    <div className="mb-4 rounded-xl overflow-hidden shadow-sm border border-blue-200" data-testid="multi-file-preview">
+      <div className="px-4 py-2.5 flex items-center gap-2" style={{ background: "#1E3A5F" }}>
+        <Paperclip size={13} className="text-blue-300" />
+        <span className="text-xs font-bold text-blue-100 uppercase tracking-wide">Archivos detectados ({files.length})</span>
+      </div>
+      <div className="bg-white divide-y divide-slate-100">
+        {files.map((f, i) => (
+          <div key={i} className={`flex items-center gap-3 px-4 py-2 ${processing && i === processingIdx ? "bg-blue-50" : ""}`} data-testid={`multi-file-row-${i}`}>
+            <span className="text-lg">{f.type === "application/pdf" ? "📄" : "🖼️"}</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-slate-800 truncate">{f.name}</p>
+              <p className="text-[10px] text-slate-400">{getType(f.name, f.type)}</p>
+            </div>
+            {processing && i === processingIdx && <Loader2 size={12} className="animate-spin text-blue-600 flex-shrink-0" />}
+            {processing && i < processingIdx && <CheckCircle2 size={12} className="text-emerald-600 flex-shrink-0" />}
+          </div>
+        ))}
+      </div>
+      <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-100 flex gap-2">
+        <button onClick={onProcess} disabled={processing}
+          className="flex-1 text-xs font-bold text-white bg-[#0F2A5C] hover:bg-[#1a3d7a] py-2 rounded-lg transition disabled:opacity-50 flex items-center justify-center gap-1.5"
+          data-testid="process-all-files-btn">
+          {processing ? <><Loader2 size={11} className="animate-spin" /> Procesando {processingIdx + 1}/{files.length}...</> : <><Play size={11} /> Procesar todos</>}
+        </button>
+        <button onClick={onClear} disabled={processing} className="text-xs text-slate-500 hover:text-slate-700 px-3 py-2 rounded-lg border border-slate-200 transition disabled:opacity-40">
+          <X size={11} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
 function DocumentProposalCard({ proposal, onConfirm, onCancel, loading }: {
   proposal: DocumentProposalData;
   onConfirm: (data: DocumentProposalData & { total: number }) => void;
@@ -802,7 +902,11 @@ export default function AgentChatPage() {
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [documentProposal, setDocumentProposal] = useState<DocumentProposalData | null>(null);
   const [plExportCard, setPlExportCard] = useState<PlExportCardData | null>(null);
+  const [cuotasInicialesCard, setCuotasInicialesCard] = useState<any>(null);
   const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const [multiFileProcessing, setMultiFileProcessing] = useState(false);
+  const [multiFileIdx, setMultiFileIdx] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [memorySuggestions, setMemorySuggestions] = useState<MemorySuggestion[]>([]);
   const [docTypeHint, setDocTypeHint] = useState("auto");
@@ -926,13 +1030,31 @@ export default function AgentChatPage() {
   const handleDragLeave = (e: React.DragEvent<HTMLDivElement>): void => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragging(false); };
   const handleDrop = (e: React.DragEvent<HTMLDivElement>): void => {
     e.preventDefault(); setIsDragging(false);
-    const file = e.dataTransfer.files[0];
-    if (file) handleFileAttach(file);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 1) {
+      handleFileAttach(files[0]);
+    } else if (files.length > 1) {
+      const process = async () => {
+        const processed: AttachedFile[] = [];
+        for (const f of files.slice(0, 10)) {
+          const base64: string = await new Promise((res, rej) => {
+            const reader = new FileReader();
+            reader.onload = () => res((reader.result as string).split(",")[1]);
+            reader.onerror = rej;
+            reader.readAsDataURL(f);
+          });
+          const preview = f.type.startsWith("image/") ? `data:${f.type};base64,${base64}` : null;
+          processed.push({ base64, name: f.name, type: f.type, preview });
+        }
+        setAttachedFiles(processed);
+      };
+      process();
+    }
   };
 
   /* send message */
   const handleSend = async () => {
-    if ((!input.trim() && !attachedFile) || loading) return;
+    if ((!input.trim() && !attachedFile) || loading || multiFileProcessing) return;
 
     const sentInput = input.trim();
     const sentFile = attachedFile;
@@ -945,7 +1067,7 @@ export default function AgentChatPage() {
       docTypeLabel: sentFile && selectedType?.value !== "auto" ? selectedType.label : null,
     }]);
     setInput(""); setAttachedFile(null); setDocTypeHint("auto"); setLoading(true);
-    setDocumentProposal(null); setPendingAction(null); setPlExportCard(null);
+    setDocumentProposal(null); setPendingAction(null); setPlExportCard(null); setCuotasInicialesCard(null);
 
     try {
       const baseMessage = sentInput || "Analiza este comprobante contable y extrae los datos para su registro en Alegra.";
@@ -955,9 +1077,10 @@ export default function AgentChatPage() {
         ...(sentFile ? { file_content: sentFile.base64, file_name: sentFile.name, file_type: sentFile.type } : {}),
       };
       const resp = await api.post("/chat/message", payload);
-      const { message, pending_action, document_proposal, export_card } = resp.data;
+      const { message, pending_action, document_proposal, export_card, cuotas_iniciales_card } = resp.data;
       setMessages((prev) => [...prev, { role: "assistant", content: message, timestamp: new Date().toISOString() }]);
       if (document_proposal) setDocumentProposal(document_proposal);
+      else if (cuotas_iniciales_card?.type === "cuotas_iniciales_card") setCuotasInicialesCard(cuotas_iniciales_card);
       else if (export_card?.type === "pl_export_card") setPlExportCard(export_card);
       else if (pending_action?.type && pending_action?.payload) setPendingAction(pending_action);
     } catch {
@@ -1040,6 +1163,43 @@ export default function AgentChatPage() {
   const handleCancelAction = () => {
     setPendingAction(null);
     setMessages((prev) => [...prev, { role: "assistant", content: "Acción cancelada. ¿En qué más te puedo ayudar?", timestamp: new Date().toISOString() }]);
+  };
+
+  const handleProcessAllFiles = async () => {
+    if (!attachedFiles.length || multiFileProcessing) return;
+    setMultiFileProcessing(true);
+    setMultiFileIdx(0);
+    for (let i = 0; i < attachedFiles.length; i++) {
+      setMultiFileIdx(i);
+      const f = attachedFiles[i];
+      setMessages(prev => [...prev, {
+        role: "user",
+        content: `[Procesando archivo ${i + 1}/${attachedFiles.length}: ${f.name}]`,
+        timestamp: new Date().toISOString(),
+      }]);
+      try {
+        const payload = {
+          message: `Procesa este archivo: ${f.name}`,
+          session_id: sessionId,
+          file_b64: f.base64,
+          file_type: f.type,
+          file_name: f.name,
+          doc_type_hint: "auto",
+        };
+        const resp = await api.post("/chat/message", payload);
+        const { message, pending_action, session_id: newSid } = resp.data;
+        // sessionId is a ref, no need to update
+        setMessages(prev => [...prev, { role: "assistant", content: message, timestamp: new Date().toISOString() }]);
+        if (pending_action?.type && pending_action?.payload) {
+          setPendingAction(pending_action);
+          break;
+        }
+      } catch (e: any) {
+        setMessages(prev => [...prev, { role: "assistant", content: `Error procesando ${f.name}: ${e.response?.data?.detail || "Error desconocido"}`, timestamp: new Date().toISOString() }]);
+      }
+    }
+    setMultiFileProcessing(false);
+    setAttachedFiles([]);
   };
 
   const handlePausarTarea = async () => {
@@ -1162,6 +1322,20 @@ export default function AgentChatPage() {
         {plExportCard && !loading && (
           <PlExportCard card={plExportCard} token={(api as any).defaults?.headers?.Authorization?.replace("Bearer ", "")} />
         )}
+
+        {cuotasInicialesCard && !loading && (
+          <CuotasInicialesCard card={cuotasInicialesCard} />
+        )}
+
+        {attachedFiles.length > 0 && !loading && (
+          <MultiFilePreview
+            files={attachedFiles}
+            onProcess={handleProcessAllFiles}
+            onClear={() => setAttachedFiles([])}
+            processing={multiFileProcessing}
+            processingIdx={multiFileIdx}
+          />
+        )}
       </div>
 
       {/* Quick prompts */}
@@ -1229,12 +1403,34 @@ export default function AgentChatPage() {
         <div className="p-4 flex items-end gap-2">
           <button onClick={() => fileInputRef.current?.click()}
             className="p-2.5 rounded-lg transition flex-shrink-0 bg-slate-50 border border-slate-200 text-slate-400 hover:text-sky-500 hover:bg-sky-50 hover:border-sky-300"
-            title="Adjuntar PDF o imagen (o arrastra / Ctrl+V)" data-testid="file-attach-btn">
+            title="Adjuntar PDF o imagen · hasta 10 archivos (o arrastra / Ctrl+V)" data-testid="file-attach-btn">
             <Paperclip size={17} />
           </button>
-          <input ref={fileInputRef} type="file" hidden
+          <input ref={fileInputRef} type="file" hidden multiple
             accept="image/jpeg,image/jpg,image/png,image/gif,image/webp,application/pdf"
-            onChange={(e) => { const f = e.target.files[0]; if (f) handleFileAttach(f); e.target.value = ""; }} />
+            onChange={(e) => {
+              const files = Array.from(e.target.files || []);
+              if (files.length === 1) {
+                handleFileAttach(files[0]);
+              } else if (files.length > 1) {
+                const process = async () => {
+                  const processed: AttachedFile[] = [];
+                  for (const f of files.slice(0, 10)) {
+                    const base64: string = await new Promise((res, rej) => {
+                      const reader = new FileReader();
+                      reader.onload = () => res((reader.result as string).split(",")[1]);
+                      reader.onerror = rej;
+                      reader.readAsDataURL(f);
+                    });
+                    const preview = f.type.startsWith("image/") ? `data:${f.type};base64,${base64}` : null;
+                    processed.push({ base64, name: f.name, type: f.type, preview });
+                  }
+                  setAttachedFiles(processed);
+                };
+                process();
+              }
+              e.target.value = "";
+            }} />
 
           <Textarea ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}

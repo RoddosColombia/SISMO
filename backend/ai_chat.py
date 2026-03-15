@@ -1703,6 +1703,54 @@ async def process_chat(
         })
         return {"message": resp, "pending_action": None, "session_id": session_id, "export_card": export_card}
 
+    # ── BUILD 13: Detectar consulta de cuotas iniciales pendientes ─────────────
+    _ci_keywords = ["cuota inicial pendiente", "cuotas iniciales pendientes", "quiénes tienen cuota inicial",
+                    "quienes tienen cuota inicial", "lista de cuotas iniciales", "cobrar cuota inicial",
+                    "dame la lista de cuotas", "recordatorios de cuota inicial", "cuota inicial por cobrar"]
+    if any(kw in msg_lower_cmd for kw in _ci_keywords):
+        try:
+            _lbs_ci = await db.loanbook.find(
+                {"cuota_inicial_pagada": False, "cuota_inicial_total": {"$gt": 0}},
+                {"_id": 0, "cliente_nombre": 1, "codigo": 1, "cuota_inicial_total": 1, "cliente_telefono": 1, "cliente_id": 1}
+            ).to_list(50)
+
+            _cuotas_pending = []
+            for lb in _lbs_ci:
+                _cuotas_pending.append({
+                    "cliente":   lb.get("cliente_nombre", "—"),
+                    "codigo":    lb.get("codigo", ""),
+                    "monto":     float(lb.get("cuota_inicial_total", 0)),
+                    "telefono":  lb.get("cliente_telefono", ""),
+                })
+
+            _total_ci = sum(c["monto"] for c in _cuotas_pending)
+
+            cuotas_card = {
+                "type":     "cuotas_iniciales_card",
+                "clientes": _cuotas_pending,
+                "total":    _total_ci,
+                "count":    len(_cuotas_pending),
+            }
+            _fmt = lambda n: f"${n:,.0f}".replace(",",".")
+            resp_ci = (
+                f"Hay **{len(_cuotas_pending)} clientes** con cuota inicial pendiente "
+                f"por un total de **{_fmt(_total_ci)}**.\n"
+                "Usa los botones de la tarjeta para enviar recordatorios por WhatsApp."
+            )
+            await db.chat_messages.insert_one({
+                "id": str(uuid.uuid4()), "session_id": session_id, "role": "user",
+                "content": user_message, "timestamp": datetime.now(timezone.utc).isoformat(),
+                "user_id": user.get("id"),
+            })
+            await db.chat_messages.insert_one({
+                "id": str(uuid.uuid4()), "session_id": session_id, "role": "assistant",
+                "content": resp_ci, "timestamp": datetime.now(timezone.utc).isoformat(),
+                "user_id": user.get("id"),
+            })
+            return {"message": resp_ci, "pending_action": None, "session_id": session_id, "cuotas_iniciales_card": cuotas_card}
+        except Exception:
+            pass  # fall through to LLM
+
     is_context_cmd = any(kw in msg_lower_cmd for kw in [
         "en qué íbamos", "en que ibamos", "qué falta", "que falta",
         "resumen", "qué hice", "que hice", "qué pasó hoy", "que paso hoy",

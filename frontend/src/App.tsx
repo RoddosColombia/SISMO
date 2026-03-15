@@ -7,24 +7,12 @@ import Layout from "./components/Layout";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import AgentChatPage from "./pages/AgentChatPage";
-import FacturacionVenta from "./pages/FacturacionVenta";
-import FacturacionCompra from "./pages/FacturacionCompra";
-import CausacionIngresos from "./pages/CausacionIngresos";
-import CausacionEgresos from "./pages/CausacionEgresos";
-import ConciliacionBancaria from "./pages/ConciliacionBancaria";
+import CFOEstrategico from "./pages/CFOEstrategico";
 import Settings from "./pages/Settings";
 import InventarioAuteco from "./pages/InventarioAuteco";
-import RegistroCuotas from "./pages/RegistroCuotas";
 import Impuestos from "./pages/Impuestos";
-import Retenciones from "./pages/Retenciones";
-import Nomina from "./pages/Nomina";
-import Prestaciones from "./pages/Prestaciones";
-import EstadoResultados from "./pages/EstadoResultados";
-import EgresosClasificados from "./pages/EgresosClasificados";
 import Presupuesto from "./pages/Presupuesto";
-import Repuestos from "./pages/Repuestos";
 import Loanbook from "./pages/Loanbook";
-import Radar from "./pages/Radar";
 import CRMList from "./pages/CRMList";
 import CRMCliente from "./pages/CRMCliente";
 import CFO from "./pages/CFO";
@@ -47,52 +35,30 @@ function AppRoutes() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Only public route is /login */}
         <Route path="/login" element={<Login />} />
-
-        {/* All other routes require authentication */}
         <Route
           path="/"
-          element={
-            <ProtectedRoute>
-              <Layout />
-            </ProtectedRoute>
-          }
+          element={<ProtectedRoute><Layout /></ProtectedRoute>}
         >
           <Route index element={<Navigate to="/agente-contable" replace />} />
           <Route path="agente-contable" element={<AgentChatPage />} />
+          <Route path="cfo-estrategico" element={<CFOEstrategico />} />
           <Route path="dashboard" element={<Dashboard />} />
-          {/* Facturación */}
-          <Route path="facturacion-venta" element={<FacturacionVenta />} />
-          <Route path="facturacion-compra" element={<FacturacionCompra />} />
-          <Route path="registro-cuotas" element={<RegistroCuotas />} />
-          {/* Causaciones */}
-          <Route path="causacion-ingresos" element={<CausacionIngresos />} />
-          <Route path="causacion-egresos" element={<CausacionEgresos />} />
-          <Route path="conciliacion-bancaria" element={<ConciliacionBancaria />} />
-          {/* Inventario */}
+          <Route path="cfo" element={<CFO />} />
+          <Route path="presupuesto" element={<Presupuesto />} />
+          <Route path="impuestos" element={<Impuestos />} />
           <Route path="inventario-auteco" element={<InventarioAuteco />} />
-          <Route path="repuestos" element={<Repuestos />} />
           <Route path="loanbook" element={<Loanbook />} />
-          <Route path="radar" element={<Radar />} />
           <Route path="crm" element={<CRMList />} />
           <Route path="crm/:id" element={<CRMCliente />} />
-          <Route path="cfo" element={<CFO />} />
-          {/* Fiscal */}
-          <Route path="impuestos" element={<Impuestos />} />
-          <Route path="retenciones" element={<Retenciones />} />
-          {/* RRHH */}
-          <Route path="nomina" element={<Nomina />} />
-          <Route path="prestaciones" element={<Prestaciones />} />
-          {/* Reportes */}
-          <Route path="estado-resultados" element={<EstadoResultados />} />
-          <Route path="egresos-clasificados" element={<EgresosClasificados />} />
-          <Route path="presupuesto" element={<Presupuesto />} />
-          {/* Config */}
           <Route path="configuracion" element={<Settings />} />
+          {/* Módulos eliminados del menú — redirigen al chat con contexto */}
+          <Route path="facturacion-venta" element={<Navigate to="/agente-contable?hint=factura-venta" replace />} />
+          <Route path="facturacion-compra" element={<Navigate to="/agente-contable?hint=factura-compra" replace />} />
+          <Route path="causacion-ingresos" element={<Navigate to="/agente-contable?hint=causacion" replace />} />
+          <Route path="causacion-egresos" element={<Navigate to="/agente-contable?hint=causacion" replace />} />
+          <Route path="conciliacion-bancaria" element={<Navigate to="/agente-contable?hint=conciliacion" replace />} />
         </Route>
-
-        {/* Catch-all → require login */}
         <Route path="*" element={<ProtectedRoute><Navigate to="/agente-contable" replace /></ProtectedRoute>} />
       </Routes>
       <Toaster richColors position="top-right" />

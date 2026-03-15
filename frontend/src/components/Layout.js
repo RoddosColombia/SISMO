@@ -1,37 +1,24 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Outlet, NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
-  LayoutDashboard, FileText, ShoppingCart, TrendingUp, TrendingDown,
-  Building2, Settings, LogOut, ChevronLeft, Menu, Bell, User,
-  CreditCard, Receipt, Calculator, Users, Gift, BarChart2, Tag, Target, Bike, X,
-  Wrench, BookOpen, Wallet, Bot, BriefcaseBusiness,
+  LayoutDashboard, Settings, LogOut, ChevronLeft, Menu, Bell, User,
+  CreditCard, Receipt, BarChart2, Bike, X,
+  BookOpen, Wallet, Bot, BriefcaseBusiness, Brain, TrendingUp,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useAlegra } from "../contexts/AlegraContext";
 
 const MODULES = [
-  { path: "/agente-contable",       label: "Agente Contable",       icon: Bot,           group: null,          badge: "active" },
-  { path: "/dashboard",             label: "Dashboard",             icon: LayoutDashboard, group: null },
-  { path: "/facturacion-venta",    label: "Facturación Venta",     icon: FileText,        group: "Facturación" },
-  { path: "/facturacion-compra",   label: "Facturación Compra",    icon: ShoppingCart,    group: "Facturación" },
-  { path: "/registro-cuotas",      label: "Registro de Cuotas",    icon: CreditCard,      group: "Facturación" },
-  { path: "/causacion-ingresos",   label: "Causación Ingresos",    icon: TrendingUp,      group: "Causaciones" },
-  { path: "/causacion-egresos",    label: "Causación Egresos",     icon: TrendingDown,    group: "Causaciones" },
-  { path: "/conciliacion-bancaria",label: "Conciliación Bancaria", icon: Building2,       group: "Causaciones" },
-  { path: "/inventario-auteco",    label: "Motos",                 icon: Bike,            group: "Inventario" },
-  { path: "/repuestos",            label: "Repuestos",             icon: Wrench,          group: "Inventario" },
-  { path: "/loanbook",             label: "Loanbook",              icon: BookOpen,        group: "Cobranza" },
-  { path: "/radar",                label: "RADAR",                 icon: Target,          group: "Cobranza" },
-  { path: "/crm",                  label: "CRM",                   icon: User,            group: "Cobranza" },
-  { path: "/cfo",                  label: "Agente CFO",            icon: BriefcaseBusiness, group: "Cobranza" },
-  { path: "/impuestos",            label: "Impuestos y Alertas",   icon: Receipt,         group: "Fiscal" },
-  { path: "/retenciones",          label: "Retenciones",           icon: Calculator,      group: "Fiscal" },
-  { path: "/nomina",               label: "Nómina",                icon: Users,           group: "RRHH" },
-  { path: "/prestaciones",         label: "Prestaciones Sociales", icon: Gift,            group: "RRHH" },
-  { path: "/estado-resultados",    label: "Estado de Resultados",  icon: BarChart2,       group: "Reportes" },
-  { path: "/egresos-clasificados", label: "Egresos Clasificados",  icon: Tag,             group: "Reportes" },
-  { path: "/presupuesto",          label: "Presupuesto",           icon: Wallet,          group: "Reportes" },
-  { path: "/configuracion",        label: "Configuración",         icon: Settings,        group: null },
+  { path: "/agente-contable",  label: "Agente Contador",    icon: Bot,              group: null,  badge: "active" },
+  { path: "/cfo-estrategico",  label: "CFO Estratégico",    icon: Brain,            group: null  },
+  { path: "/dashboard",        label: "Dashboard",           icon: LayoutDashboard,  group: null  },
+  { path: "/cfo",              label: "Panel CFO",           icon: TrendingUp,       group: null  },
+  { path: "/presupuesto",      label: "Presupuesto",         icon: Wallet,           group: null  },
+  { path: "/impuestos",        label: "Impuestos",           icon: Receipt,          group: null  },
+  { path: "/inventario-auteco",label: "Motos",               icon: Bike,             group: null  },
+  { path: "/loanbook",         label: "Loanbook",            icon: BookOpen,         group: null  },
+  { path: "/crm",              label: "Cartera",             icon: CreditCard,       group: null  },
+  { path: "/configuracion",    label: "Configuración",       icon: Settings,         group: null  },
 ];
 
 function AlegraStatusBadge({ status }) {
