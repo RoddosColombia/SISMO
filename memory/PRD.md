@@ -1,5 +1,5 @@
 # RODDOS Contable IA — Product Requirements Document
-**Versión**: 8.0.0 | **Actualizado**: Marzo 2026
+**Versión**: 9.0.0 | **Actualizado**: Marzo 2026
 
 ---
 
@@ -41,6 +41,10 @@ Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
 - Loanbook: CRUD, registro de pagos y entrega, KPIs
 - Cartera/RADAR: cola remota URGENTE/HOY/PREVENTIVO, vistas semanal/mensual
 - Inventario motos con carga PDFs Auteco
+- **SPRINT VISUAL (✅ Mar 2026):**
+  - MEJORA A: Badge `TareaActivaBadge` en chat — polling 3s, estados cyan/amarillo/verde, botones Pausar/Continuar, expansión de pasos
+  - MEJORA B: Barra de filtros de estado en inventario motos — 6 filtros (TODAS/Disponible/Vendida/Entregada/Pendiente datos/Anulada), conteos en tiempo real, colores exactos del usuario, default=Disponible, TODAS excluye Anulada
+  - Backend PATCH `/api/chat/tarea/avance` extendido con `accion=pausar|continuar` (retrocompatible)
 - Repuestos: catálogo, stock, facturación
 - Control IVA cuatrimestral
 
