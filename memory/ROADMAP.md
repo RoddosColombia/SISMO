@@ -6,34 +6,44 @@
   - Enviar recordatorios automáticos de cuotas
 
 ## P1 — BUILD 14/15
-- Módulo Presupuesto: Conexión completa con CFO Estratégico
-  - Sincronización bidireccional con `cfo_presupuesto_mensual`
-  - Instrucciones CFO reflejadas en módulo
-- Módulo Impuestos: Datos reales desde Alegra
-  - IVA bimestral cobrado vs descontable
-  - ReteFuente del período
+- Módulo Impuestos: mejoras adicionales
+  - ReteFuente del período desde Alegra
   - ReteICA Bogotá 0.414%
   - Provisión renta 33% automática
+- UI Proveedores: pantalla para gestionar autoretenedores
+  - Ver/editar lista de proveedores en proveedores_config
+  - Agregar/quitar autoretenedor status
 
 ## P2 — Futuro
 - Dashboard Inventory Widget (tabla motos disponibles)
 - Panel de Aprendizaje ML (patrones de mora)
 - Detección automática UVT para retenciones
-- Parte 5 de BUILD 13: Procesamiento inteligente con memoria de preferencias (Auteco → mismo tratamiento)
+- Integración DIAN para semáforo impuestos
 
 ## COMPLETADO
 
-### BUILD 13 (2026-03-15)
-- Menú simplificado: 10 items exactos (eliminados Facturación/Causaciones/Conciliación)
-- Chat CFO Estratégico: nuevo chat en /cfo-estrategico con Claude Sonnet
-  - System prompt estratégico diferente al Agente Contador
-  - Instrucciones permanentes (cfo_instrucciones)
-  - Compromisos con seguimiento (cfo_compromisos)
-  - Historial independiente (cfo_chat_historia)
-  - Badges dinámicos con datos reales en tiempo real
-- Multi-PDF: file input acepta múltiples archivos + drag&drop múltiple + MultiFilePreview
+### BUILD 13 COMPLETO (2026-03-15)
+- Menú simplificado: 10 items exactos
+- Chat CFO Estratégico: /cfo-estrategico con Claude Sonnet
+- Multi-PDF: file input múltiple + drag&drop
 - Cuotas Iniciales Card en Agente Contador
-- Renombrado: CRM → Cartera, Agente CFO → Panel CFO
+- **CORRECCIÓN CRÍTICA 1 — Autoretenedores:**
+  - Colección `proveedores_config` creada
+  - AUTECO KAWASAKI S.A.S. seeded como autoretenedor
+  - Endpoints GET/POST /api/proveedores/config
+  - Agente inyecta reglas autoretenedor en contexto
+  - Detección de confirmación: "Sí, [Proveedor] es autoretenedora" → reversión automática
+- **CORRECCIÓN CRÍTICA 2 — IVA Cuatrimestral:**
+  - Backend: DEFAULT_IVA_CONFIG ya era cuatrimestral
+  - Migración: configs bimestral → cuatrimestral automática en startup
+  - CFO Estratégico quick action: "cuatrimestre" (no "bimestre")
+- **PENDIENTE 1 — Memoria de preferencias:**
+  - process_document_chat detecta proveedor recurrente en agent_memory
+  - Inyecta patrón habitual en system prompt de análisis de documentos
+  - Para PDFs sin patrón: instrucción para preguntar tipo de documento
+- **PENDIENTE 2/3 — Módulos conectados:**
+  - Impuestos: período cuatrimestral verificado y funcional
+  - Presupuesto: muestra CfoInstruccionesPanel (reglas CFO estratégico) y CfoPresupuestoPanel
 
 ### BUILD 12 (2026-03-15)
 - Corrección déficit semanal: -$5,840,600

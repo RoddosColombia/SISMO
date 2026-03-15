@@ -24,6 +24,9 @@ Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
 - Máximo sin pago: 21 días. DPD=22 activa recuperación
 - Módulo cobranza = RADAR (ruta /radar). NUNCA llamar 'cartera' o 'cola de cobranza'
 - Alegra: SIEMPRE /categories. NUNCA /accounts (devuelve 403)
+- **IVA: CUATRIMESTRAL** (Ene-Abr | May-Ago | Sep-Dic). NUNCA bimestral.
+- **Autoretenedores**: proveedores en `proveedores_config` con es_autoretenedor=true → NO aplicar ReteFuente. Actualmente: AUTECO KAWASAKI S.A.S. (NIT 860024781)
+- **Personas Naturales**: SIEMPRE ReteFuente. NUNCA pueden ser autoretenedoras.
 
 ---
 
@@ -149,6 +152,7 @@ loanbook · cartera_pagos · crm_clientes · inventario_motos · catalogo_motos
 roddos_events · agent_memory · cfo_informes · cfo_alertas · cfo_jobs
 mercately_sessions · mercately_config · presupuesto · alegra_credentials
 users · audit_logs · gestiones_cartera · learning_outcomes · learning_patterns
+**proveedores_config** · iva_config · cfo_instrucciones · cfo_compromisos · cfo_chat_historia
 
 ## ENDPOINTS (no inventar variantes)
 Ver `/app/memory/ARCHITECTURE.md` sección 3.6 para lista completa.
