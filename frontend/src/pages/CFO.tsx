@@ -172,20 +172,19 @@ export default function CFO(): React.ReactElement {
   const [informes, setInformes]       = useState<Informe[]>([]);
   const [planAcciones, setPlanAcciones] = useState<PlanAccion[]>([]);
   const [loading, setLoading]         = useState(true);
+  const [loadingSemaforo, setLoadingSemaforo] = useState(false);
+  const [loadingPyg, setLoadingPyg]   = useState(false);
   const [generating, setGenerating]   = useState(false);
   const [selectedInformeId, setSelectedInformeId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    // Cargar historial de informes y plan (rápidos, sólo BD)
     try {
-      const [semR, pygR, infR, infsR] = await Promise.all([
-        api.get("/cfo/semaforo"),
-        api.get("/cfo/pyg"),
+      const [infR, infsR] = await Promise.all([
         api.get("/cfo/informe-mensual"),
         api.get("/cfo/informes"),
       ]);
-      setSemaforo(semR.data);
-      setPyg(pygR.data);
       if (!infR.data?.mensaje) {
         setInforme(infR.data);
         setPlanAcciones(infR.data?.plan_acciones || []);
@@ -195,6 +194,24 @@ export default function CFO(): React.ReactElement {
       toast.error("Error cargando datos CFO");
     } finally {
       setLoading(false);
+    }
+
+    // P&G — llama Alegra 3 veces (~30s), carga independiente
+    setLoadingPyg(true);
+    try {
+      const pygR = await api.get("/cfo/pyg");
+      setPyg(pygR.data);
+    } catch { /* no crítico */ } finally {
+      setLoadingPyg(false);
+    }
+
+    // Semáforo — llama IA Claude (~30s), carga independiente
+    setLoadingSemaforo(true);
+    try {
+      const semR = await api.get("/cfo/semaforo");
+      setSemaforo(semR.data);
+    } catch { /* no crítico */ } finally {
+      setLoadingSemaforo(false);
     }
   }, [api]);
 
@@ -316,11 +333,16 @@ export default function CFO(): React.ReactElement {
       </div>
 
       {/* ── Sección 1: Semáforo 5 dimensiones ───────────────────────────── */}
-      {sem && (
-        <section data-testid="semaforo-section">
-          <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">
-            Semáforo Financiero
-          </h2>
+      <section data-testid="semaforo-section">
+        <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">
+          Semáforo Financiero
+        </h2>
+        {loadingSemaforo ? (
+          <div className="flex items-center gap-2 text-sm text-slate-400 bg-white border border-slate-200 rounded-xl px-4 py-3">
+            <Loader2 size={14} className="animate-spin" />
+            Calculando semáforo financiero (análisis IA)…
+          </div>
+        ) : sem ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             {(["caja", "cartera", "ventas", "roll_rate", "impuestos"] as const).map((dim) => (
               <SemaforoCard
@@ -331,15 +353,24 @@ export default function CFO(): React.ReactElement {
               />
             ))}
           </div>
-        </section>
-      )}
+        ) : (
+          <div className="text-sm text-slate-400 bg-white border border-slate-200 rounded-xl px-4 py-3">
+            Sin datos de semáforo disponibles
+          </div>
+        )}
+      </section>
 
       {/* ── Sección 2: P&G ─────────────────────────────────────────────── */}
-      {pyg && (
-        <section data-testid="pyg-section">
-          <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">
-            Estado de Resultados Simplificado
-          </h2>
+      <section data-testid="pyg-section">
+        <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">
+          Estado de Resultados Simplificado
+        </h2>
+        {loadingPyg ? (
+          <div className="flex items-center gap-2 text-sm text-slate-400 bg-white border border-slate-200 rounded-xl px-4 py-3">
+            <Loader2 size={14} className="animate-spin" />
+            Cargando P&G desde Alegra…
+          </div>
+        ) : pyg ? (
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
             <table className="w-full">
               <thead>
@@ -374,8 +405,12 @@ export default function CFO(): React.ReactElement {
               / Esperado: <span className="font-medium text-slate-600">{fmt(met?.esperado_mes)}</span>
             </div>
           </div>
-        </section>
-      )}
+        ) : (
+          <div className="text-sm text-slate-400 bg-white border border-slate-200 rounded-xl px-4 py-3">
+            Sin datos P&G disponibles
+          </div>
+        )}
+      </section>
 
       {/* ── Sección 3: Gráfico tendencia 8 semanas ─────────────────────── */}
       <section data-testid="chart-section">
