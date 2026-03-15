@@ -43,6 +43,9 @@ Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
 - **BUILD 11 — Agente CFO Estratégico (✅ Mar 2026):**
   - PASO 0: Limpieza 11 registros TEST de loanbook + 10 inventario + cartera + events
   - `cfo_estrategico.py` router con 9 endpoints nuevos: indicadores, plan-ingresos, plan-deudas (avalancha), deudas/cargar (Excel), deudas/confirmar, cuotas-iniciales, config, reporte-lunes, reclasificar
+  - **GET /cfo/deudas/plantilla**: Genera Excel descargable con 2 hojas (Deudas + Instrucciones), encabezado #0F2A5C, fila de ejemplo, dropdown Tipo, instrucciones completas
+  - **POST /cfo/deudas/cargar mejorado**: Skip fila ejemplo, parseo inteligente de montos ($3.500.000 → 3500000), mapeo fuzzy de columnas, mensajes de error accionables con sugerencia de plantilla
+  - Botón "Descargar plantilla Excel" en UI CFO antes del botón de carga, con texto de ayuda
   - Reglas CFO 1-5 inyectadas en system prompt del agente IA + contexto en tiempo real
   - Reporte del lunes automático (inyectado los lunes en el contexto del agente)
   - Sección "Plan Estratégico CFO" en frontend: indicadores, plan ingresos 8 semanas, cuotas iniciales $5.3M, carga Excel deudas, plan avalancha, alertas
