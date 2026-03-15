@@ -372,7 +372,8 @@ async def get_daily_collection_queue(db) -> list[dict]:
     loans = await db.loanbook.find(
         {"estado": {"$in": ["activo", "mora"]}},
         {"_id": 0, "id": 1, "codigo": 1, "cliente_nombre": 1, "cliente_telefono": 1,
-         "plan": 1, "cuotas": 1, "saldo_pendiente": 1, "estado": 1},
+         "plan": 1, "cuotas": 1, "saldo_pendiente": 1, "estado": 1,
+         "gestiones": 1, "score_pago": 1, "estrella_nivel": 1},
     ).to_list(500)
 
     queue: list[dict] = []
@@ -427,22 +428,30 @@ async def get_daily_collection_queue(db) -> list[dict]:
                 if wa_phone else ""
             )
 
+            # Última gestión (BUILD 8 Ajuste 3 — último contacto en RadarCard)
+            gestiones = loan.get("gestiones", [])
+            ultima_g = gestiones[-1] if gestiones else None
+
             queue.append({
-                "loanbook_id":          loan["id"],
-                "codigo":               loan["codigo"],
-                "cliente_nombre":       loan["cliente_nombre"],
-                "cliente_telefono":     telefono,
-                "cuota_numero":         cuota["numero"],
-                "fecha_vencimiento":    fv,
-                "bucket":               bucket,
-                "dpd_actual":           dpd_actual,
-                "total_a_pagar":        cuota.get("valor", 0),
-                "mora":                 cuota.get("mora", 0),
-                "dias_para_protocolo":  dias_para_protocolo,
-                "whatsapp_link":        whatsapp_link,
-                "saldo_total":          loan.get("saldo_pendiente", 0),
-                "score_pct":            score_pct,
-                "score_letra":          score_letra,
+                "loanbook_id":               loan["id"],
+                "codigo":                    loan["codigo"],
+                "cliente_nombre":            loan["cliente_nombre"],
+                "cliente_telefono":          telefono,
+                "cuota_numero":              cuota["numero"],
+                "fecha_vencimiento":         fv,
+                "bucket":                    bucket,
+                "dpd_actual":                dpd_actual,
+                "total_a_pagar":             cuota.get("valor", 0),
+                "mora":                      cuota.get("mora", 0),
+                "dias_para_protocolo":       dias_para_protocolo,
+                "whatsapp_link":             whatsapp_link,
+                "saldo_total":               loan.get("saldo_pendiente", 0),
+                "score_pct":                 score_pct,
+                "score_letra":               score_letra,
+                "estrella_nivel":            loan.get("estrella_nivel", 5),
+                "score_pago":                loan.get("score_pago", score_letra),
+                "ultima_gestion_fecha":      ultima_g.get("fecha", "")[:10] if ultima_g else None,
+                "ultima_gestion_resultado":  ultima_g.get("resultado", "") if ultima_g else None,
             })
             break  # solo primera cuota vencida/urgente por loan
 

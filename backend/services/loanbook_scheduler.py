@@ -65,14 +65,32 @@ async def _get_mercately_config() -> dict:
     return await db.mercately_config.find_one({}, {"_id": 0}) or {}
 
 
-async def _wa(telefono: str, mensaje: str, config: dict | None = None) -> bool:
-    """Envía WA solo si api_key está configurado. Nunca lanza excepción."""
+async def _wa(telefono: str, mensaje: str, config: dict | None = None, job: str = "scheduler") -> bool:
+    """Envía WA solo si api_key está configurado. Registra en roddos_events. Nunca lanza excepción."""
     cfg = config if config is not None else await _get_mercately_config()
     if not cfg.get("api_key"):
         logger.info("[LoanScheduler] WA sin API key — solo log: %.60s", mensaje)
         return False
     from routers.mercately import enviar_whatsapp
-    return await enviar_whatsapp(telefono, mensaje)
+    ok = await enviar_whatsapp(telefono, mensaje)
+    # Ajuste 1 BUILD 8 — log en roddos_events con event_type='wa.sent'
+    try:
+        import uuid as _uuid
+        from database import db
+        await db.roddos_events.insert_one({
+            "event_id":   str(_uuid.uuid4()),
+            "event_type": "wa.sent",
+            "entity_id":  telefono,
+            "new_state":  "sent" if ok else "failed",
+            "source":     "scheduler",
+            "actor":      job,
+            "timestamp":  datetime.now(timezone.utc).isoformat(),
+            "metadata":   {"mensaje_preview": mensaje[:120], "ok": ok, "job": job},
+            "estado":     "processed",
+        })
+    except Exception as ex:
+        logger.warning("[LoanScheduler] wa_log error: %s", ex)
+    return ok
 
 
 # ─── CRON 1: 06:00 AM — DPD ──────────────────────────────────────────────────
@@ -686,13 +704,13 @@ async def resumen_semanal_ceo() -> None:
         # CEO principal
         ceo_number = config.get("ceo_number", "")
         if ceo_number:
-            ok = await enviar_whatsapp(ceo_number, resumen_texto)
-            logger.info("[LoanScheduler] Resumen CEO → %s: %s", ceo_number, "OK" if ok else "FAIL")
+            await _wa(ceo_number, resumen_texto, config, job="resumen_semanal_ceo")
+            logger.info("[LoanScheduler] Resumen CEO → %s", ceo_number)
 
         # Resto de destinatarios (evitar duplicado si ceo_number también está en la lista)
         for numero in config.get("destinatarios_resumen", []):
             if numero != ceo_number:
-                await enviar_whatsapp(numero, resumen_texto)
+                await _wa(numero, resumen_texto, config, job="resumen_semanal_ceo")
 
     except Exception as e:
         logger.error("[LoanScheduler] resumen_semanal_ceo error: %s", e)

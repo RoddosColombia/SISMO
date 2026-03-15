@@ -242,3 +242,14 @@ async def update_catalogo_item(item_id: str, req: CatalogoMotoUpdate, current_us
     await db.catalogo_motos.update_one({"id": item_id}, {"$set": updates})
     updated = await db.catalogo_motos.find_one({"id": item_id}, {"_id": 0})
     return updated
+
+
+
+@router.get("/wa-logs")
+async def get_wa_logs(limit: int = 100, current_user=Depends(get_current_user)):
+    """Historial de mensajes WA enviados por el scheduler (roddos_events[event_type=wa.sent])."""
+    logs = await db.roddos_events.find(
+        {"event_type": "wa.sent"},
+        {"_id": 0},
+    ).sort("timestamp", -1).limit(limit).to_list(limit)
+    return logs

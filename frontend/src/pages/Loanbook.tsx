@@ -63,6 +63,7 @@ interface Loan {
   score_pago?: string;
   estrella_nivel?: number;
   interes_mora_acumulado?: number;
+  gestiones?: any[];
 }
 
 interface Stats {
@@ -407,6 +408,23 @@ const LoanDetail: React.FC<{
           </div>
         </div>
       </div>
+      {/* Gestiones section */}
+      {loan.gestiones && loan.gestiones.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+          <h3 className="text-sm font-semibold text-slate-700 mb-3">
+            Gestiones de cobranza ({loan.gestiones.length})
+          </h3>
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {[...loan.gestiones].reverse().map((g: any, i: number) => (
+              <div key={i} className="text-xs flex items-start gap-2 py-1.5 border-b border-slate-100 last:border-0">
+                <span className="text-slate-400 shrink-0 mt-0.5">{g.fecha ? g.fecha.slice(0, 10) : "—"}</span>
+                <span className="font-medium text-slate-700">{(g.resultado || "").replace(/_/g, " ")}</span>
+                {g.nota && <span className="text-slate-500 truncate">· {g.nota}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {selectedCuota && (
         <PagoModal loan={loan} cuota={selectedCuota} onClose={() => setSelectedCuota(null)}
           onSuccess={() => { setSelectedCuota(null); onRefresh(); }} />
@@ -572,6 +590,7 @@ export default function Loanbook() {
   const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [filters, setFilters] = useState({ estado: "", plan: "", search: "" });
+  const [sortBy, setSortBy]   = useState<string>("");
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -681,8 +700,15 @@ export default function Loanbook() {
               <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide hidden md:table-cell">Entrega</th>
               <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Progreso</th>
               <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Estado</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide hidden xl:table-cell">DPD</th>
-              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide hidden xl:table-cell">Score</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide hidden xl:table-cell cursor-pointer hover:text-slate-300"
+                onClick={() => setSortBy(s => s === "dpd_asc" ? "dpd_desc" : "dpd_asc")}>
+                DPD {sortBy === "dpd_asc" ? "↑" : sortBy === "dpd_desc" ? "↓" : ""}
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide hidden xl:table-cell cursor-pointer hover:text-slate-300"
+                onClick={() => setSortBy(s => s === "score_asc" ? "score_desc" : "score_asc")}>
+                Score {sortBy === "score_asc" ? "↑" : sortBy === "score_desc" ? "↓" : ""}
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide hidden xl:table-cell">Mora</th>
               <th className="px-4 py-3"></th>
             </tr>
           </thead>
@@ -691,7 +717,13 @@ export default function Loanbook() {
               <tr><td colSpan={10} className="px-4 py-12 text-center text-slate-400">Cargando...</td></tr>
             ) : loans.length === 0 ? (
               <tr><td colSpan={10} className="px-4 py-12 text-center text-slate-400">No hay planes de pago registrados</td></tr>
-            ) : loans.map(loan => {
+            ) : [...loans].sort((a, b) => {
+              if (sortBy === "dpd_asc")    return (a.dpd_actual ?? 0) - (b.dpd_actual ?? 0);
+              if (sortBy === "dpd_desc")   return (b.dpd_actual ?? 0) - (a.dpd_actual ?? 0);
+              if (sortBy === "score_asc")  return (a.score_pago ?? "A+").localeCompare(b.score_pago ?? "A+");
+              if (sortBy === "score_desc") return (b.score_pago ?? "A+").localeCompare(a.score_pago ?? "A+");
+              return 0;
+            }).map(loan => {
               const total    = loan.num_cuotas + 1;
               const pct      = total > 0 ? Math.round((loan.num_cuotas_pagadas / total) * 100) : 0;
               const info     = ESTADO_INFO[loan.estado] ?? ESTADO_INFO.activo;
@@ -737,6 +769,15 @@ export default function Loanbook() {
                   </td>
                   <td className="px-4 py-3 hidden xl:table-cell">
                     <ScoreBadge score={loan.score_pago} estrellas={loan.estrella_nivel} />
+                  </td>
+                  <td className="px-4 py-3 hidden xl:table-cell">
+                    {(loan.interes_mora_acumulado ?? 0) > 0 ? (
+                      <span className="text-xs font-semibold text-red-500">
+                        {fmt(loan.interes_mora_acumulado ?? 0)}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-slate-400">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <ChevronRight size={16} className="text-slate-300" />

@@ -9,6 +9,7 @@ import { toast } from "../components/ui/sonner";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
+import { GestionModal } from "../components/shared/GestionModal";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "../components/ui/dialog";
@@ -51,74 +52,6 @@ function Section({ title, children }: { title: React.ReactNode; children: React.
 }
 
 // ── Gestion Modal ─────────────────────────────────────────────────────────────
-function GestionModal({ open, onClose, onSubmit }: { open: boolean; onClose: () => void; onSubmit: (d: any) => Promise<void> }) {
-  const [canal, setCanal] = useState("llamada");
-  const [resultado, setResultado] = useState("");
-  const [nota, setNota] = useState("");
-  const [ptpFecha, setPtpFecha] = useState("");
-  const [saving, setSaving] = useState(false);
-  const needsPtp = resultado.includes("prometió") || resultado === "acuerdo_de_pago_firmado";
-
-  const handleSubmit = async () => {
-    if (!resultado) { toast.error("Selecciona un resultado"); return; }
-    setSaving(true);
-    try {
-      await onSubmit({ canal, resultado, nota, ptp_fecha: needsPtp ? ptpFecha : undefined });
-      setResultado(""); setNota(""); setPtpFecha("");
-    } finally { setSaving(false); }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="bg-[#0D1E3A] border-[#1E3A5F] text-white max-w-md">
-        <DialogHeader><DialogTitle className="text-white text-base">Registrar gestión</DialogTitle></DialogHeader>
-        <div className="space-y-4 pt-1">
-          <div>
-            <Label className="text-xs text-slate-400 uppercase">Canal</Label>
-            <div className="flex gap-2 mt-1.5 flex-wrap">
-              {CANALES.map(c => (
-                <button key={c} onClick={() => setCanal(c)}
-                  className={`text-xs px-3 py-1.5 rounded-lg border capitalize transition-colors ${canal === c ? "bg-blue-600 border-blue-500 text-white" : "bg-[#091529] border-[#1E3A5F] text-slate-400 hover:border-blue-700"}`}>
-                  {c}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <Label className="text-xs text-slate-400 uppercase">Resultado</Label>
-            <select value={resultado} onChange={e => setResultado(e.target.value)}
-              className="mt-1.5 w-full bg-[#091529] border border-[#1E3A5F] text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
-              data-testid="crm-resultado-select">
-              <option value="">— Resultado —</option>
-              {RESULTADOS.map(r => <option key={r} value={r}>{r.replace(/_/g, " ")}</option>)}
-            </select>
-          </div>
-          {needsPtp && (
-            <div>
-              <Label className="text-xs text-slate-400 uppercase">Fecha PTP</Label>
-              <Input type="date" value={ptpFecha} onChange={e => setPtpFecha(e.target.value)}
-                className="mt-1 bg-[#091529] border-[#1E3A5F] text-white" data-testid="crm-ptp-fecha-input" />
-            </div>
-          )}
-          <div>
-            <Label className="text-xs text-slate-400 uppercase">Nota</Label>
-            <textarea value={nota} onChange={e => setNota(e.target.value)} rows={2}
-              className="mt-1 w-full bg-[#091529] border border-[#1E3A5F] text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 resize-none" />
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={onClose} className="flex-1 border-[#1E3A5F] text-slate-400">Cancelar</Button>
-            <Button onClick={handleSubmit} disabled={saving || !resultado}
-              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center gap-2"
-              data-testid="crm-gestion-submit-btn">
-              {saving ? <Loader2 size={14} className="animate-spin" /> : <Phone size={14} />} Guardar
-            </Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function CRMCliente() {
   const { id } = useParams<{ id: string }>();
@@ -177,13 +110,6 @@ export default function CRMCliente() {
     finally { setAddingNota(false); }
   };
 
-  const handleGestion = async (gData: any) => {
-    await api.post(`/crm/${id}/gestion`, gData);
-    toast.success("Gestión registrada");
-    setShowGestion(false);
-    fetchData();
-  };
-
   const handlePTP = async () => {
     if (!ptpFecha || !ptpMonto) { toast.error("Completa fecha y monto del PTP"); return; }
     try {
@@ -215,14 +141,29 @@ export default function CRMCliente() {
   })();
 
   return (
-    <div className="min-h-screen bg-[#060E1E] text-white px-4 py-5 md:px-6 max-w-4xl mx-auto">
-      {/* Header */}
-      <button onClick={() => navigate(-1)}
-        className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white mb-4 transition-colors"
-        data-testid="crm-back-btn">
-        <ArrowLeft size={14} /> Volver
-      </button>
+    <div className="min-h-screen bg-[#060E1E] text-white pb-8">
+      {/* Sticky top header — always visible on mobile */}
+      <div className="sticky top-0 z-20 bg-[#060E1E]/95 backdrop-blur border-b border-[#1E3A5F] px-4 py-3 flex items-center gap-3" data-testid="crm-sticky-header">
+        <button onClick={() => navigate(-1)}
+          className="flex items-center gap-1 text-xs text-slate-400 hover:text-white shrink-0"
+          data-testid="crm-back-btn">
+          <ArrowLeft size={14} />
+        </button>
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <span className="font-semibold text-white truncate">{nombre}</span>
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${bs.bg} ${bs.text} ${bs.border}`}>{bs.label}</span>
+          {dpd_actual > 0 && (
+            <span className="text-[10px] text-red-400 shrink-0">{dpd_actual}d</span>
+          )}
+        </div>
+        <button onClick={() => setShowGestion(true)}
+          className="shrink-0 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded-lg px-3 py-1.5 transition-colors"
+          data-testid="gestion-btn-sticky">
+          + Gestión
+        </button>
+      </div>
 
+      <div className="px-4 py-5 md:px-6 max-w-4xl mx-auto">
       {/* Client header card */}
       <div className="bg-[#0D1E3A] border border-[#1E3A5F] rounded-xl p-5 mb-4" data-testid="crm-header">
         <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -411,7 +352,14 @@ export default function CRMCliente() {
       </Section>
 
       {/* Modals */}
-      <GestionModal open={showGestion} onClose={() => setShowGestion(false)} onSubmit={handleGestion} />
+      {showGestion && (
+        <GestionModal
+          loanbook_id={id || ""}
+          cliente_nombre={nombre}
+          onClose={() => setShowGestion(false)}
+          onSave={() => { setShowGestion(false); fetchData(); }}
+        />
+      )}
 
       <Dialog open={showPTP} onOpenChange={setShowPTP}>
         <DialogContent className="bg-[#0D1E3A] border-[#1E3A5F] text-white max-w-sm">
@@ -434,6 +382,7 @@ export default function CRMCliente() {
           </div>
         </DialogContent>
       </Dialog>
+      </div>
     </div>
   );
 }

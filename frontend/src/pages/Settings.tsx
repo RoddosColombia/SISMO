@@ -213,6 +213,7 @@ export default function Settings() {
           <TabsTrigger value="webhooks" data-testid="tab-webhooks">Webhooks</TabsTrigger>
           {user?.role === "admin" && <TabsTrigger value="mercately" data-testid="tab-mercately">Mercately (WhatsApp)</TabsTrigger>}
           <TabsTrigger value="cfo" data-testid="tab-cfo">Agente CFO</TabsTrigger>
+          <TabsTrigger value="scheduler" data-testid="tab-scheduler">Scheduler</TabsTrigger>
         </TabsList>
 
         {/* Alegra Connection Tab */}
@@ -342,6 +343,10 @@ export default function Settings() {
         <WebhooksTab api={api} />
         <CfoTab api={api} />
         {user?.role === "admin" && <MercatelyTab api={api} />}
+        <TabsContent value="scheduler" className="mt-5">
+          <SchedulerTab api={api} />
+        </TabsContent>
+
       </Tabs>
     </div>
   );
@@ -1347,3 +1352,123 @@ function WebhooksTab({ api }: { api: any }) {
     </TabsContent>
   );
 }
+
+// ── Scheduler Tab ─────────────────────────────────────────────────────────────
+
+const SCHEDULER_JOBS = [
+  { id: "calcular_dpd_todos",        label: "Calcular DPD",              schedule: "Diario 06:00" },
+  { id: "alertar_buckets_criticos",  label: "Alertas Buckets WA",        schedule: "Diario 06:05" },
+  { id: "verificar_alertas_cfo",     label: "Verificar Alertas CFO",     schedule: "Diario 06:10" },
+  { id: "calcular_scores",           label: "Calcular Scores + PTP",     schedule: "Diario 06:30" },
+  { id: "generar_cola_radar",        label: "Generar Cola RADAR",        schedule: "Diario 07:00" },
+  { id: "recordatorio_preventivo",   label: "Recordatorio Preventivo",   schedule: "Mar 09:00" },
+  { id: "recordatorio_vencimiento",  label: "Recordatorio Vencimiento",  schedule: "Mié 09:00" },
+  { id: "notificar_mora_nueva",      label: "Notificar Mora Nueva",      schedule: "Jue 09:00" },
+  { id: "resumen_semanal_ceo",       label: "Resumen Semanal CEO",       schedule: "Vie 17:00" },
+];
+
+function SchedulerTab({ api }: { api: any }) {
+  const [logs, setLogs]           = useState<any[]>([]);
+  const [triggering, setTriggering] = useState<string | null>(null);
+  const [loadingLogs, setLoadingLogs] = useState(true);
+
+  useEffect(() => {
+    api.get("/settings/wa-logs?limit=50")
+      .then((r: any) => setLogs(r.data))
+      .catch(() => {})
+      .finally(() => setLoadingLogs(false));
+  }, [api]);
+
+  const triggerJob = async (jobId: string) => {
+    setTriggering(jobId);
+    try {
+      await api.post(`/scheduler/trigger/${jobId}`);
+      toast.success(`Job "${jobId}" iniciado en background`);
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || "Error al ejecutar job");
+    } finally {
+      setTimeout(() => setTriggering(null), 1500);
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* Jobs */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+        <h3 className="text-sm font-bold text-[#0F2A5C] mb-3 flex items-center gap-2">
+          <span>⏱</span> Jobs del Scheduler (9 total)
+        </h3>
+        <div className="space-y-2">
+          {SCHEDULER_JOBS.map(job => (
+            <div key={job.id} data-testid={`scheduler-job-${job.id}`}
+              className="flex items-center justify-between py-2 px-3 bg-slate-50 rounded-lg border border-slate-100">
+              <div>
+                <p className="text-sm font-medium text-slate-700">{job.label}</p>
+                <p className="text-xs text-slate-400">{job.schedule} (America/Bogota)</p>
+              </div>
+              <button
+                onClick={() => triggerJob(job.id)}
+                disabled={triggering === job.id}
+                data-testid={`trigger-${job.id}`}
+                className="text-xs bg-[#0F2A5C] text-white px-3 py-1.5 rounded-lg hover:bg-[#163A7A] disabled:opacity-50 transition-colors flex items-center gap-1"
+              >
+                {triggering === job.id ? (
+                  <><Loader2 size={11} className="animate-spin" /> Ejecutando...</>
+                ) : "▶ Ejecutar"}
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* WA Logs */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+        <h3 className="text-sm font-bold text-[#0F2A5C] mb-3 flex items-center gap-2">
+          <span>💬</span> Historial WA enviados
+          <span className="ml-auto text-xs text-slate-400 font-normal">Últimos 50 mensajes</span>
+        </h3>
+        {loadingLogs ? (
+          <p className="text-xs text-slate-400">Cargando...</p>
+        ) : logs.length === 0 ? (
+          <p className="text-xs text-slate-400 py-4 text-center">No hay mensajes registrados aún.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-slate-400 border-b border-slate-100">
+                  <th className="py-2 pr-3">Fecha</th>
+                  <th className="py-2 pr-3">Destinatario</th>
+                  <th className="py-2 pr-3">Job</th>
+                  <th className="py-2 pr-3">Estado</th>
+                  <th className="py-2">Mensaje</th>
+                </tr>
+              </thead>
+              <tbody>
+                {logs.map((log, i) => (
+                  <tr key={i} className="border-b border-slate-50 hover:bg-slate-50" data-testid={`wa-log-${i}`}>
+                    <td className="py-1.5 pr-3 text-slate-500 whitespace-nowrap">
+                      {log.timestamp ? log.timestamp.slice(0, 16).replace("T", " ") : "—"}
+                    </td>
+                    <td className="py-1.5 pr-3 font-mono text-slate-600">{log.entity_id}</td>
+                    <td className="py-1.5 pr-3 text-slate-600">{log.actor || log.metadata?.job || "—"}</td>
+                    <td className="py-1.5 pr-3">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                        log.new_state === "sent" ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
+                      }`}>
+                        {log.new_state === "sent" ? "OK" : "FAIL"}
+                      </span>
+                    </td>
+                    <td className="py-1.5 text-slate-500 max-w-xs truncate">
+                      {log.metadata?.mensaje_preview || "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
