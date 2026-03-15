@@ -105,7 +105,7 @@ class TestAlegraEndpoints:
         assert isinstance(resp.json(), list)
 
     def test_get_journal_entries(self, admin_headers):
-        resp = requests.get(f"{BASE_URL}/api/alegra/journal-entries", headers=admin_headers)
+        resp = requests.get(f"{BASE_URL}/api/alegra/journals", headers=admin_headers)
         assert resp.status_code == 200
 
     def test_accounts_require_auth(self):

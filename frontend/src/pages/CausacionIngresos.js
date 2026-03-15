@@ -48,7 +48,7 @@ export default function CausacionIngresos() {
   const loadEntries = useCallback(async () => {
     setLoading(true);
     try {
-      const resp = await api.get("/alegra/journal-entries");
+      const resp = await api.get("/alegra/journals");
       // Filter income-related entries
       setEntries(resp.data);
     } catch { toast.error("Error cargando causaciones"); }
@@ -112,7 +112,7 @@ export default function CausacionIngresos() {
           debit: e.debit, credit: e.credit,
         })),
       };
-      const result = await api.post("/alegra/journal-entries", body);
+      const result = await api.post("/alegra/journals", body);
       toast.success(`Causación creada en Alegra — ${result.data.number || result.data.id}`);
       setOpen(false);
       loadEntries();

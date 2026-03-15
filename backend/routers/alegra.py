@@ -122,7 +122,7 @@ async def create_payment(body: dict, current_user=Depends(get_current_user)):
     return result
 
 
-@router.get("/journal-entries")
+@router.get("/journals")
 async def get_journal_entries(
     date_start: Optional[str] = None,
     date_end: Optional[str] = None,
@@ -136,11 +136,11 @@ async def get_journal_entries(
     return await AlegraService(db).request("journals", params=params)
 
 
-@router.post("/journal-entries")
+@router.post("/journals")
 async def create_journal_entry(body: dict, current_user=Depends(get_current_user)):
     service = AlegraService(db)
     result = await service.request("journals", "POST", body)
-    await log_action(current_user, "/alegra/journal-entries", "POST", body)
+    await log_action(current_user, "/alegra/journals", "POST", body)
     return result
 
 

@@ -70,7 +70,7 @@ export default function Nomina() {
         description: `Nómina ${mes} — ${empleados.length} empleado(s)`,
         items,
       };
-      await api.post("/alegra/journal-entries", payload);
+      await api.post("/alegra/journals", payload);
       toast.success(`Nómina ${mes} causada en Alegra`);
     } catch (err) {
       toast.error(err.response?.data?.detail || "Error causando nómina");

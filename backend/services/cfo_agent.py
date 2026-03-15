@@ -97,7 +97,7 @@ async def consolidar_datos_financieros(db) -> dict:
     mes_fin = hoy.isoformat()
     prox_mes_fin = (hoy.replace(day=1) + timedelta(days=32)).replace(day=1).isoformat()
 
-    # ── Alegra: journal-entries del mes ──────────────────────────────────────
+    # ── Alegra: journals del mes ──────────────────────────────────────────────
     journals_items: list = []
     try:
         resp = await alegra.request(
