@@ -87,16 +87,24 @@ Política: Migrar a .tsx/.ts al tocar cada archivo. No migrar en bloque.
 
 ### P1 — BUILD 7: Scheduler WhatsApp + alertas automáticas ✅ COMPLETADO
 
-### P1 — BUILD 8: Frontend completo + Dashboard KPIs (PRÓXIMO)
-- Dashboard KPIs tiempo real con panel RADAR en vivo (buckets visuales)
-- Estado de Resultados automático Alegra
-- Renombrar módulo cartera → RADAR (frontend completo)
+### P1 — BUILD 8: Frontend completo + Dashboard KPIs ✅ COMPLETADO (Marzo 2026)
+- Dashboard KPIs tiempo real: semáforo CFO, KPIs semana, Top 5 RADAR, inventario, alertas. Auto-refresh 30s.
+- Componentes shared: BucketBadge, ScoreBadge, RadarCard (con ultima_gestion), GestionModal, WhatsAppButton, DiasProtocolo
+- Loanbook: columna Mora($), DPD/Score ordenables, historial gestiones en detalle
+- Hooks: useSharedState, useRadarQueue (polling)
+- Migración TypeScript: AuthContext.tsx, AlegraContext.tsx. Archivos .js obsoletos eliminados.
+- Backend: POST /api/scheduler/trigger/{job_id}, GET /api/settings/wa-logs
+- Mobile-first: /radar y /crm/{id} responsive en 375px
+- TEST 8: 14/14 PASS (backend 8/8, frontend 6/6)
 
 ### Backlog Técnico
-- Migrar contextos AuthContext/AlegraContext a TypeScript (Cartera.js ya eliminado)
 - Detección automática UVT para retenciones (actualmente hardcoded)
 - Integración DIAN para semáforo impuestos (actualmente hardcoded VERDE)
 - Nómina y Prestaciones NIIF Colombia
+
+### P1 — BUILD 9: UI Scheduler + Estado de Resultados
+- Tab "Alertas Scheduler" en Settings: ver WA-logs con historial y disparar jobs manualmente desde UI (backend ya listo)
+- Estado de Resultados automático Alegra (P&L mensual/anual)
 
 ---
 

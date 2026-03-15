@@ -213,7 +213,7 @@ export default function Settings() {
           <TabsTrigger value="webhooks" data-testid="tab-webhooks">Webhooks</TabsTrigger>
           {user?.role === "admin" && <TabsTrigger value="mercately" data-testid="tab-mercately">Mercately (WhatsApp)</TabsTrigger>}
           <TabsTrigger value="cfo" data-testid="tab-cfo">Agente CFO</TabsTrigger>
-          <TabsTrigger value="scheduler" data-testid="tab-scheduler">Scheduler</TabsTrigger>
+          <TabsTrigger value="scheduler" data-testid="tab-scheduler">Alertas Scheduler</TabsTrigger>
         </TabsList>
 
         {/* Alegra Connection Tab */}
