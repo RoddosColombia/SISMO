@@ -1958,6 +1958,50 @@ async def process_chat(
         except Exception:
             pass  # fall through to LLM
 
+    # ── BUILD 16: Detectar solicitud de carga masiva de gastos ───────────────
+    _gastos_kws = [
+        "carga masiva", "cargar gastos", "excel gastos", "subir gastos",
+        "plantilla gastos", "gastos excel", "registro masivo", "masiva de gastos",
+        "masivo de gastos", "excel de gastos", "carga de gastos", "cargar excel",
+        "upload gastos", "gastos masivos",
+    ]
+    if any(kw in msg_lower_cmd for kw in _gastos_kws):
+        gastos_card = {
+            "type":        "gastos_masivos_card",
+            "titulo":      "Carga Masiva de Gastos",
+            "descripcion": (
+                "Descarga la plantilla Excel, llena los gastos y súbela para "
+                "registrarlos automáticamente en Alegra."
+            ),
+        }
+        resp_gastos = (
+            "Aquí tienes la herramienta de **Carga Masiva de Gastos**. \n\n"
+            "**Cómo usarla:**\n"
+            "1. Descarga la plantilla Excel oficial con el botón de abajo\n"
+            "2. Llena los gastos siguiendo las instrucciones del archivo\n"
+            "3. Sube el archivo completado\n"
+            "4. Revisa el preview y confirma el registro en Alegra\n\n"
+            "Soporta hasta 200 gastos por carga. "
+            "Calcula automáticamente retenciones (ReteFuente, IVA) y "
+            "diferencia entre pagos contado y a crédito."
+        )
+        await db.chat_messages.insert_one({
+            "id": str(uuid.uuid4()), "session_id": session_id, "role": "user",
+            "content": user_message, "timestamp": datetime.now(timezone.utc).isoformat(),
+            "user_id": user.get("id"),
+        })
+        await db.chat_messages.insert_one({
+            "id": str(uuid.uuid4()), "session_id": session_id, "role": "assistant",
+            "content": resp_gastos, "timestamp": datetime.now(timezone.utc).isoformat(),
+            "user_id": user.get("id"),
+        })
+        return {
+            "message":            resp_gastos,
+            "pending_action":     None,
+            "session_id":         session_id,
+            "gastos_masivos_card": gastos_card,
+        }
+
     # ── BUILD 13: Detectar confirmación autoretenedor ─────────────────────────
     _autoret_sí_patterns = [
         r'sí[,\s].*autoretenedor', r'si[,\s].*autoretenedor',

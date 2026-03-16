@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Bot, Send, Trash2, Paperclip, X, Play,
   CheckCircle2, Loader2, FileText, AlertCircle, Zap,
   Bike, CreditCard, Receipt, ScanLine, UserPlus, ArrowRight,
-  Download, Sheet
+  Download, Sheet, UploadCloud, TableProperties, ChevronDown, ChevronUp
 } from "lucide-react";
 
 const API = process.env.REACT_APP_BACKEND_URL;
@@ -20,6 +20,12 @@ interface PlExportCardData {
   titulo: string;
   periodo: string;
   periodo_label: string;
+}
+
+interface GastosMasivosCardData {
+  type: "gastos_masivos_card";
+  titulo: string;
+  descripcion: string;
 }
 
 interface Message {
@@ -121,6 +127,7 @@ const QUICK_PROMPTS = [
   "Crea factura para Colpatria $5M",
   "Causar arrendamiento $3M octubre",
   "¿Cuánto ReteFuente de $5M en servicios?",
+  "Carga masiva de gastos",
 ];
 
 /* ── sub-components ── */
@@ -618,6 +625,358 @@ function CuotasInicialesCard({ card }: { card: any }): React.ReactElement {
 }
 
 
+/* ── GastosMasivosCard ── */
+type GastosStep = "initial" | "preview" | "processing" | "done";
+
+function GastosMasivosCard({ card, token }: { card: GastosMasivosCardData; token?: string }): React.ReactElement {
+  const [step, setStep]               = useState<GastosStep>("initial");
+  const [preview, setPreview]         = useState<any[]>([]);
+  const [resumen, setResumen]         = useState<any>(null);
+  const [warnings, setWarnings]       = useState<string[]>([]);
+  const [jobId, setJobId]             = useState<string | null>(null);
+  const [progress, setProgress]       = useState({ procesados: 0, total: 0, exitosos: 0, errores: 0 });
+  const [done, setDone]               = useState<any>(null);
+  const [uploading, setUploading]     = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [tableExpanded, setTableExpanded] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pollRef      = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fmtCOP = (n: number) => `$${Number(n || 0).toLocaleString("es-CO")}`;
+  const fmtPct = (n: number) => `${n.toFixed(1)}%`;
+
+  const handleDownloadTemplate = () => {
+    const url = `${API}/api/gastos/plantilla`;
+    window.open(url, "_blank");
+  };
+
+  const handleFileSelect = async (file: File) => {
+    if (!file.name.endsWith(".xlsx") && !file.name.endsWith(".xls")) {
+      setUploadError("El archivo debe ser .xlsx o .xls");
+      return;
+    }
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`${API}/api/gastos/cargar`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setUploadError(data.error || data.detail || "Error al procesar el archivo");
+        return;
+      }
+      setPreview(data.gastos || []);
+      setResumen(data.resumen || {});
+      setWarnings(data.advertencias || []);
+      setStep("preview");
+    } catch (e: any) {
+      setUploadError(e.message || "Error de red al subir el archivo");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleConfirm = async () => {
+    setStep("processing");
+    setProgress({ procesados: 0, total: preview.length, exitosos: 0, errores: 0 });
+    try {
+      const res = await fetch(`${API}/api/gastos/procesar`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ gastos: preview }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.detail || "Error al procesar");
+      setJobId(data.job_id);
+      // Start polling
+      pollRef.current = setInterval(async () => {
+        try {
+          const pRes = await fetch(`${API}/api/gastos/jobs/${data.job_id}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
+          const pData = await pRes.json();
+          setProgress({
+            procesados: pData.procesados || 0,
+            total:      pData.total || preview.length,
+            exitosos:   pData.exitosos || 0,
+            errores:    pData.errores || 0,
+          });
+          if (pData.estado === "completado") {
+            clearInterval(pollRef.current!);
+            setDone(pData);
+            setStep("done");
+          }
+        } catch {}
+      }, 1000);
+    } catch (e: any) {
+      setUploadError(e.message);
+      setStep("preview");
+    }
+  };
+
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+
+  const TIPO_COLORS: Record<string, string> = {
+    arrendamiento: "#7C3AED", servicios: "#0369A1", honorarios_pn: "#B45309",
+    honorarios_pj: "#92400E", compras: "#047857", nomina: "#1D4ED8",
+    impuesto: "#C2410C", otros: "#64748B",
+  };
+
+  return (
+    <div className="mb-4 rounded-xl overflow-hidden shadow-sm" style={{ border: "1px solid #BAE6FD" }} data-testid="gastos-masivos-card">
+      {/* Header */}
+      <div className="px-4 py-2.5 flex items-center gap-2" style={{ background: "#0F2A5C", borderBottom: "1px solid #BAE6FD" }}>
+        <TableProperties size={13} className="text-sky-300" />
+        <span className="text-xs font-bold text-sky-100 uppercase tracking-wide">Carga Masiva de Gastos</span>
+        {step === "preview" && (
+          <span className="ml-auto text-[10px] font-bold bg-sky-700 text-sky-200 px-2 py-0.5 rounded-full">
+            {preview.length} gastos listos
+          </span>
+        )}
+        {step === "done" && (
+          <span className="ml-auto text-[10px] font-bold bg-emerald-700 text-emerald-200 px-2 py-0.5 rounded-full">
+            Completado
+          </span>
+        )}
+      </div>
+
+      {/* STEP: initial */}
+      {step === "initial" && (
+        <div className="bg-white">
+          {/* Download area */}
+          <div className="px-4 py-3 border-b border-slate-100">
+            <p className="text-xs text-slate-500 mb-3">{card.descripcion}</p>
+            <button
+              onClick={handleDownloadTemplate}
+              data-testid="gastos-download-template-btn"
+              className="w-full flex items-center justify-center gap-2 text-xs font-bold py-2.5 px-4 rounded-xl border-2 border-[#0F2A5C] text-[#0F2A5C] hover:bg-[#0F2A5C] hover:text-white transition-all"
+            >
+              <Download size={13} />
+              Descargar Plantilla Excel (.xlsx)
+            </button>
+          </div>
+          {/* Upload area */}
+          <div className="px-4 py-3">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400 mb-2">
+              Subir Plantilla Completada
+            </p>
+            <div
+              className="border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all hover:border-sky-400 hover:bg-sky-50"
+              style={{ borderColor: "#BAE6FD" }}
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFileSelect(f); }}
+              data-testid="gastos-upload-zone"
+            >
+              {uploading ? (
+                <Loader2 size={22} className="mx-auto mb-2 animate-spin text-sky-500" />
+              ) : (
+                <UploadCloud size={22} className="mx-auto mb-2 text-sky-400" />
+              )}
+              <p className="text-xs font-semibold text-slate-600">
+                {uploading ? "Procesando archivo..." : "Arrastra el archivo aquí o haz clic para seleccionar"}
+              </p>
+              <p className="text-[10px] text-slate-400 mt-1">Solo .xlsx o .xls</p>
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              hidden
+              accept=".xlsx,.xls"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelect(f); e.target.value = ""; }}
+            />
+            {uploadError && (
+              <div className="mt-2 flex items-center gap-1.5 text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded-lg">
+                <AlertCircle size={12} />
+                {uploadError}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* STEP: preview */}
+      {step === "preview" && (
+        <div className="bg-white">
+          {/* Summary */}
+          <div className="px-4 py-3 bg-slate-50 border-b border-slate-100">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {[
+                { label: "Base total", val: fmtCOP(resumen?.total_monto_base), color: "#0369A1" },
+                { label: "IVA total",  val: fmtCOP(resumen?.total_iva),        color: "#7C3AED" },
+                { label: "ReteFuente", val: fmtCOP(resumen?.total_retefuente), color: "#C2410C" },
+                { label: "Neto a pagar", val: fmtCOP(resumen?.total_neto_pagar), color: "#047857" },
+              ].map((kpi, i) => (
+                <div key={i} className="bg-white rounded-lg px-3 py-2 border border-slate-100 text-center">
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wide">{kpi.label}</p>
+                  <p className="text-sm font-bold" style={{ color: kpi.color }}>{kpi.val}</p>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-3 mt-2 text-[10px] text-slate-500">
+              <span className="font-medium text-slate-700">{resumen?.total_filas} gastos</span>
+              <span>· {resumen?.contado} contado</span>
+              <span>· {resumen?.credito} crédito</span>
+            </div>
+          </div>
+
+          {/* Warnings */}
+          {warnings.length > 0 && (
+            <div className="px-4 py-2 bg-amber-50 border-b border-amber-100">
+              {warnings.slice(0, 3).map((w, i) => (
+                <div key={i} className="flex items-start gap-1.5 text-[10px] text-amber-700">
+                  <AlertCircle size={10} className="flex-shrink-0 mt-0.5" />
+                  {w}
+                </div>
+              ))}
+              {warnings.length > 3 && <p className="text-[10px] text-amber-600 mt-1">...y {warnings.length - 3} más</p>}
+            </div>
+          )}
+
+          {/* Table toggle */}
+          <div className="px-4 py-2 border-b border-slate-100">
+            <button
+              onClick={() => setTableExpanded(p => !p)}
+              className="w-full flex items-center justify-between text-[11px] font-semibold text-slate-600 hover:text-sky-600 transition"
+              data-testid="gastos-toggle-table-btn"
+            >
+              <span>Ver detalle de gastos ({preview.length} filas)</span>
+              {tableExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            </button>
+          </div>
+
+          {tableExpanded && (
+            <div className="overflow-x-auto" style={{ maxHeight: "240px", overflowY: "auto" }}>
+              <table className="w-full text-[11px]">
+                <thead style={{ position: "sticky", top: 0, background: "#F1F5F9", zIndex: 1 }}>
+                  <tr>
+                    {["Proveedor", "Concepto", "Base", "IVA", "ReteFuente", "Neto", "Tipo", "Pago"].map(h => (
+                      <th key={h} className="px-2 py-1.5 text-left font-semibold text-slate-500 border-b border-slate-200">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.map((g, i) => (
+                    <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "#F8FAFC" }} data-testid={`gastos-preview-row-${i}`}>
+                      <td className="px-2 py-1 text-slate-700 font-medium max-w-[120px] truncate">{g.proveedor}</td>
+                      <td className="px-2 py-1 text-slate-500 max-w-[150px] truncate">{g.concepto}</td>
+                      <td className="px-2 py-1 text-slate-700">{fmtCOP(g.monto_sin_iva)}</td>
+                      <td className="px-2 py-1 text-purple-600">{g.iva_monto > 0 ? fmtCOP(g.iva_monto) : "—"}</td>
+                      <td className="px-2 py-1 text-red-600">{g.retefuente_monto > 0 ? fmtCOP(g.retefuente_monto) : "—"}</td>
+                      <td className="px-2 py-1 text-emerald-700 font-semibold">{fmtCOP(g.neto_pagar)}</td>
+                      <td className="px-2 py-1">
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold text-white" style={{ background: TIPO_COLORS[g.tipo_gasto] || "#64748B" }}>
+                          {g.tipo_gasto}
+                        </span>
+                      </td>
+                      <td className="px-2 py-1 text-slate-500">{g.forma_pago}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="p-3 flex gap-2 bg-slate-50 border-t border-slate-100">
+            <button
+              onClick={handleConfirm}
+              data-testid="gastos-confirm-btn"
+              className="flex-1 flex items-center justify-center gap-1.5 text-xs font-bold py-2.5 px-4 rounded-xl text-white transition"
+              style={{ background: "linear-gradient(135deg, #0F2A5C, #00C4D4)" }}
+            >
+              <CheckCircle2 size={13} />
+              Confirmar y registrar {preview.length} gastos en Alegra
+            </button>
+            <button
+              onClick={() => { setStep("initial"); setPreview([]); setUploadError(null); }}
+              className="text-xs text-slate-500 hover:text-slate-700 px-3 py-2 rounded-xl border border-slate-200 transition"
+              data-testid="gastos-back-btn"
+            >
+              <X size={11} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* STEP: processing */}
+      {step === "processing" && (
+        <div className="bg-white px-4 py-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Loader2 size={16} className="animate-spin text-sky-600" />
+            <span className="text-sm font-semibold text-slate-700">
+              Procesando {progress.procesados} / {progress.total} gastos...
+            </span>
+          </div>
+          {/* Progress bar */}
+          <div className="h-3 bg-slate-100 rounded-full overflow-hidden mb-3">
+            <div
+              className="h-full rounded-full transition-all duration-500"
+              style={{
+                width: `${progress.total > 0 ? Math.round((progress.procesados / progress.total) * 100) : 0}%`,
+                background: "linear-gradient(90deg, #0F2A5C, #00C4D4)",
+              }}
+            />
+          </div>
+          <div className="flex justify-between text-[10px] text-slate-400">
+            <span className="text-emerald-600 font-semibold">{progress.exitosos} registrados</span>
+            <span>{progress.total > 0 ? Math.round((progress.procesados / progress.total) * 100) : 0}%</span>
+            <span className="text-red-500">{progress.errores} errores</span>
+          </div>
+        </div>
+      )}
+
+      {/* STEP: done */}
+      {step === "done" && done && (
+        <div className="bg-white">
+          {/* Result summary */}
+          <div className="px-4 py-3 bg-emerald-50 border-b border-emerald-100 flex items-center gap-3">
+            <CheckCircle2 size={18} className="text-emerald-600 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-bold text-emerald-800">
+                {done.exitosos} de {done.total} gastos registrados en Alegra
+              </p>
+              {done.errores > 0 && (
+                <p className="text-[10px] text-red-600 mt-0.5">
+                  {done.errores} fila{done.errores > 1 ? "s" : ""} con error
+                </p>
+              )}
+            </div>
+          </div>
+          <div className="p-3 flex gap-2">
+            {done.tiene_errores && jobId && (
+              <a
+                href={`${API}/api/gastos/reporte-errores/${jobId}`}
+                data-testid="gastos-error-report-btn"
+                className="flex-1 flex items-center justify-center gap-1.5 text-xs font-bold py-2 px-3 rounded-lg border border-red-300 text-red-700 bg-red-50 hover:bg-red-100 transition"
+              >
+                <Download size={12} />
+                Descargar reporte de errores
+              </a>
+            )}
+            <button
+              onClick={() => { setStep("initial"); setPreview([]); setDone(null); setJobId(null); setUploadError(null); }}
+              className="flex-1 flex items-center justify-center gap-1.5 text-xs font-bold py-2 px-3 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition"
+              data-testid="gastos-new-load-btn"
+            >
+              <UploadCloud size={12} />
+              Nueva carga
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 function MultiFilePreview({ files, onProcess, onClear, processing, processingIdx }: {
   files: any[]; onProcess: () => void; onClear: () => void; processing: boolean; processingIdx: number;
 }): React.ReactElement {
@@ -903,6 +1262,7 @@ export default function AgentChatPage() {
   const [documentProposal, setDocumentProposal] = useState<DocumentProposalData | null>(null);
   const [plExportCard, setPlExportCard] = useState<PlExportCardData | null>(null);
   const [cuotasInicialesCard, setCuotasInicialesCard] = useState<any>(null);
+  const [gastosMasivosCard, setGastosMasivosCard] = useState<GastosMasivosCardData | null>(null);
   const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [multiFileProcessing, setMultiFileProcessing] = useState(false);
@@ -1078,7 +1438,7 @@ export default function AgentChatPage() {
       docTypeLabel: sentFile && selectedType?.value !== "auto" ? selectedType.label : null,
     }]);
     setInput(""); setAttachedFile(null); setDocTypeHint("auto"); setLoading(true);
-    setDocumentProposal(null); setPendingAction(null); setPlExportCard(null); setCuotasInicialesCard(null);
+    setDocumentProposal(null); setPendingAction(null); setPlExportCard(null); setCuotasInicialesCard(null); setGastosMasivosCard(null);
 
     try {
       const baseMessage = sentInput || "Analiza este comprobante contable y extrae los datos para su registro en Alegra.";
@@ -1088,9 +1448,10 @@ export default function AgentChatPage() {
         ...(sentFile ? { file_content: sentFile.base64, file_name: sentFile.name, file_type: sentFile.type } : {}),
       };
       const resp = await api.post("/chat/message", payload);
-      const { message, pending_action, document_proposal, export_card, cuotas_iniciales_card } = resp.data;
+      const { message, pending_action, document_proposal, export_card, cuotas_iniciales_card, gastos_masivos_card } = resp.data;
       setMessages((prev) => [...prev, { role: "assistant", content: message, timestamp: new Date().toISOString() }]);
       if (document_proposal) setDocumentProposal(document_proposal);
+      else if (gastos_masivos_card?.type === "gastos_masivos_card") setGastosMasivosCard(gastos_masivos_card);
       else if (cuotas_iniciales_card?.type === "cuotas_iniciales_card") setCuotasInicialesCard(cuotas_iniciales_card);
       else if (export_card?.type === "pl_export_card") setPlExportCard(export_card);
       else if (pending_action?.type && pending_action?.payload) setPendingAction(pending_action);
@@ -1347,6 +1708,13 @@ export default function AgentChatPage() {
 
         {cuotasInicialesCard && !loading && (
           <CuotasInicialesCard card={cuotasInicialesCard} />
+        )}
+
+        {gastosMasivosCard && !loading && (
+          <GastosMasivosCard
+            card={gastosMasivosCard}
+            token={(api as any).defaults?.headers?.Authorization?.replace("Bearer ", "")}
+          />
         )}
 
         {attachedFiles.length > 0 && !loading && (
