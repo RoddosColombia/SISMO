@@ -123,7 +123,32 @@ Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
 
 ---
 
-## BACKLOG (por prioridad — orden BUILD fijo)
+## BUILD 14 — MERCATELY WHATSAPP OPERATIVO (✅ Feb 2026)
+
+### Componentes implementados
+- **Webhook completo** `/api/mercately/webhook`: detección de tipo de remitente (CLIENTE/INTERNO/DESCONOCIDO), procesamiento de media (comprobante/facturas), flujo SI/NO de confirmación, sesiones TTL 5 min
+- **Detección de intención** mensajes libres: SALDO / PAGO / DIFICULTAD / NO_RECONOCIDA → respuesta contextual automática
+- **5 Templates automáticos**:
+  - T1: Recordatorio preventivo D-2 (lunes 8am COT)
+  - T2: Vencimiento hoy — incluye datos bancarios (miércoles 8am COT)
+  - T3: Mora D+1 (jueves 9am COT)
+  - T4: Confirmación de pago — disparado desde post_action_sync.py al registrar pago
+  - T5: Mora severa +30 días (sábado 9am COT)
+- **Scheduler 4 cron jobs**: America/Bogota, respetan toggle global_activo y toggles por template
+- **Logging** a colección `cartera_gestiones` de todos los mensajes enviados/recibidos
+- **Endpoints**: GET /api/mercately/gestiones, GET /api/mercately/gestiones/cliente/{cedula}
+- **Settings UI** (Mercately tab): toggle global, horario operación, 5 toggles de templates, datos bancarios, tabla últimos 50 mensajes
+- **CRM Profile**: sección "WhatsApp — Historial" en perfil del cliente (de `cartera_gestiones`)
+
+### TAREA 0 — ReteICA Corregido (✅ Feb 2026)
+- Cálculo corregido: 0.414% por operación gravada (no proyección anual)
+- Campo `tarifa_pct` en respuesta (no `tarifa_anual_pct`)
+- Badge UI actualizado: "0.414% por operación gravada"
+
+### TAREA 1 — Hard Delete Proveedores (✅ Feb 2026)
+- DELETE /api/proveedores/config/{nombre}: eliminación real del documento MongoDB
+- Modal de confirmación personalizado en UI (data-testid: cancel-delete-btn, confirm-delete-btn)
+- Filtro de ELIMINADO eliminado del frontend (ya no necesario)
 
 ### P0 — GAPs v1.0 ✅ COMPLETADO (Marzo 2026)
 - GAP 1: Normalización teléfonos ✅
