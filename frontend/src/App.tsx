@@ -17,6 +17,7 @@ import CRMList from "./pages/CRMList";
 import CRMCliente from "./pages/CRMCliente";
 import CFO from "./pages/CFO";
 import Proveedores from "./pages/Proveedores";
+import Radar from "./pages/Radar";
 import "./App.css";
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -52,6 +53,7 @@ function AppRoutes() {
           <Route path="loanbook" element={<Loanbook />} />
           <Route path="crm" element={<CRMList />} />
           <Route path="crm/:id" element={<CRMCliente />} />
+          <Route path="radar" element={<Radar />} />
           <Route path="configuracion" element={<Settings />} />
           <Route path="proveedores" element={<Proveedores />} />
           {/* Módulos eliminados del menú — redirigen al chat con contexto */}
