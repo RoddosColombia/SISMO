@@ -175,15 +175,19 @@ DATOS CFO EN TIEMPO REAL (para responder consultas — los valores reales vienen
 • Para autosostenibilidad: mínimo 45 créditos activos
 
 TIPOS DE ACCIÓN DISPONIBLES:
-• crear_factura_venta   → POST /invoices
+• crear_factura_venta      → POST /invoices
 • registrar_factura_compra → POST /bills
-• anular_factura_compra → DELETE /bills/{id}  ← anulación de factura de compra
-• crear_causacion       → POST /journals  (endpoint correcto en Alegra API)
-• registrar_pago        → POST /payments
-• crear_contacto        → POST /contacts
-• registrar_entrega     → ACCIÓN INTERNA (activa plan de cuotas)
-• calcular_retencion    → cálculo local (sin ejecutar en Alegra)
-• consultar_facturas    → información de facturas existentes
+• anular_factura_compra    → DELETE /bills/{id}
+• crear_causacion          → POST /journals
+• registrar_pago           → POST /payments
+• crear_contacto           → POST /contacts
+• registrar_entrega        → ACCIÓN INTERNA (activa plan de cuotas)
+• calcular_retencion       → cálculo local (sin ejecutar en Alegra)
+• consultar_facturas       → información de facturas existentes
+• crear_nota_credito       → POST /credit-notes  (nota crédito sobre factura de venta)
+• crear_nota_debito        → POST /debit-notes   (cargo adicional sobre factura)
+• crear_comprobante_ingreso → POST /journal-entries tipo ingreso de caja
+• crear_comprobante_egreso  → POST /journal-entries tipo egreso de caja
 
 FORMATO EXACTO PARA CREAR_CONTACTO (Alegra Colombia):
 {
@@ -754,6 +758,57 @@ NUNCA uses ambas retenciones a la vez. Solo una según el tipo de proveedor.
 NUNCA inventes ni uses NIT/CC ficticios o placeholders — espera el dato real del usuario.
 
 ═══════════════════════════════════════════════════
+FUENTES DE DATOS POR PRIORIDAD
+═══════════════════════════════════════════════════
+Para consultas de inventario (motos disponibles):
+  1. INVENTARIO_DISPONIBLE del contexto (MongoDB — más actualizado)
+  2. Consulta GET /items en Alegra (product activos)
+  3. Inferencia: 10 loanbooks activos = 10 motos entregadas; facturas compra recientes = unidades adquiridas
+  4. Último estado conocido desde sesión anterior
+
+Para consultas de cartera/cobros:
+  1. LOANBOOK_ACTIVOS del contexto (MongoDB)
+  2. GET /invoices en Alegra filtrado por cliente
+  3. roddos_events para movimientos recientes
+
+Para consultas contables/fiscales:
+  1. GET /journal-entries en Alegra del período
+  2. GET /invoices + GET /bills del período
+  3. cfo_configuracion para parámetros fiscales
+
+═══════════════════════════════════════════════════
+PRINCIPIOS DE BLINDAJE DEL AGENTE (CRÍTICOS)
+═══════════════════════════════════════════════════
+PRINCIPIO 1 — Nunca fallar en silencio:
+  Antes de reportar cualquier error SIEMPRE:
+  a) Intenta al menos 2 fuentes alternativas según la guía de prioridad arriba
+  b) Si todas fallan, explica exactamente QUÉ falló y POR QUÉ en lenguaje claro
+  c) Propón SIEMPRE 2 alternativas concretas que el usuario puede tomar
+  NUNCA respondas solo "Hubo un error" — siempre da contexto y opciones
+
+PRINCIPIO 2 — Acción sobre información:
+  Cuando no puedas obtener el dato exacto, usa lo que SÍ sabes:
+  • Datos de sesiones anteriores (indicarlos como estimaciones)
+  • Datos inferibles desde loanbooks (10 activos = 10 motos entregadas a crédito)
+  • Dirección al módulo específico: inventario→Motos | cartera→RADAR | impuestos→Impuestos
+
+PRINCIPIO 3 — Completitud contable:
+  Para CUALQUIER operación contable:
+  a) Débitos = Créditos (verificar balance antes de mostrar el asiento)
+  b) Usar IDs reales del plan de cuentas (de CUENTAS_CONTABLES_ALEGRA del contexto)
+  c) Retenciones según proveedores_config (autoretenedores → NO ReteFuente)
+  d) Período IVA cuatrimestral (Ene-Abr | May-Ago | Sep-Dic) — nunca bimestral
+  e) Mostrar asiento COMPLETO al usuario antes de confirmar y ejecutar
+
+PRINCIPIO 4 — Diagnóstico ante errores repetidos:
+  Si en esta sesión ya ocurrieron 2+ errores similares, activa diagnóstico:
+  "Noto problemas repetidos. Estado del sistema:
+   • Inventario: [disponible/no disponible]
+   • Conexión Alegra: [estado]
+   • Loanbooks activos: [N]
+   Puedo ayudarte con: [lista alternativas concretas]"
+
+═══════════════════════════════════════════════════
 INSTRUCCIÓN PRIORITARIA DE ESTA SESIÓN:
 ═══════════════════════════════════════════════════
 {honorarios_instruccion}"""
@@ -951,10 +1006,12 @@ async def gather_context(user_message: str, alegra_service, db) -> dict:
         except Exception:
             pass
 
-    # ── Inject available inventory context for moto sale scenarios ─────────
+    # ── Inject available inventory context for moto sale/query scenarios ──────
     sale_kws = ["vende", "venta", "moto", "cb", "fz", "tvs", "kawas", "akt", "chasis",
-                "vin", "plan", "p39", "p52", "p78", "financ", "cuota", "entrega", "entregó"]
+                "vin", "plan", "p39", "p52", "p78", "financ", "cuota", "entrega", "entregó",
+                "inventario", "disponible", "stock", "cuántas motos", "cuantas motos"]
     if any(kw in msg_lower for kw in sale_kws):
+        # Ruta 1: MongoDB (fuente principal)
         try:
             motos = await db.inventario_motos.find(
                 {"estado": "Disponible"},
@@ -963,8 +1020,38 @@ async def gather_context(user_message: str, alegra_service, db) -> dict:
             ).sort("created_at", -1).to_list(30)
             if motos:
                 context["inventario_disponible"] = motos
+                context["inventario_fuente"] = "mongodb"
         except Exception:
-            pass
+            motos = []
+        # Ruta 2: Fallback Alegra /items si MongoDB falla o está vacío
+        if not motos:
+            try:
+                alegra_items = await alegra_service.request("items")
+                if isinstance(alegra_items, list):
+                    motos_alegra = [
+                        {"id": it["id"], "marca": "Alegra", "version": it["name"],
+                         "color": "", "chasis": "", "motor": "", "estado": "Disponible",
+                         "total": it.get("price", [{}])[0].get("price", 0) if it.get("price") else 0}
+                        for it in alegra_items
+                        if it.get("status") == "active" and it.get("type") == "product"
+                    ]
+                    if motos_alegra:
+                        context["inventario_disponible"] = motos_alegra
+                        context["inventario_fuente"] = "alegra"
+            except Exception:
+                pass
+        # Ruta 3: Inferencia desde loanbooks si ambas fuentes fallan
+        if not context.get("inventario_disponible"):
+            try:
+                total_activos = await db.loanbook.count_documents({"estado": "activo"})
+                total_motos_inv = await db.inventario_motos.count_documents({})
+                context["inventario_inferido"] = {
+                    "loanbooks_activos": total_activos,
+                    "total_en_inventario_db": total_motos_inv,
+                    "nota": "Datos directos no disponibles — usar módulo Motos para detalle exacto"
+                }
+            except Exception:
+                pass
 
     # ── Inject active loanbook context for payment/delivery scenarios ───────
     pay_kws = ["pago", "cuota", "cobr", "cancelar", "pagó", "cancel", "loanbook", "lb-", "entrega"]
@@ -1613,8 +1700,18 @@ async def process_chat(
         extra_context += "\n\nITEMS_CATALOGO_ALEGRA (IDs válidos para registrar_factura_compra → purchases.items):\n" + "\n".join(lines)
     if context_data.get("inventario_disponible"):
         motos_list = context_data["inventario_disponible"]
+        fuente = context_data.get("inventario_fuente", "local")
         lines = [f"  • [{m.get('id','')}] {m.get('marca','')} {m.get('version','')} {m.get('color','')} — Chasis: {m.get('chasis','')} Motor: {m.get('motor','')} Precio: ${m.get('total',0):,.0f}" for m in motos_list[:20]]
-        extra_context += "\n\nINVENTARIO_DISPONIBLE (motos en stock para venta):\n" + "\n".join(lines)
+        extra_context += f"\n\nINVENTARIO_DISPONIBLE (fuente: {fuente}, motos en stock):\n" + "\n".join(lines)
+    elif context_data.get("inventario_inferido"):
+        inf = context_data["inventario_inferido"]
+        extra_context += (
+            f"\n\nINVENTARIO (datos directos no disponibles — fuentes MongoDB e Alegra sin datos):\n"
+            f"  • Loanbooks activos (motos entregadas a crédito): {inf.get('loanbooks_activos', '?')}\n"
+            f"  • Registros totales en inventario local: {inf.get('total_en_inventario_db', '?')}\n"
+            f"  • NOTA: {inf.get('nota', '')}\n"
+            f"  → Dirige al usuario al módulo Motos para ver el detalle exacto del stock disponible."
+        )
     if context_data.get("loanbook_activos"):
         lb_list = context_data["loanbook_activos"]
         lines = [
@@ -1903,6 +2000,32 @@ async def process_chat(
         except Exception:
             pass
 
+    # ── Modo diagnóstico automático (errores repetidos en sesión) ────────────
+    try:
+        _session_errors = await db.agent_errors.count_documents(
+            {"stack_trace": {"$regex": session_id}, "fase": "process_chat"}
+        )
+        if _session_errors == 0:
+            # Also check by recent timestamp (last 30 min, same user)
+            from datetime import timedelta
+            _cutoff = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+            _session_errors = await db.agent_errors.count_documents({
+                "timestamp": {"$gte": _cutoff},
+                "user_message": {"$exists": True}
+            })
+        if _session_errors >= 2:
+            system_prompt += (
+                "\n\nINSTRUCCIÓN DIAGNÓSTICO (activada por errores repetidos en sesión):\n"
+                "El usuario ha tenido 2+ errores en esta sesión. "
+                "Incluye al inicio de tu próxima respuesta un diagnóstico breve:\n"
+                "Estado del sistema:\n"
+                f"• Inventario: {'disponible (' + str(len(context_data.get('inventario_disponible', []))) + ' motos)' if context_data.get('inventario_disponible') else 'no disponible desde contexto — usa módulo Motos'}\n"
+                f"• Loanbooks: {context_data.get('loanbooks_total', '?')} activos\n"
+                "• Luego propón 3 acciones alternativas concretas que puedas ejecutar ahora mismo."
+            )
+    except Exception:
+        pass
+
     is_context_cmd = any(kw in msg_lower_cmd for kw in [
         "en qué íbamos", "en que ibamos", "qué falta", "que falta",
         "resumen", "qué hice", "que hice", "qué pasó hoy", "que paso hoy",
@@ -2165,7 +2288,23 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
         "crear_causacion": ("journals", "POST"),
         "registrar_pago": ("payments", "POST"),
         "crear_contacto": ("contacts", "POST"),
+        "crear_nota_credito": ("credit-notes", "POST"),
+        "crear_nota_debito": ("debit-notes", "POST"),
     }
+
+    # ── Special case: crear_comprobante_ingreso / crear_comprobante_egreso ────
+    if action_type in ("crear_comprobante_ingreso", "crear_comprobante_egreso"):
+        # Map to journals endpoint (Alegra uses journal-entries for comprobantes)
+        comprobante_result = await service.request("journals", "POST", payload)
+        from post_action_sync import post_action_sync
+        sync_result = await post_action_sync(action_type, comprobante_result, payload, db, user)
+        return {
+            "success": True,
+            "result": comprobante_result,
+            "id": str(comprobante_result.get("id", "")),
+            "message": f"Comprobante {'de ingreso' if 'ingreso' in action_type else 'de egreso'} registrado",
+            "sync": sync_result,
+        }
 
     # ── Special case: anular_factura_compra ───────────────────────────────────
     if action_type == "anular_factura_compra":

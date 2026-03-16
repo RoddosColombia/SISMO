@@ -1083,8 +1083,19 @@ export default function AgentChatPage() {
       else if (cuotas_iniciales_card?.type === "cuotas_iniciales_card") setCuotasInicialesCard(cuotas_iniciales_card);
       else if (export_card?.type === "pl_export_card") setPlExportCard(export_card);
       else if (pending_action?.type && pending_action?.payload) setPendingAction(pending_action);
-    } catch {
-      setMessages((prev) => [...prev, { role: "assistant", content: "Hubo un error. Por favor intenta de nuevo.", timestamp: new Date().toISOString() }]);
+    } catch (err: any) {
+      const rawDetail = err?.response?.data?.detail ?? "";
+      let errMsg = "Error al comunicarse con el asistente. Intenta de nuevo.";
+      if (rawDetail) {
+        if (rawDetail.includes("Budget has been exceeded") || rawDetail.includes("budget")) {
+          errMsg = "El saldo del LLM Key est\u00e1 agotado. Ve a Perfil \u2192 Universal Key \u2192 Add Balance para recargar.";
+        } else if (rawDetail.includes("Anthropic") || rawDetail.includes("litellm") || rawDetail.includes("API de IA")) {
+          errMsg = `Error en la API de IA: ${rawDetail}`;
+        } else {
+          errMsg = rawDetail;
+        }
+      }
+      setMessages((prev) => [...prev, { role: "assistant", content: errMsg, timestamp: new Date().toISOString() }]);
     } finally { setLoading(false); }
   };
 
