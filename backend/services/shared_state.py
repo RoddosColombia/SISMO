@@ -384,7 +384,8 @@ async def get_daily_collection_queue(db) -> list[dict]:
             if not fv or estado_cuota not in ("pendiente", "vencida"):
                 continue
 
-            manana_s = (date.today() + timedelta(days=1)).isoformat()
+            manana_s   = (date.today() + timedelta(days=1)).isoformat()
+            fin_semana = (date.today() + timedelta(days=(6 - date.today().weekday()))).isoformat()
 
             if fv <= today:
                 dpd_actual = (date.today() - date.fromisoformat(fv)).days
@@ -401,8 +402,13 @@ async def get_daily_collection_queue(db) -> list[dict]:
                 dpd_actual = -1
                 bucket = "MAÑANA"
                 dias_para_protocolo = 23
+            elif fv <= fin_semana:
+                # Cuotas que vencen esta semana → incluir en la cola para gestión proactiva
+                dpd_actual = -(date.fromisoformat(fv) - date.today()).days
+                bucket = "ESTA_SEMANA"
+                dias_para_protocolo = 23
             else:
-                continue  # future cuota — not actionable
+                continue  # cuota futura (semana siguiente o más) — no accionable
 
             # Compute score from cuota history
             all_pagadas = [c for c in loan.get("cuotas", []) if c.get("estado") == "pagada"]
@@ -418,8 +424,8 @@ async def get_daily_collection_queue(db) -> list[dict]:
             )
 
             # WhatsApp link con código país Colombia (57)
-            telefono = loan.get("cliente_telefono", "")
-            wa_phone = telefono.replace(" ", "").replace("+", "").replace("-", "")
+            telefono = loan.get("cliente_telefono") or ""
+            wa_phone = str(telefono).replace(" ", "").replace("+", "").replace("-", "")
             if wa_phone and not wa_phone.startswith("57") and len(wa_phone) == 10:
                 wa_phone = f"57{wa_phone}"
             valor_fmt = str(int(cuota.get("valor", 0)))

@@ -135,21 +135,24 @@ export default function Dashboard() {
   const [indicadores, setIndicadores] = useState<CfoIndicadores>({});
   const [loadingInit, setLoadingInit] = useState(true);
   const [gestionItem, setGestionItem] = useState<RadarItem | null>(null);
+  const [smokeStatus, setSmokeStatus] = useState<"ok"|"degradado"|"critico"|null>(null);
 
   const loadAll = useCallback(async () => {
     try {
-      const [semRes, qRes, invRes, alertRes, indRes] = await Promise.allSettled([
+      const [semRes, qRes, invRes, alertRes, indRes, smokeRes] = await Promise.allSettled([
         api.get("/radar/semana"),
         api.get("/radar/queue"),
         api.get("/inventario/stats"),
         api.get("/cfo/alertas"),
         api.get("/cfo/indicadores"),
+        api.get("/health/smoke"),
       ]);
       if (semRes.status === "fulfilled")   setSemana(semRes.value.data);
       if (qRes.status === "fulfilled")     setTop5((qRes.value.data as RadarItem[]).slice(0, 5));
       if (invRes.status === "fulfilled")   setInventario(invRes.value.data);
       if (alertRes.status === "fulfilled") setAlertas((alertRes.value.data as CfoAlerta[]).filter(a => !a["resuelta"]));
       if (indRes.status === "fulfilled")   setIndicadores(indRes.value.data ?? {});
+      if (smokeRes.status === "fulfilled") setSmokeStatus(smokeRes.value.data?.status ?? null);
     } catch { /* silent */ } finally { setLoadingInit(false); }
 
     try {
@@ -194,8 +197,19 @@ export default function Dashboard() {
         <button
           onClick={handleRefresh}
           data-testid="dashboard-refresh-btn"
-          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white border border-[#1E3A5F] px-3 py-1.5 rounded-lg hover:bg-[#1E3A5F] transition-colors"
+          className="flex items-center gap-2 text-xs text-slate-400 hover:text-white border border-[#1E3A5F] px-3 py-1.5 rounded-lg hover:bg-[#1E3A5F] transition-colors"
         >
+          {smokeStatus && (
+            <span
+              data-testid="system-status-badge"
+              className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                smokeStatus === "ok"       ? "bg-emerald-400" :
+                smokeStatus === "degradado"? "bg-yellow-400 animate-pulse" :
+                                             "bg-red-500 animate-pulse"
+              }`}
+              title={`Sistema: ${smokeStatus.toUpperCase()}`}
+            />
+          )}
           <RefreshCw className="w-3.5 h-3.5" /> Actualizar
         </button>
       </div>

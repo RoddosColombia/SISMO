@@ -244,7 +244,97 @@ app.include_router(proveedores_router.router, prefix=PREFIX)
 app.include_router(gastos_router.router,     prefix=PREFIX)
 
 
-# ─── Health Check ─────────────────────────────────────────────────────────────
+# ─── Smoke Test (PASO 5 — verificación post-deploy) ───────────────────────────
+
+@app.get("/api/health/smoke")
+async def smoke_test():
+    """
+    Smoke test rápido (<10s) para verificar que todos los módulos
+    tienen datos reales después de cada deploy.
+    Estado: ok / degradado / critico
+    """
+    result = {
+        "timestamp":         datetime.now(timezone.utc).isoformat(),
+        "loanbooks_activos": 0,
+        "cartera_total":     0,
+        "inventario_motos":  0,
+        "cfo_configuracion": False,
+        "alegra_conectado":  False,
+        "anthropic_disponible": False,
+        "status":            "ok",
+        "alertas":           [],
+    }
+
+    try:
+        await client.admin.command("ping")
+    except Exception:
+        result["alertas"].append("MongoDB no responde")
+        result["status"] = "critico"
+        return result
+
+    try:
+        result["loanbooks_activos"] = await db.loanbook.count_documents(
+            {"estado": {"$in": ["activo", "mora", "al_dia"]}}
+        )
+        if result["loanbooks_activos"] == 0:
+            result["alertas"].append("Sin loanbooks activos — posible pérdida de datos")
+            result["status"] = "critico"
+        elif result["loanbooks_activos"] < 5:
+            result["alertas"].append(f"Pocos loanbooks ({result['loanbooks_activos']}) — verificar datos")
+            if result["status"] == "ok":
+                result["status"] = "degradado"
+
+        # Calcular cartera total desde cuotas pendientes
+        loans = await db.loanbook.find(
+            {"estado": {"$in": ["activo", "mora", "al_dia"]}},
+            {"_id": 0, "cuotas": 1}
+        ).to_list(200)
+        total_cartera = 0
+        for lb in loans:
+            for c in lb.get("cuotas", []):
+                if c.get("estado") in ("pendiente", "vencida"):
+                    total_cartera += c.get("valor", 0) or 0
+        result["cartera_total"] = total_cartera
+        if total_cartera == 0:
+            result["alertas"].append("Cartera total = $0 — verificar cuotas pendientes")
+            if result["status"] == "ok":
+                result["status"] = "degradado"
+
+        result["inventario_motos"] = await db.inventario_motos.count_documents({})
+        if result["inventario_motos"] == 0:
+            result["alertas"].append("Sin motos en inventario")
+            if result["status"] == "ok":
+                result["status"] = "degradado"
+
+        cfo_cfg = await db.cfo_config.find_one({})
+        result["cfo_configuracion"] = cfo_cfg is not None
+        if not result["cfo_configuracion"]:
+            result["alertas"].append("Falta cfo_config en BD")
+            if result["status"] == "ok":
+                result["status"] = "degradado"
+
+    except Exception as e:
+        result["alertas"].append(f"Error BD: {str(e)[:80]}")
+        result["status"] = "critico"
+
+    try:
+        creds = await db.alegra_credentials.find_one({}, {"_id": 0, "token": 1})
+        result["alegra_conectado"] = bool(creds and creds.get("token"))
+        if not result["alegra_conectado"]:
+            result["alertas"].append("Alegra sin credenciales")
+            if result["status"] == "ok":
+                result["status"] = "degradado"
+    except Exception:
+        result["alertas"].append("Alegra no accesible")
+
+    llm_key = os.environ.get("EMERGENT_LLM_KEY", "")
+    result["anthropic_disponible"] = bool(llm_key)
+    if not result["anthropic_disponible"]:
+        result["alertas"].append("EMERGENT_LLM_KEY no configurado")
+        if result["status"] == "ok":
+            result["status"] = "degradado"
+
+    return result
 
 @app.get("/api/health")
 async def health_check():

@@ -16,15 +16,16 @@ interface SemanaStats {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const BUCKETS = ["RECUPERACION", "CRITICO", "URGENTE", "ACTIVO", "HOY", "MAÑANA"] as const;
+const BUCKETS = ["RECUPERACION", "CRITICO", "URGENTE", "ACTIVO", "HOY", "MAÑANA", "ESTA_SEMANA"] as const;
 
 const BUCKET_FILTER_STYLE: Record<string, { text: string; border: string; activeBg: string; label: string }> = {
-  RECUPERACION: { text: "text-gray-300",   border: "border-gray-700",   activeBg: "bg-gray-900",        label: "RECUPERACIÓN" },
-  CRITICO:      { text: "text-red-300",    border: "border-red-700",    activeBg: "bg-red-900/50",      label: "CRÍTICO" },
-  URGENTE:      { text: "text-orange-300", border: "border-orange-700", activeBg: "bg-orange-900/40",   label: "URGENTE" },
-  ACTIVO:       { text: "text-yellow-300", border: "border-yellow-600", activeBg: "bg-yellow-900/30",   label: "ACTIVO" },
-  HOY:          { text: "text-blue-300",   border: "border-blue-600",   activeBg: "bg-blue-900/40",     label: "HOY" },
-  "MAÑANA":     { text: "text-sky-300",    border: "border-sky-600",    activeBg: "bg-sky-900/30",      label: "MAÑANA" },
+  RECUPERACION:  { text: "text-gray-300",   border: "border-gray-700",   activeBg: "bg-gray-900",       label: "RECUPERACIÓN" },
+  CRITICO:       { text: "text-red-300",    border: "border-red-700",    activeBg: "bg-red-900/50",     label: "CRÍTICO" },
+  URGENTE:       { text: "text-orange-300", border: "border-orange-700", activeBg: "bg-orange-900/40",  label: "URGENTE" },
+  ACTIVO:        { text: "text-yellow-300", border: "border-yellow-600", activeBg: "bg-yellow-900/30",  label: "ACTIVO" },
+  HOY:           { text: "text-blue-300",   border: "border-blue-600",   activeBg: "bg-blue-900/40",    label: "HOY" },
+  "MAÑANA":      { text: "text-sky-300",    border: "border-sky-600",    activeBg: "bg-sky-900/30",     label: "MAÑANA" },
+  "ESTA_SEMANA": { text: "text-teal-300",   border: "border-teal-600",   activeBg: "bg-teal-900/30",    label: "ESTA SEMANA" },
 };
 
 const fmt = (n: number) => `$${Math.round(n).toLocaleString("es-CO")}`;

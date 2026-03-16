@@ -9,7 +9,7 @@ import axios from "axios";
 const API = process.env.REACT_APP_BACKEND_URL;
 
 function api() {
-  const token = localStorage.getItem("token");
+  const token = localStorage.getItem("roddos_token");
   return axios.create({
     baseURL: `${API}/api`,
     headers: token ? { Authorization: `Bearer ${token}` } : {},

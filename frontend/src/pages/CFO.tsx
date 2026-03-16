@@ -283,19 +283,17 @@ export default function CFO(): React.ReactElement {
 
     // P&G — llama Alegra 3 veces (~30s), carga independiente
     setLoadingPyg(true);
+    setLoadingSemaforo(true);   // set BEFORE the awaits so spinners show immediately
     try {
-      const pygR = await api.get("/cfo/pyg");
-      setPyg(pygR.data);
+      // Load pyg and semáforo in parallel (both call Alegra independently, ~30s each)
+      const [pygR, semR] = await Promise.allSettled([
+        api.get("/cfo/pyg"),
+        api.get("/cfo/semaforo"),
+      ]);
+      if (pygR.status === "fulfilled") setPyg(pygR.value.data);
+      if (semR.status === "fulfilled") setSemaforo(semR.value.data);
     } catch { /* no crítico */ } finally {
       setLoadingPyg(false);
-    }
-
-    // Semáforo — llama IA Claude (~30s), carga independiente
-    setLoadingSemaforo(true);
-    try {
-      const semR = await api.get("/cfo/semaforo");
-      setSemaforo(semR.data);
-    } catch { /* no crítico */ } finally {
       setLoadingSemaforo(false);
     }
   }, [api]);
