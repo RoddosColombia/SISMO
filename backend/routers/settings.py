@@ -104,14 +104,24 @@ async def get_webhook_status(current_user=Depends(require_admin)):
 async def get_mercately_credentials(current_user=Depends(require_admin)):
     cfg = await db.mercately_config.find_one({}, {"_id": 0})
     if not cfg:
-        return {"has_credentials": False, "api_key_masked": "", "phone_number": "",
-                "whitelist": [], "ceo_number": "", "destinatarios_resumen": [], "configured_at": ""}
+        return {
+            "has_credentials": False, "api_key_masked": "",
+            "phone_number": "", "whitelist": [], "ceo_number": "",
+            "destinatarios_resumen": [], "configured_at": "",
+            "global_activo": True, "horario_inicio": "08:00", "horario_fin": "19:00",
+            "templates_activos": {"T1": True, "T2": True, "T3": True, "T4": True, "T5": True},
+            "datos_bancarios": "",
+        }
     ak = cfg.get("api_key", "")
-    # Backwards-compat: ensure ceo_number appears in destinatarios_resumen
     destinatarios = list(cfg.get("destinatarios_resumen", []))
     ceo = cfg.get("ceo_number", "")
     if ceo and ceo not in destinatarios:
         destinatarios = [ceo] + destinatarios
+    # Default all templates to True if not set
+    templates = cfg.get("templates_activos", {})
+    for t in ("T1", "T2", "T3", "T4", "T5"):
+        if t not in templates:
+            templates[t] = True
     return {
         "has_credentials": bool(ak),
         "api_key_masked": ("*" * 8 + ak[-4:]) if len(ak) > 4 else ("*" * len(ak)),
@@ -120,25 +130,37 @@ async def get_mercately_credentials(current_user=Depends(require_admin)):
         "ceo_number": ceo,
         "destinatarios_resumen": destinatarios,
         "configured_at": cfg.get("updated_at", ""),
+        "global_activo": cfg.get("global_activo", True),
+        "horario_inicio": cfg.get("horario_inicio", "08:00"),
+        "horario_fin": cfg.get("horario_fin", "19:00"),
+        "templates_activos": templates,
+        "datos_bancarios": cfg.get("datos_bancarios", ""),
     }
 
 
 @router.post("/mercately")
 async def save_mercately_credentials(req: MercatelyCredentialsRequest, current_user=Depends(require_admin)):
-    # Backwards-compat: auto-add ceo_number to destinatarios_resumen if not present
     destinatarios = list(req.destinatarios_resumen)
     if req.ceo_number and req.ceo_number not in destinatarios:
         destinatarios = [req.ceo_number] + destinatarios
+    update_data = {
+        "phone_number": req.phone_number,
+        "whitelist": req.whitelist,
+        "ceo_number": req.ceo_number,
+        "destinatarios_resumen": destinatarios,
+        "global_activo": req.global_activo,
+        "horario_inicio": req.horario_inicio,
+        "horario_fin": req.horario_fin,
+        "templates_activos": req.templates_activos,
+        "datos_bancarios": req.datos_bancarios,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    # Only update api_key if a new one was provided
+    if req.api_key and req.api_key != "__keep__":
+        update_data["api_key"] = req.api_key
     await db.mercately_config.update_one(
         {},
-        {"$set": {
-            "api_key": req.api_key,
-            "phone_number": req.phone_number,
-            "whitelist": req.whitelist,
-            "ceo_number": req.ceo_number,
-            "destinatarios_resumen": destinatarios,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }, "$unset": {"api_secret": ""}},
+        {"$set": update_data, "$unset": {"api_secret": ""}},
         upsert=True,
     )
     return {"message": "Configuración Mercately guardada correctamente."}

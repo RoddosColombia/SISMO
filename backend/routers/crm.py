@@ -206,6 +206,14 @@ async def get_crm_cliente(id: str, current_user=Depends(get_current_user)):
         {"loanbook_id": loan["id"]}, {"_id": 0}
     ).sort("created_at", -1).to_list(200)
 
+    # WhatsApp history (from cartera_gestiones — Mercately)
+    cedula = loan.get("cliente_nit", "")
+    whatsapp_gestiones = []
+    if cedula:
+        whatsapp_gestiones = await db.cartera_gestiones.find(
+            {"cliente_id": cedula}, {"_id": 0}
+        ).sort("fecha", -1).to_list(50)
+
     # Payment history
     pagos = await db.cartera_pagos.find(
         {"loanbook_id": loan["id"]}, {"_id": 0}
@@ -238,6 +246,7 @@ async def get_crm_cliente(id: str, current_user=Depends(get_current_user)):
         "cuotas_pendientes": cuotas_pendientes,
         "proxima_cuota": proxima_cuota,
         "gestiones": gestiones,
+        "whatsapp_gestiones": whatsapp_gestiones,
         "historial_pagos": pagos,
     }
 

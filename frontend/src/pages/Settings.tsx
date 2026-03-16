@@ -1055,8 +1055,25 @@ function MercatelyTab({ api }: { api: any }) {
   const [status, setStatus] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [globalActivo, setGlobalActivo] = useState(true);
+  const [horarioInicio, setHorarioInicio] = useState("08:00");
+  const [horarioFin, setHorarioFin] = useState("19:00");
+  const [templatesActivos, setTemplatesActivos] = useState<Record<string, boolean>>({
+    T1: true, T2: true, T3: true, T4: true, T5: true,
+  });
+  const [datosBancarios, setDatosBancarios] = useState("");
+  const [gestiones, setGestiones] = useState<any[]>([]);
+  const [loadingGestiones, setLoadingGestiones] = useState(false);
 
   const webhookUrl = `${process.env.REACT_APP_BACKEND_URL}/api/mercately/webhook`;
+
+  const TEMPLATE_INFO = [
+    { key: "T1", label: "T1 — Recordatorio preventivo", desc: "Lunes 8am · D-2 antes del vencimiento" },
+    { key: "T2", label: "T2 — Vencimiento hoy", desc: "Miércoles 8am · día de pago" },
+    { key: "T3", label: "T3 — Alerta mora D+1", desc: "Jueves 9am · cuota no pagada ayer" },
+    { key: "T4", label: "T4 — Confirmación de pago", desc: "Automático al registrar pago en el sistema" },
+    { key: "T5", label: "T5 — Mora severa +30 días", desc: "Sábado 9am · DPD > 30" },
+  ];
 
   useEffect(() => {
     api.get("/settings/mercately").then((res: any) => {
@@ -1066,8 +1083,23 @@ function MercatelyTab({ api }: { api: any }) {
       setCeoNumber(d.ceo_number || "");
       setWhitelist(d.whitelist || []);
       setDestinatarios(d.destinatarios_resumen || []);
+      setGlobalActivo(d.global_activo ?? true);
+      setHorarioInicio(d.horario_inicio || "08:00");
+      setHorarioFin(d.horario_fin || "19:00");
+      setTemplatesActivos({ T1: true, T2: true, T3: true, T4: true, T5: true, ...(d.templates_activos || {}) });
+      setDatosBancarios(d.datos_bancarios || "");
     }).catch(() => {});
-  }, [api]);
+    loadGestiones();
+  }, []); // eslint-disable-line
+
+  const loadGestiones = async () => {
+    setLoadingGestiones(true);
+    try {
+      const res = await api.get("/mercately/gestiones?limit=50");
+      setGestiones(res.data.gestiones || []);
+    } catch { /* silent */ }
+    finally { setLoadingGestiones(false); }
+  };
 
   const handleSave = async () => {
     if (!apiKey.trim() && !status?.has_credentials) {
@@ -1076,19 +1108,23 @@ function MercatelyTab({ api }: { api: any }) {
     setSaving(true);
     try {
       const payload: any = {
-        api_key: apiKey.trim() || "__keep__",
+        api_key: apiKey.trim() || "",
         phone_number: phoneNumber.trim(),
         whitelist,
         ceo_number: ceoNumber.trim(),
         destinatarios_resumen: destinatarios,
+        global_activo: globalActivo,
+        horario_inicio: horarioInicio,
+        horario_fin: horarioFin,
+        templates_activos: templatesActivos,
+        datos_bancarios: datosBancarios.trim(),
       };
-      // If apiKey is empty and we have existing credentials, keep the existing key
-      if (!apiKey.trim() && status?.has_credentials) payload.api_key = "";
       await api.post("/settings/mercately", payload);
       toast.success("Configuración Mercately guardada");
       setStatus((p: any) => ({
-        ...p, has_credentials: true, phone_number: phoneNumber, ceo_number: ceoNumber,
-        whitelist, destinatarios_resumen: destinatarios,
+        ...p, has_credentials: payload.api_key ? true : p.has_credentials,
+        phone_number: phoneNumber, ceo_number: ceoNumber, whitelist,
+        destinatarios_resumen: destinatarios, global_activo: globalActivo,
         configured_at: new Date().toISOString(),
       }));
       setApiKey("");
@@ -1123,20 +1159,35 @@ function MercatelyTab({ api }: { api: any }) {
     setDestInput("");
   };
 
+  const fmtDate = (iso: string) => {
+    try { return new Date(iso).toLocaleString("es-CO", { timeZone: "America/Bogota", dateStyle: "short", timeStyle: "short" }); }
+    catch { return iso?.slice(0, 16) || ""; }
+  };
+
   return (
-    <TabsContent value="mercately" className="mt-5">
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 max-w-lg space-y-5">
+    <TabsContent value="mercately" className="mt-5 space-y-5">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 max-w-2xl space-y-5">
         {/* Header */}
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center flex-shrink-0">
-            <MessageCircle size={18} className="text-green-600" />
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-green-50 flex items-center justify-center flex-shrink-0">
+              <MessageCircle size={18} className="text-green-600" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-[#0F2A5C]">Mercately — WhatsApp Business API</h3>
+              <p className="text-xs text-slate-500 mt-0.5">Canal de cobranza automatizada por WhatsApp.</p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-base font-bold text-[#0F2A5C]">Mercately — WhatsApp Business API</h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Canal WhatsApp para registro de pagos y notificaciones automáticas a clientes.
-            </p>
-          </div>
+          {/* Global toggle */}
+          <button
+            onClick={() => setGlobalActivo(v => !v)}
+            className="flex items-center gap-2 shrink-0"
+            data-testid="mercately-global-toggle"
+          >
+            {globalActivo
+              ? <><ToggleRight size={32} className="text-green-500" /><span className="text-xs text-green-600 font-semibold">Activo</span></>
+              : <><ToggleLeft  size={32} className="text-slate-400" /><span className="text-xs text-slate-400">Inactivo</span></>}
+          </button>
         </div>
 
         {/* Status badge */}
@@ -1174,14 +1225,6 @@ function MercatelyTab({ api }: { api: any }) {
           </div>
         </div>
 
-        {/* Help */}
-        <div className="bg-[#F8FAFF] rounded-xl p-4 text-xs space-y-1.5 border border-slate-100">
-          <p className="font-semibold text-[#0F2A5C] mb-2">¿Cómo configurar?</p>
-          <p className="text-slate-600">1. Accede a <a href="https://app.mercately.com" target="_blank" rel="noreferrer" className="text-[#0F2A5C] underline font-medium">app.mercately.com</a> → Configuración → API Keys</p>
-          <p className="text-slate-600">2. Copia tu API Key y pégala abajo</p>
-          <p className="text-slate-600">3. En Mercately → Webhooks → agrega la URL de arriba</p>
-        </div>
-
         {/* Fields */}
         <div className="space-y-4">
           <div>
@@ -1193,22 +1236,82 @@ function MercatelyTab({ api }: { api: any }) {
               className="mt-1.5" data-testid="mercately-api-key-input" />
           </div>
 
-          <div>
-            <Label className="text-sm font-semibold text-slate-700">Número WhatsApp RODDOS</Label>
-            <p className="text-xs text-slate-400 mb-1.5">Número desde el que envía mensajes el sistema</p>
-            <Input type="tel" placeholder="+573001234567"
-              value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)}
-              className="mt-0.5" data-testid="mercately-phone-input" />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-sm font-semibold text-slate-700">Número WhatsApp RODDOS</Label>
+              <Input type="tel" placeholder="+573001234567"
+                value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)}
+                className="mt-1.5" data-testid="mercately-phone-input" />
+            </div>
+            <div>
+              <Label className="text-sm font-semibold text-slate-700">Número CEO (alertas CFO)</Label>
+              <Input type="tel" placeholder="+573009876543"
+                value={ceoNumber} onChange={e => setCeoNumber(e.target.value)}
+                className="mt-1.5" data-testid="mercately-ceo-input" />
+            </div>
           </div>
 
+          {/* Horario de operación */}
           <div>
-            <Label className="text-sm font-semibold text-slate-700">Número CEO (alertas CFO)</Label>
-            <p className="text-xs text-slate-400 mb-1.5">Exclusivo para informes CFO. No lo agregues a la whitelist.</p>
-            <Input type="tel" placeholder="+573009876543"
-              value={ceoNumber} onChange={e => setCeoNumber(e.target.value)}
-              className="mt-0.5" data-testid="mercately-ceo-input" />
+            <Label className="text-sm font-semibold text-slate-700">Horario de operación</Label>
+            <p className="text-xs text-slate-400 mt-0.5 mb-1.5">Los mensajes solo se envían en este horario (COT)</p>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500">Desde</span>
+                <Input type="time" value={horarioInicio}
+                  onChange={e => setHorarioInicio(e.target.value)}
+                  className="w-28" data-testid="mercately-horario-inicio" />
+              </div>
+              <span className="text-slate-400">→</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500">Hasta</span>
+                <Input type="time" value={horarioFin}
+                  onChange={e => setHorarioFin(e.target.value)}
+                  className="w-28" data-testid="mercately-horario-fin" />
+              </div>
+            </div>
           </div>
 
+          {/* Datos bancarios (Template 2) */}
+          <div>
+            <Label className="text-sm font-semibold text-slate-700">Datos bancarios (para Template 2)</Label>
+            <p className="text-xs text-slate-400 mt-0.5 mb-1.5">Se incluye en el mensaje de "vencimiento hoy" para que el cliente pueda transferir</p>
+            <textarea
+              value={datosBancarios}
+              onChange={e => setDatosBancarios(e.target.value)}
+              rows={3}
+              placeholder={"Bancolombia Cta Ahorros 123-456789\nNIT: 900.xxx.xxx-1\nA nombre de: RODDOS COLOMBIA SAS"}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs focus:border-[#C9A84C] outline-none resize-none"
+              data-testid="mercately-datos-bancarios"
+            />
+          </div>
+
+          {/* Template toggles */}
+          <div>
+            <Label className="text-sm font-semibold text-slate-700 mb-2 block">Templates automáticos</Label>
+            <div className="space-y-2">
+              {TEMPLATE_INFO.map(({ key, label, desc }) => (
+                <div key={key}
+                  className={`flex items-center justify-between p-3 rounded-xl border transition ${
+                    templatesActivos[key] ? "bg-green-50 border-green-200" : "bg-slate-50 border-slate-200"
+                  }`}
+                  data-testid={`template-toggle-${key.toLowerCase()}`}
+                >
+                  <div>
+                    <p className="text-xs font-semibold text-[#0F2A5C]">{label}</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">{desc}</p>
+                  </div>
+                  <button onClick={() => setTemplatesActivos(t => ({ ...t, [key]: !t[key] }))}>
+                    {templatesActivos[key]
+                      ? <ToggleRight size={26} className="text-green-500" />
+                      : <ToggleLeft  size={26} className="text-slate-300" />}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Whitelist */}
           <div>
             <Label className="text-sm font-semibold text-slate-700">Whitelist Empleados Internos</Label>
             <p className="text-xs text-slate-400 mb-1.5">Teléfonos que pueden enviar facturas de proveedor</p>
@@ -1239,8 +1342,7 @@ function MercatelyTab({ api }: { api: any }) {
 
           <div>
             <Label className="text-sm font-semibold text-slate-700">Números que reciben el resumen del viernes</Label>
-            <p className="text-xs text-slate-400 mb-1.5">Formato +57xxx. El número CEO se agrega automáticamente.</p>
-            <div className="flex gap-2">
+            <div className="flex gap-2 mt-1.5">
               <Input type="tel" placeholder="+573001234567" value={destInput}
                 onChange={e => setDestInput(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && addToDestinatarios()}
@@ -1280,6 +1382,59 @@ function MercatelyTab({ api }: { api: any }) {
               Guardar
             </Button>
           </div>
+        </div>
+      </div>
+
+      {/* Message log */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden max-w-2xl">
+        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+          <span className="text-sm font-bold text-[#0F2A5C] flex items-center gap-2">
+            <MessageCircle size={14} className="text-green-600" />
+            Historial WhatsApp — últimos 50 mensajes
+          </span>
+          <button onClick={loadGestiones} disabled={loadingGestiones}
+            className="text-xs text-slate-400 hover:text-[#0F2A5C] flex items-center gap-1"
+            data-testid="refresh-gestiones-btn">
+            <RefreshCw size={11} className={loadingGestiones ? "animate-spin" : ""} /> Actualizar
+          </button>
+        </div>
+        <div className="overflow-x-auto max-h-80">
+          {loadingGestiones ? (
+            <div className="flex items-center justify-center py-8 gap-2 text-slate-400">
+              <Loader2 size={14} className="animate-spin" /> Cargando...
+            </div>
+          ) : gestiones.length === 0 ? (
+            <div className="py-8 text-center text-slate-400 text-sm">
+              Sin mensajes registrados aún.
+            </div>
+          ) : (
+            <table className="w-full text-xs" data-testid="gestiones-log-table">
+              <thead>
+                <tr className="bg-slate-50 text-[10px] text-slate-500 uppercase sticky top-0">
+                  <th className="px-3 py-2 text-left">Fecha (COT)</th>
+                  <th className="px-3 py-2 text-left">Cliente</th>
+                  <th className="px-3 py-2 text-center">Tipo</th>
+                  <th className="px-3 py-2 text-left">Template</th>
+                  <th className="px-3 py-2 text-left">Mensaje</th>
+                </tr>
+              </thead>
+              <tbody>
+                {gestiones.map((g, i) => (
+                  <tr key={i} className={`border-b border-slate-50 ${i % 2 === 0 ? "bg-white" : "bg-slate-50/30"}`}>
+                    <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{fmtDate(g.fecha)}</td>
+                    <td className="px-3 py-2 max-w-[120px] truncate font-medium">{g.cliente_nombre || "—"}</td>
+                    <td className="px-3 py-2 text-center">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${g.tipo === "enviado" ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"}`}>
+                        {g.tipo === "enviado" ? "→ env" : "← rec"}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-slate-500">{g.template}</td>
+                    <td className="px-3 py-2 text-slate-600 max-w-[200px] truncate">{g.mensaje}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </TabsContent>

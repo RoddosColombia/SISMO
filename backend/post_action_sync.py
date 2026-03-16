@@ -393,6 +393,22 @@ async def post_action_sync(
                 sync_msgs.append(f"🎉 ¡Crédito **{loan['codigo']}** COMPLETADO!")
             modules += ["cartera", "loanbook", "dashboard"]
 
+            # ── Template 4: Confirmación de pago por WhatsApp ─────────────────
+            try:
+                from routers.mercately import enviar_template_4_confirmacion_pago
+                telefono_cli = loan.get("cliente_telefono", "")
+                if telefono_cli:
+                    await enviar_template_4_confirmacion_pago(
+                        nombre_cliente=loan.get("cliente_nombre", ""),
+                        telefono=telefono_cli,
+                        monto=float(cuota_paid.get("valor_pagado", monto)),
+                        numero_cuota=cuota_paid.get("numero", 1),
+                        saldo_pendiente=float(new_stats.get("saldo_pendiente", 0)),
+                        cedula=loan.get("cliente_nit", ""),
+                    )
+            except Exception as _wa_err:
+                logger.warning("[PostAction] Template4 WA error: %s", _wa_err)
+
         # emit_state_change — ÚLTIMO PASO CASO 2
         await emit_state_change(
             db,

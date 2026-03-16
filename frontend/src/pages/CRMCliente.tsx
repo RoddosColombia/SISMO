@@ -136,7 +136,7 @@ export default function CRMCliente() {
 
   const { loan, crm, score_letra, score_pct, bucket, dpd_actual, dias_para_protocolo,
           mora_acumulada, cuotas_pagadas, cuotas_vencidas, cuotas_pendientes,
-          proxima_cuota, gestiones, historial_pagos } = data;
+          proxima_cuota, gestiones, whatsapp_gestiones, historial_pagos } = data;
 
   const bs = BUCKET_STYLE[bucket] || BUCKET_STYLE.AL_DIA;
   const ss = SCORE_STYLE[score_letra] || SCORE_STYLE.C;
@@ -379,6 +379,45 @@ export default function CRMCliente() {
           </div>
         )}
       </Section>
+
+      {/* WhatsApp history */}
+      {whatsapp_gestiones?.length > 0 && (
+        <Section title={`WhatsApp — Historial (${whatsapp_gestiones.length})`}>
+          <div className="space-y-2 max-h-72 overflow-y-auto pr-1" data-testid="whatsapp-gestiones-timeline">
+            {whatsapp_gestiones.map((g: any, i: number) => {
+              const isEnviado = g.tipo === "enviado";
+              const TEMPLATE_LABELS: Record<string, string> = {
+                recordatorio_preventivo: "Recordatorio D-2",
+                vencimiento_hoy: "Vencimiento hoy",
+                mora_d1: "Mora D+1",
+                confirmacion_pago: "Confirmación pago",
+                mora_severa: "Mora severa",
+                respuesta_automatica: "Respuesta auto",
+                libre: "Mensaje libre",
+              };
+              const templateLabel = TEMPLATE_LABELS[g.template] || g.template || "WhatsApp";
+              return (
+                <div key={i} className={`rounded-lg px-3 py-2 text-xs ${isEnviado ? "bg-[#0D2A1A] border border-green-900/50" : "bg-[#0D1E3A] border border-[#1E3A5F]/50"}`}>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className={`font-semibold ${isEnviado ? "text-green-400" : "text-blue-400"}`}>
+                      {isEnviado ? "→ Enviado" : "← Recibido"}
+                      {" · "}
+                      <span className="font-normal text-slate-400">{templateLabel}</span>
+                    </span>
+                    <span className="text-[10px] text-slate-600 whitespace-nowrap">{fmtD(g.fecha)}</span>
+                  </div>
+                  <p className="text-slate-300 leading-relaxed line-clamp-3">{g.mensaje}</p>
+                  {g.intencion && g.intencion !== "NO_RECONOCIDA" && (
+                    <span className="inline-block mt-1 text-[10px] bg-purple-900/40 text-purple-300 px-1.5 py-0.5 rounded">
+                      Intención: {g.intencion}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Section>
+      )}
 
       {/* Notas del cobrador */}
       <Section title="Notas del cobrador">

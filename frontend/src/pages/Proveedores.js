@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Plus, Trash2, Save, Loader2, Building2, ShieldCheck, ShieldOff, RefreshCw, X } from "lucide-react";
+import { Plus, Trash2, Save, Loader2, Building2, ShieldCheck, ShieldOff, RefreshCw, X, AlertTriangle } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
 
@@ -112,6 +112,49 @@ function ProveedorModal({ proveedor, onClose, onSave, saving }) {
   );
 }
 
+// ─── Delete Confirmation Modal ────────────────────────────────────────────────
+function DeleteConfirmModal({ nombre, onConfirm, onCancel }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+            <AlertTriangle size={18} className="text-red-600" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-[#0F2A5C]">Eliminar Proveedor</h3>
+            <p className="text-xs text-slate-500 mt-0.5">Esta acción no se puede deshacer</p>
+          </div>
+        </div>
+        <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+          <p className="text-sm text-slate-700">
+            ¿Confirmas eliminar a <strong className="text-red-700">{nombre}</strong> de la configuración de proveedores?
+          </p>
+          <p className="text-[10px] text-red-500 mt-1.5">
+            El proveedor será eliminado permanentemente. Las facturas existentes en Alegra no se afectan.
+          </p>
+        </div>
+        <div className="flex gap-3">
+          <button
+            onClick={onCancel}
+            className="flex-1 border border-slate-200 text-slate-600 py-2.5 rounded-xl text-sm font-semibold hover:bg-slate-50"
+            data-testid="cancel-delete-btn"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={onConfirm}
+            className="flex-1 bg-red-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-red-700 flex items-center justify-center gap-2"
+            data-testid="confirm-delete-btn"
+          >
+            <Trash2 size={14} /> Eliminar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Proveedores() {
   const { api } = useAuth();
   const [proveedores, setProveedores] = useState([]);
@@ -119,6 +162,7 @@ export default function Proveedores() {
   const [saving, setSaving] = useState(false);
   const [modal, setModal] = useState(null); // null | {mode: 'new'|'edit', data?}
   const [search, setSearch] = useState("");
+  const [deleteConfirm, setDeleteConfirm] = useState(null); // null | nombre
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -145,7 +189,12 @@ export default function Proveedores() {
   };
 
   const handleDelete = async (nombre) => {
-    if (!window.confirm(`¿Eliminar a ${nombre} de la configuración?\n\nEsta acción no se puede deshacer.`)) return;
+    setDeleteConfirm(nombre);
+  };
+
+  const confirmDelete = async () => {
+    const nombre = deleteConfirm;
+    setDeleteConfirm(null);
     try {
       await api.delete(`/proveedores/config/${encodeURIComponent(nombre)}`);
       toast.success(`${nombre} eliminado correctamente`);
@@ -156,8 +205,7 @@ export default function Proveedores() {
   };
 
   const filtered = proveedores.filter(p =>
-    !p.notas?.includes("ELIMINADO") &&
-    (search ? p.nombre.toLowerCase().includes(search.toLowerCase()) || (p.nit || "").includes(search) : true)
+    search ? p.nombre.toLowerCase().includes(search.toLowerCase()) || (p.nit || "").includes(search) : true
   );
 
   const autoretenedores = filtered.filter(p => p.es_autoretenedor);
@@ -254,6 +302,14 @@ export default function Proveedores() {
           onClose={() => setModal(null)}
           onSave={handleSave}
           saving={saving}
+        />
+      )}
+
+      {deleteConfirm && (
+        <DeleteConfirmModal
+          nombre={deleteConfirm}
+          onConfirm={confirmDelete}
+          onCancel={() => setDeleteConfirm(null)}
         />
       )}
     </div>

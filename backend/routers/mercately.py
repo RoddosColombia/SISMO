@@ -11,12 +11,11 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Query, Request
 
+from dependencies import get_current_user
 from ai_chat import execute_chat_action, process_document_chat, process_chat
 from database import db
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/mercately", tags=["mercately"])
 
@@ -240,10 +239,21 @@ async def _handle_cliente_text(phone: str, cliente: dict | None, content: str):
         )
 
 
+async def _is_template_activo(template_key: str) -> bool:
+    """Check if a specific template is enabled in config. Defaults to True."""
+    cfg = await _get_config()
+    if not cfg.get("global_activo", True):
+        return False
+    templates = cfg.get("templates_activos", {})
+    return templates.get(template_key, True)
+
+
 # ── Templates automáticos ─────────────────────────────────────────────────────
 
 async def enviar_template_1_preventivo(loan: dict) -> bool:
     """Template 1: Recordatorio D-2 (lunes, 2 días antes del miércoles)."""
+    if not await _is_template_activo("T1"):
+        return False
     telefono = loan.get("cliente_telefono") or ""
     if not telefono:
         return False
@@ -273,6 +283,8 @@ async def enviar_template_1_preventivo(loan: dict) -> bool:
 
 async def enviar_template_2_vencimiento(loan: dict) -> bool:
     """Template 2: Recordatorio D-0 (miércoles 8am, día de vencimiento)."""
+    if not await _is_template_activo("T2"):
+        return False
     telefono = loan.get("cliente_telefono") or ""
     if not telefono:
         return False
@@ -302,6 +314,8 @@ async def enviar_template_2_vencimiento(loan: dict) -> bool:
 
 async def enviar_template_3_mora_d1(loan: dict) -> bool:
     """Template 3: Alerta mora D+1 (jueves, si el miércoles no pagó)."""
+    if not await _is_template_activo("T3"):
+        return False
     telefono = loan.get("cliente_telefono") or ""
     if not telefono:
         return False
@@ -334,6 +348,8 @@ async def enviar_template_4_confirmacion_pago(
     cedula: str = ""
 ) -> bool:
     """Template 4: Confirmación de pago (disparado al registrar pago)."""
+    if not await _is_template_activo("T4"):
+        return False
     if not telefono:
         return False
     nombre = nombre_cliente.split()[0] if nombre_cliente else "Cliente"
@@ -355,6 +371,8 @@ async def enviar_template_4_confirmacion_pago(
 
 async def enviar_template_5_mora_severa(loan: dict) -> bool:
     """Template 5: Mora severa +30 días."""
+    if not await _is_template_activo("T5"):
+        return False
     telefono = loan.get("cliente_telefono") or ""
     if not telefono:
         return False
@@ -452,6 +470,10 @@ async def enviar_whatsapp(phone: str, mensaje: str) -> bool:
         api_key = cfg.get("api_key", "")
         if not api_key:
             logger.warning("[Mercately] No API key configured — message not sent to %s", phone)
+            return False
+        # Check global toggle
+        if not cfg.get("global_activo", True):
+            logger.info("[Mercately] Canal globalmente desactivado — message skipped for %s", phone)
             return False
         async with httpx.AsyncClient(timeout=5) as client:
             resp = await client.post(
@@ -976,3 +998,21 @@ async def mercately_webhook(request: Request):
                 logger.error("[Mercately] text-to-AI error: %s", exc)
 
     return {"ok": True}
+
+
+# ── Gestiones log endpoints ────────────────────────────────────────────────────
+
+@router.get("/gestiones")
+async def get_gestiones_log(limit: int = Query(50, le=200), current_user=Depends(get_current_user)):
+    """Returns last N WhatsApp messages logged in cartera_gestiones."""
+    docs = await db.cartera_gestiones.find({}, {"_id": 0}).sort("fecha", -1).limit(limit).to_list(limit)
+    return {"gestiones": docs, "total": len(docs)}
+
+
+@router.get("/gestiones/cliente/{cedula}")
+async def get_gestiones_cliente(cedula: str, current_user=Depends(get_current_user)):
+    """Returns WhatsApp history for a specific client (by cedula)."""
+    docs = await db.cartera_gestiones.find(
+        {"cliente_id": cedula}, {"_id": 0}
+    ).sort("fecha", -1).limit(100).to_list(100)
+    return {"gestiones": docs, "total": len(docs)}

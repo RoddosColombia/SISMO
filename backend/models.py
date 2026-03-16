@@ -69,7 +69,12 @@ class SaveDefaultAccountsRequest(BaseModel):
 
 class MercatelyCredentialsRequest(BaseModel):
     api_key: str
-    phone_number: str = ""      # formato +57xxx — número WhatsApp RODDOS
-    whitelist: list[str] = []   # teléfonos empleados internos
-    ceo_number: str = ""        # número CEO exclusivo para alertas CFO
-    destinatarios_resumen: list[str] = []  # números que reciben el resumen del viernes
+    phone_number: str = ""
+    whitelist: list[str] = []
+    ceo_number: str = ""
+    destinatarios_resumen: list[str] = []
+    global_activo: bool = True
+    horario_inicio: str = "08:00"
+    horario_fin: str = "19:00"
+    templates_activos: dict = {}          # {"T1": True, "T2": True, ...}
+    datos_bancarios: str = ""             # Datos para Template 2 (vencimiento)

@@ -138,6 +138,48 @@ async def _generar_informe_cfo_mensual() -> None:
 
 
 
+# ── WhatsApp Template Wrappers ─────────────────────────────────────────────────
+
+async def _wa_recordatorios_preventivos() -> None:
+    """Lunes 8am COT — Template 1: recordatorio D-2 a clientes con cuota el miércoles."""
+    try:
+        from routers.mercately import run_recordatorios_preventivos
+        n = await run_recordatorios_preventivos()
+        logger.info("[Scheduler] WA T1 preventivos: %d enviados", n)
+    except Exception as e:
+        logger.error("[Scheduler] WA T1 error: %s", e)
+
+
+async def _wa_recordatorios_vencimiento() -> None:
+    """Miércoles 8am COT — Template 2: día de vencimiento de cuota."""
+    try:
+        from routers.mercately import run_recordatorios_vencimiento
+        n = await run_recordatorios_vencimiento()
+        logger.info("[Scheduler] WA T2 vencimiento: %d enviados", n)
+    except Exception as e:
+        logger.error("[Scheduler] WA T2 error: %s", e)
+
+
+async def _wa_alertas_mora_d1() -> None:
+    """Jueves 9am COT — Template 3: mora D+1 (cuota no pagada el miércoles)."""
+    try:
+        from routers.mercately import run_alertas_mora_d1
+        n = await run_alertas_mora_d1()
+        logger.info("[Scheduler] WA T3 mora D+1: %d enviados", n)
+    except Exception as e:
+        logger.error("[Scheduler] WA T3 error: %s", e)
+
+
+async def _wa_alertas_mora_severa() -> None:
+    """Sábado 9am COT — Template 5: clientes en mora severa (+30 días)."""
+    try:
+        from routers.mercately import run_alertas_mora_severa
+        n = await run_alertas_mora_severa()
+        logger.info("[Scheduler] WA T5 mora severa: %d enviados", n)
+    except Exception as e:
+        logger.error("[Scheduler] WA T5 error: %s", e)
+
+
 def start_scheduler() -> None:
     """Registra el job y arranca el scheduler. Llamar desde startup de FastAPI."""
     _scheduler.add_job(
@@ -161,8 +203,51 @@ def start_scheduler() -> None:
         max_instances=1,
         misfire_grace_time=3600,
     )
+
+    # ── WhatsApp Templates (America/Bogota) ────────────────────────────────────
+    _scheduler.add_job(
+        _wa_recordatorios_preventivos,
+        trigger="cron",
+        day_of_week="mon",  # Lunes
+        hour=8, minute=0,
+        timezone="America/Bogota",
+        id="wa_recordatorios_preventivos",
+        replace_existing=True, max_instances=1, misfire_grace_time=3600,
+    )
+    _scheduler.add_job(
+        _wa_recordatorios_vencimiento,
+        trigger="cron",
+        day_of_week="wed",  # Miércoles
+        hour=8, minute=0,
+        timezone="America/Bogota",
+        id="wa_recordatorios_vencimiento",
+        replace_existing=True, max_instances=1, misfire_grace_time=3600,
+    )
+    _scheduler.add_job(
+        _wa_alertas_mora_d1,
+        trigger="cron",
+        day_of_week="thu",  # Jueves
+        hour=9, minute=0,
+        timezone="America/Bogota",
+        id="wa_alertas_mora_d1",
+        replace_existing=True, max_instances=1, misfire_grace_time=3600,
+    )
+    _scheduler.add_job(
+        _wa_alertas_mora_severa,
+        trigger="cron",
+        day_of_week="sat",  # Sábado
+        hour=9, minute=0,
+        timezone="America/Bogota",
+        id="wa_alertas_mora_severa",
+        replace_existing=True, max_instances=1, misfire_grace_time=3600,
+    )
+
     _scheduler.start()
-    logger.info("[Scheduler] APScheduler iniciado — process_pending_events cada 60 s | informe_cfo_mensual día 1 08:00")
+    logger.info(
+        "[Scheduler] APScheduler iniciado — "
+        "process_pending_events@60s | informe_cfo@día1 08:00 | "
+        "WA: T1@lun08 T2@mié08 T3@jue09 T5@sab09 (COT)"
+    )
 
 
 def stop_scheduler() -> None:
