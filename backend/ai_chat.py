@@ -7,6 +7,25 @@ from fastapi import HTTPException
 from emergentintegrations.llm.chat import LlmChat, UserMessage, FileContent
 
 
+# ── Helpers para context builders (evitar NoneType format errors) ─────────────
+
+def _safe_num(val, default: float = 0) -> float:
+    """Safe numeric: returns `default` if val is None or non-numeric."""
+    if val is None:
+        return default
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_str(val, default: str = "") -> str:
+    """Safe string: returns `default` if val is None."""
+    if val is None:
+        return default
+    return str(val)
+
+
 # ── Helpers de detección de tipo de proveedor ────────────────────────────────
 _PJ_SUFFIXES = (
     "SAS", "S.A.S", "LTDA", "S.A.", "SA ", "CORP", "INC", "SOCIEDAD",
@@ -936,13 +955,13 @@ async def gather_context(user_message: str, alegra_service, db) -> dict:
                 data = ev.get("data") or {}
                 detalle = ""
                 if tipo == "factura.venta.creada":
-                    detalle = f"FV {data.get('factura_numero','')} — {data.get('cliente_nombre','')} ${data.get('total',0):,.0f}"
+                    detalle = f"FV {_safe_str(data.get('factura_numero'))} — {_safe_str(data.get('cliente_nombre'))} ${_safe_num(data.get('total')):,.0f}"
                 elif tipo in ("pago.cuota.registrado", "cuota_pagada"):
-                    detalle = f"{data.get('cliente_nombre','')} cuota ${data.get('monto',0):,.0f}"
+                    detalle = f"{_safe_str(data.get('cliente_nombre'))} cuota ${_safe_num(data.get('monto')):,.0f}"
                 elif tipo == "asiento.contable.creado":
                     detalle = data.get("concepto", data.get("observations", ""))[:40]
                 elif tipo == "factura.compra.creada":
-                    detalle = f"{data.get('proveedor','')} ${data.get('total',0):,.0f}"
+                    detalle = f"{_safe_str(data.get('proveedor'))} ${_safe_num(data.get('total')):,.0f}"
                 elif tipo == "loanbook.activado":
                     detalle = f"Entrega moto — {data.get('cliente','')}"
                 elif tipo == "inventario.moto.baja":
@@ -1377,8 +1396,8 @@ async def gather_accounts_context(user_message: str, alegra_service, db) -> tupl
                     f"Cuenta débito: {d.get('cuenta_debito_id','?')} {d.get('cuenta_debito_nombre','')}\n"
                     f"Cuenta crédito: {d.get('cuenta_credito_id','?')} {d.get('cuenta_credito_nombre','')}\n"
                     f"Retención: {d.get('retencion_pct','?')}%\n"
-                    f"Confianza: {round(patron_contable.get('confianza',0)*100,0):.0f}% "
-                    f"({patron_contable.get('muestra_n',0)} registros)\n"
+                    f"Confianza: {round(_safe_num(patron_contable.get('confianza'))*100,0):.0f}% "
+                    f"({_safe_num(patron_contable.get('muestra_n'),0):.0f} registros)\n"
                     f"→ Usar este patrón si el tipo de transacción coincide con transacciones anteriores."
                 )
                 patterns_str += nota
@@ -1562,7 +1581,7 @@ async def process_document_chat(
         ).to_list(15)
         if loans:
             loanbook_str = "\n".join([
-                f"• [{l['codigo']}] {l['cliente_nombre']} — Plan: {l.get('plan', '')} Saldo: ${l.get('saldo_pendiente', 0):,.0f}"
+                f"• [{_safe_str(l.get('codigo'))}] {_safe_str(l.get('cliente_nombre'))} — Plan: {_safe_str(l.get('plan'))} Saldo: ${_safe_num(l.get('saldo_pendiente')):,.0f}"
                 for l in loans
             ])
     except Exception:
@@ -1679,15 +1698,15 @@ async def process_chat(
     iva_ctx = context_data.get("iva_status")
     if iva_ctx:
         iva_context_str = (
-            f"Período: {iva_ctx['periodo']} | Tipo: {iva_ctx['tipo']} | "
-            f"Mes {iva_ctx['meses_transcurridos']} de {iva_ctx['meses_total']}\n"
-            f"Fecha límite: {iva_ctx['fecha_limite']} ({iva_ctx['dias_restantes']} días)\n"
-            f"IVA cobrado acumulado: ${iva_ctx['iva_cobrado_acumulado']:,.0f}\n"
-            f"IVA descontable acumulado: ${iva_ctx['iva_descontable_acumulado']:,.0f}\n"
-            f"IVA bruto del período: ${iva_ctx['iva_bruto_periodo']:,.0f}\n"
-            f"Saldo a favor DIAN: ${iva_ctx['saldo_favor_dian']:,.0f}\n"
-            f"⚠️ IVA ESTIMADO A PAGAR DIAN: ${iva_ctx['iva_pagar_estimado']:,.0f}\n"
-            f"Facturas: {iva_ctx['facturas_venta']} ventas / {iva_ctx['facturas_compra']} compras registradas"
+            f"Período: {_safe_str(iva_ctx.get('periodo'))} | Tipo: {_safe_str(iva_ctx.get('tipo'))} | "
+            f"Mes {_safe_str(iva_ctx.get('meses_transcurridos'))} de {_safe_str(iva_ctx.get('meses_total'))}\n"
+            f"Fecha límite: {_safe_str(iva_ctx.get('fecha_limite'))} ({_safe_str(iva_ctx.get('dias_restantes'))} días)\n"
+            f"IVA cobrado acumulado: ${_safe_num(iva_ctx.get('iva_cobrado_acumulado')):,.0f}\n"
+            f"IVA descontable acumulado: ${_safe_num(iva_ctx.get('iva_descontable_acumulado')):,.0f}\n"
+            f"IVA bruto del período: ${_safe_num(iva_ctx.get('iva_bruto_periodo')):,.0f}\n"
+            f"Saldo a favor DIAN: ${_safe_num(iva_ctx.get('saldo_favor_dian')):,.0f}\n"
+            f"⚠️ IVA ESTIMADO A PAGAR DIAN: ${_safe_num(iva_ctx.get('iva_pagar_estimado')):,.0f}\n"
+            f"Facturas: {iva_ctx.get('facturas_venta')} ventas / {iva_ctx.get('facturas_compra')} compras registradas"
         )
     else:
         iva_context_str = "Pregunta sobre IVA para obtener el estado actualizado del período cuatrimestral."
@@ -1701,7 +1720,7 @@ async def process_chat(
     if context_data.get("inventario_disponible"):
         motos_list = context_data["inventario_disponible"]
         fuente = context_data.get("inventario_fuente", "local")
-        lines = [f"  • [{m.get('id','')}] {m.get('marca','')} {m.get('version','')} {m.get('color','')} — Chasis: {m.get('chasis','')} Motor: {m.get('motor','')} Precio: ${m.get('total',0):,.0f}" for m in motos_list[:20]]
+        lines = [f"  • [{_safe_str(m.get('id'))}] {_safe_str(m.get('marca'))} {_safe_str(m.get('version'))} {_safe_str(m.get('color'))} — Chasis: {_safe_str(m.get('chasis'))} Motor: {_safe_str(m.get('motor'))} Precio: ${_safe_num(m.get('total')):,.0f}" for m in motos_list[:20]]
         extra_context += f"\n\nINVENTARIO_DISPONIBLE (fuente: {fuente}, motos en stock):\n" + "\n".join(lines)
     elif context_data.get("inventario_inferido"):
         inf = context_data["inventario_inferido"]
@@ -1715,10 +1734,10 @@ async def process_chat(
     if context_data.get("loanbook_activos"):
         lb_list = context_data["loanbook_activos"]
         lines = [
-            f"  • [{l['codigo']}] id={l['id']} — {l['cliente']} | Plan: {l['plan']} | "
-            f"Saldo: ${l['saldo_pendiente']:,.0f} | Estado: {l['estado']} | "
-            f"Alegra factura: {l.get('factura_alegra_id','?')} | "
-            f"Entrega: {l.get('fecha_entrega','pendiente')}"
+            f"  • [{_safe_str(l.get('codigo'))}] id={_safe_str(l.get('id'))} — {_safe_str(l.get('cliente'))} | Plan: {_safe_str(l.get('plan'))} | "
+            f"Saldo: ${_safe_num(l.get('saldo_pendiente')):,.0f} | Estado: {_safe_str(l.get('estado'))} | "
+            f"Alegra factura: {_safe_str(l.get('factura_alegra_id'), '?')} | "
+            f"Entrega: {_safe_str(l.get('fecha_entrega'), 'pendiente')}"
             for l in lb_list[:10]
         ]
         extra_context += "\n\nLOANBOOK_ACTIVOS:\n" + "\n".join(lines)
@@ -1744,17 +1763,17 @@ async def process_chat(
     # Real-time cartera data
     _lbs_activos = await db.loanbook.count_documents({"estado": "activo"})
     _cfg_fin = await db.cfo_financiero_config.find_one({}, {"_id": 0}) or {}
-    _gastos = _cfg_fin.get("gastos_fijos_semanales", 0)
+    _gastos = _safe_num(_cfg_fin.get("gastos_fijos_semanales"))
     _deuda_np_doc = await db.cfo_deudas.aggregate([
         {"$match": {"tipo": "no_productiva", "estado": {"$ne": "pagada"}}},
         {"$group": {"_id": None, "total": {"$sum": "$saldo_pendiente"}}}
     ]).to_list(1)
-    _deuda_np = _deuda_np_doc[0]["total"] if _deuda_np_doc else 0
+    _deuda_np = _safe_num(_deuda_np_doc[0].get("total")) if _deuda_np_doc else 0
     _ci_doc = await db.loanbook.aggregate([
         {"$match": {"cuota_inicial_pendiente": {"$gt": 0}}},
         {"$group": {"_id": None, "total": {"$sum": "$cuota_inicial_pendiente"}}}
     ]).to_list(1)
-    _ci_pendiente = _ci_doc[0]["total"] if _ci_doc else 0
+    _ci_pendiente = _safe_num(_ci_doc[0].get("total")) if _ci_doc else 0
     _creditos_min = int(-(-_gastos // 167722)) if _gastos > 0 else 0
 
     cfo_context_lines.append(
@@ -1776,15 +1795,15 @@ async def process_chat(
             from routers.cfo_estrategico import get_reporte_lunes
             _reporte = await get_reporte_lunes(current_user=user)
             alertas_reporte = _reporte.get("alertas", [])
-            _rec = _reporte.get("ingresos", {}).get("recaudo_cartera", 0)
-            _gast = _reporte.get("egresos", {}).get("gastos_fijos", 0)
-            _caja = _reporte.get("caja", {}).get("proyectada", 0)
+            _rec = _safe_num(_reporte.get("ingresos", {}).get("recaudo_cartera"))
+            _gast = _safe_num(_reporte.get("egresos", {}).get("gastos_fijos"))
+            _caja = _safe_num(_reporte.get("caja", {}).get("proyectada"))
             cfo_context_lines.append(
                 f"\n📊 REPORTE CFO LUNES ({_today.isoformat()}):\n"
-                f"  Recaudo esta semana: ${_rec:,.0f} ({_reporte['ingresos'].get('num_cuotas', 0)} cuotas)\n"
+                f"  Recaudo esta semana: ${_rec:,.0f} ({_safe_num(_reporte.get('ingresos', {}).get('num_cuotas')):.0f} cuotas)\n"
                 f"  Gastos fijos: ${_gast:,.0f}\n"
                 f"  Caja proyectada fin de semana: ${_caja:,.0f} {'✅' if _caja >= 0 else '🔴'}\n"
-                f"  Deuda NP: ${_reporte['deuda']['no_productiva']:,.0f}\n"
+                f"  Deuda NP: ${_safe_num(_reporte.get('deuda', {}).get('no_productiva')):,.0f}\n"
                 + ("\n".join(f"  {a['msg']}" for a in alertas_reporte) if alertas_reporte else "  Sin alertas.")
             )
         except Exception:
@@ -1815,15 +1834,15 @@ async def process_chat(
         from routers.estado_resultados import _build_pl
         periodo = f"{_today.year}-{_today.month:02d}"
         _pl = await _build_pl(periodo, user)
-        _ing  = _pl["ingresos"]["total"]
-        _neta = _pl["utilidad_neta"]
-        _modo = _pl["modo"]
-        _margen = _pl["margen_bruto_pct"]
-        _gastos = _pl["gastos_operacionales"]["total"]
+        _ing  = _safe_num(_pl["ingresos"]["total"]) if _pl.get("ingresos") else 0
+        _neta = _safe_num(_pl.get("utilidad_neta"))
+        _modo = _safe_str(_pl.get("modo"))
+        _margen = _safe_num(_pl.get("margen_bruto_pct"))
+        _gastos = _safe_num(_pl["gastos_operacionales"]["total"]) if _pl.get("gastos_operacionales") else 0
         cfo_context_lines.append(
             f"\n📊 P&L {_pl['mes_label']} (modo={_modo}):\n"
-            f"  Ingresos: ${_ing:,.0f} | COGS: ${_pl['costo_ventas']['total']:,.0f} | "
-            f"Utilidad bruta: ${_pl['utilidad_bruta']:,.0f} ({_margen:.1f}%)\n"
+            f"  Ingresos: ${_ing:,.0f} | COGS: ${_safe_num(_pl.get('costo_ventas', {}).get('total')):,.0f} | "
+            f"Utilidad bruta: ${_safe_num(_pl.get('utilidad_bruta')):,.0f} ({_margen:.1f}%)\n"
             f"  Gastos oper.: ${_gastos:,.0f} | Utilidad neta: ${_neta:,.0f}"
             + (f"\n  ⚠️ ALERTA: Margen bruto {_margen:.1f}% por debajo del 15% mínimo." if _pl.get("alerta_margen_critico") else "")
             + (f"\n  ⚠️ {_pl['costo_ventas']['advertencia']}" if _pl["costo_ventas"].get("advertencia") else "")
