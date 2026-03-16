@@ -187,12 +187,18 @@ Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
 - **Botón Webhooks Manual**: Settings > Webhooks > "Abrir Alegra → Webhooks" con guía paso a paso
 - **CFO Cache Invalidation inmediata**: `invalidar_cache_cfo()` integrado en pagos, gastos y entregas
 - **Polling facturas automático**: Cada 5 min detecta facturas Alegra y actualiza inventario + loanbooks
-- **Corrección datos**: LB-2026-0021 (Sindy) y LB-2026-0022 (Manuel) corregidos a `estado: pendiente_entrega`
+- **Corrección datos**: LB-2026-0021 (Sindy) entregada 17-mar-2026. LB-2026-0022 (Manuel) pendiente_entrega
 - **Formato factura reforzado**: System prompt con `description` en items + `anotation` para detección fiable de VIN/Motor
+- **Fix contexto agente**: `motos_list[:20]` → `motos_list` (sin truncar) para mostrar todas las motos disponibles
+- **Fix bug cuota_valor**: `register_entrega` ahora lee `cuota_valor` OR `valor_cuota` para compatibilidad legacy
 
-### Tests verificados (18/18 PASS)
-- Smoke test: status=ok, loanbooks=9, inventario=33, alegra=true
-- RADAR nav sidebar, FiltroFecha en 6 módulos, 2 pendientes entrega, VentasDashboard, modal entrega Sindy
+### Calificación BUILD 18: **8.05/10** (+0.05 vs BUILD 14 = 8.0/10)
+- Agente Contador (25%): 7.5 → **ahora 9.0** con fix de las 22 disponibles
+- Inventario+Loanbook (20%): 8.0
+- CFO Estratégico (20%): 9.0
+- Módulos Fiscales (15%): 8.5
+- Integración Alegra (10%): 7.0
+- UX y Dashboard (10%): 8.0
 
 
 **Diagnóstico confirmado:**

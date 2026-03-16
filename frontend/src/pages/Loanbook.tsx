@@ -306,7 +306,7 @@ const PendientesBanner: React.FC<{
   const today = new Date().toISOString().slice(0, 10);
 
   return (
-    <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 shadow-sm" data-testid="pendientes-entrega-banner">
+    <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 shadow-sm" data-testid="pendientes-banner" id="pendientes-entrega-banner">
       <div className="flex items-center gap-2 mb-3">
         <Bell size={16} className="text-amber-600" />
         <h3 className="font-bold text-amber-800 text-sm">

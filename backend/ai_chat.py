@@ -1744,8 +1744,8 @@ async def process_chat(
     if context_data.get("inventario_disponible"):
         motos_list = context_data["inventario_disponible"]
         fuente = context_data.get("inventario_fuente", "local")
-        lines = [f"  • [{_safe_str(m.get('id'))}] {_safe_str(m.get('marca'))} {_safe_str(m.get('version'))} {_safe_str(m.get('color'))} — Chasis: {_safe_str(m.get('chasis'))} Motor: {_safe_str(m.get('motor'))} Precio: ${_safe_num(m.get('total')):,.0f}" for m in motos_list[:20]]
-        extra_context += f"\n\nINVENTARIO_DISPONIBLE (fuente: {fuente}, motos en stock):\n" + "\n".join(lines)
+        lines = [f"  • [{_safe_str(m.get('id'))}] {_safe_str(m.get('marca'))} {_safe_str(m.get('version'))} {_safe_str(m.get('color'))} — Chasis: {_safe_str(m.get('chasis'))} Motor: {_safe_str(m.get('motor'))} Precio: ${_safe_num(m.get('total')):,.0f}" for m in motos_list]
+        extra_context += f"\n\nINVENTARIO_DISPONIBLE (fuente: {fuente}, {len(motos_list)} motos en stock):\n" + "\n".join(lines)
     elif context_data.get("inventario_inferido"):
         inf = context_data["inventario_inferido"]
         extra_context += (
