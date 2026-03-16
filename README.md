@@ -1,170 +1,212 @@
-# SISMO — RODDOS Contable IA
+# RODDOS Contable IA
 
-> Agente contador inteligente integrado con Alegra ERP para RODDOS Colombia SAS, concesionario Auteco en Bogotá.
+Agente Contador con IA integrado con Alegra ERP para gestión contable, inventario de motos y cartera de créditos.
+Desarrollado para concesionario de motos Auteco — Bogotá D.C., Colombia.
 
-**Builder**: [emergent.sh](https://emergent.sh)  
-**Stack**: React 19 + TypeScript + Tailwind + FastAPI + MongoDB + Claude Sonnet 4.5 + Alegra API
+## Estado del proyecto
 
----
+| Campo | Valor |
+|-------|-------|
+| Versión | BUILD 18 — completado |
+| Calificación | **8.63 / 10** |
+| Último smoke test | 16-mar-2026 — 10/10 ✅ |
+| Loanbooks activos | 10 |
+| Inventario motos | 33 (VINs reales) |
+| Cartera total | $94,118,900 COP |
 
-## Descripción
+## Stack tecnológico
 
-SISMO es un ERP contable asistido por IA que permite:
+| Capa | Tecnología |
+|------|-----------|
+| Frontend | React 18 + TypeScript + Tailwind CSS + Shadcn/UI |
+| Backend | FastAPI (Python 3.11) + Motor (async MongoDB) |
+| Base de datos | MongoDB |
+| IA | Claude Sonnet 4.5 vía Emergent LLM Key |
+| ERP | Alegra API v1 |
+| WhatsApp | Mercately |
+| Builder | emergent.sh |
 
-- Registrar facturas de compra/venta y causaciones directamente desde el chat
-- Gestionar cartera de crédito (Loanbook) con reglas de cobro específicas
-- Controlar inventario de motos Auteco (carga automática desde PDF)
-- Ejecutar acciones reales en Alegra desde lenguaje natural
-- Gestionar cobranza 100% remota (sistema RADAR)
+## Módulos implementados
 
----
+| Módulo | Ruta | Descripción |
+|--------|------|-------------|
+| Agente Contador | `/agente-contable` | Chat IA con acceso a Alegra, inventario y cartera |
+| CFO Estratégico | `/cfo-estrategico` | Chat CFO con análisis de deuda, déficit y proyecciones |
+| Dashboard | `/dashboard` | KPIs en tiempo real + ventas del mes con progreso de meta |
+| Panel CFO | `/cfo` | Semáforo financiero (Caja, Cartera, Ventas, Roll Rate, Impuestos) |
+| Presupuesto | `/presupuesto` | Plan de deudas Auteco + gastos operativos + E&R mensual |
+| Impuestos | `/impuestos` | Calendario fiscal IVA cuatrimestral, ReteFuente, ReteICA |
+| Motos | `/inventario-auteco` | 33 motos TVS con VINs reales, estado Disponible/Vendida/Entregada |
+| Loanbook | `/loanbook` | 10 créditos activos, panel entregas pendientes, registro de pagos |
+| RADAR | `/radar` | Cola de cobranza semanal, gestiones y PTPs |
+| Configuración | `/configuracion` | Alegra, Mercately, usuarios, webhooks, scheduler |
 
-## Requisitos
+## Cómo ejecutar el proyecto
 
-- Node.js 18+
-- Python 3.10+
-- MongoDB 6+ (local o Atlas)
-- Cuenta Alegra Plan Pro Colombia
-- API Key Anthropic o Emergent LLM Key
+### Requisitos previos
+- Node.js 18+ y Yarn
+- Python 3.11+
+- MongoDB 6.0+
+- Cuenta Alegra con token API
+- Emergent LLM Key (o API key de Anthropic)
 
----
-
-## Instalación
-
-### Backend
+### Configuración
 
 ```bash
+# 1. Clonar el repositorio
+git clone https://github.com/tu-usuario/roddos-contable-ia.git
+cd roddos-contable-ia
+
+# 2. Configurar variables de entorno
+cp .env.example backend/.env
+cp .env.example frontend/.env
+# Editar backend/.env y frontend/.env con valores reales
+
+# 3. Backend
 cd backend
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-cp ../.env.example .env
-# Completar .env con valores reales
-uvicorn server:app --reload --port 8001
-```
+uvicorn server:app --host 0.0.0.0 --port 8001 --reload
 
-### Frontend
-
-```bash
+# 4. Frontend (en otra terminal)
 cd frontend
 yarn install
-cp ../.env.example .env
-# Ajustar REACT_APP_BACKEND_URL en .env
 yarn start
 ```
 
----
+### Variables de entorno obligatorias
 
-## Variables de entorno
-
-Copiar `.env.example` a `.env` (en la raíz o en `backend/`) y completar con los valores reales. Ver comentarios en el archivo para instrucciones por campo.
-
-**Campos obligatorios para funcionamiento básico:**
-- `ALEGRA_EMAIL` + `ALEGRA_TOKEN` — credenciales Alegra
-- `MONGO_URL` — conexión MongoDB
-- `JWT_SECRET` — clave secreta para tokens (mínimo 32 caracteres)
-- `EMERGENT_LLM_KEY` — clave para Claude Sonnet 4.5
-
----
-
-## Estado actual del proyecto
-
-### Implementado ✅
-
-| Módulo | Descripción |
-|--------|-------------|
-| **Bus de eventos** | `roddos_events` en MongoDB — sincronizan todos los módulos tras cada acción Alegra |
-| **Loanbook** | Flujo completo 3 momentos: registro venta → entrega física → cobro. Cálculo automático de fechas (siempre miércoles) |
-| **RADAR (Cartera)** | Cola de Gestión Remota con prioridades URGENTE/HOY/PREVENTIVO. 100% remota, sin visitas en campo |
-| **Plan de cuentas** | 233 cuentas NIIF reales vía `/categories` de Alegra. ⚠️ Nunca usar `/accounts` (devuelve 403) |
-| **post_action_sync()** | Sincronización automática de módulos después de cada acción en Alegra |
-| **Memoria del agente** | Historial persistente de chat, tarea activa con progreso, contexto del día desde `roddos_events` |
-| **Inventario motos** | Carga PDF Auteco → extracción automática chasis/motor/color. 1 objeto por unidad |
-| **Anulación facturas** | Bloqueo si hay motos vinculadas vendidas. Flujo de anulación completo |
-| **Chat pantalla completa** | Adjuntos PDF e imágenes, selector tipo documento, historial persistente |
-| **Badge tarea activa** | Indicador en tiempo real del progreso de tareas multi-paso (cyan/amarillo/verde) |
-| **Filtros módulo motos** | 6 filtros por estado con conteos en tiempo real. Default: Disponible |
-| **Control IVA** | Control cuatrimestral de IVA por período |
-| **Repuestos** | Catálogo, stock y facturación |
-
-### Pendiente ❌
-
-| Módulo | Descripción |
-|--------|-------------|
-| **BUILD 10** | Estado de Resultados automático desde Alegra |
-| **Mercately WhatsApp** | Pendiente credenciales. Bot actualmente ignora mensajes de texto libre |
-| **CFO Report** | `costo_motos` y `gastos_operativos` calculan $0 (bug conocido en `cfo_agent.py`) |
-
----
-
-## Reglas críticas de arquitectura
-
-> ⚠️ **Leer antes de modificar el código**
-
-1. `post_action_sync()` se llama **SIEMPRE** después de cualquier acción en Alegra
-2. `_metadata` incompleto → **bloqueo total** — nunca crear factura parcial
-3. Pago sin `factura_alegra_id` → bloqueo + aviso al usuario
-4. Cobranza: **100% remota** — NO hay visitas en campo ni geolocalización
-5. Plan de cuentas: usar `/categories` (233 cuentas NIIF). **Nunca `/accounts`**
-6. Extracción motos PDF: **1 objeto por unidad física** (nunca `cantidad: N`)
-7. Regla de cobro: siempre **miércoles**. Primer cobro = primer miércoles ≥ (entrega + 7 días)
-
----
-
-## Bancos reales en Alegra
-
-| Banco | Cuenta Alegra |
-|-------|--------------|
-| Bancolombia | 111005 |
-| BBVA | 111010 |
-| Davivienda | 111015 |
-| Banco de Bogotá | 111020 |
-
----
-
-## Planes de financiación
-
-| Plan | Semanas | Observación |
-|------|---------|-------------|
-| P39S | 39 sem | |
-| P52S | 52 sem | |
-| P78S | 78 sem | |
-
-- Mora: **15% EA**. Día 1 de mora = jueves siguiente al miércoles de cobro
-- DPD máximo sin pago: 21 días. DPD = 22 activa recuperación automática
-
----
-
-## Estructura del proyecto
-
+**backend/.env:**
 ```
-SISMO/
-├── backend/
-│   ├── server.py              # FastAPI app principal
-│   ├── ai_chat.py             # Lógica del agente IA + Claude Sonnet
-│   ├── post_action_sync.py    # Sincronización inter-módulos
-│   ├── alegra_service.py      # Cliente Alegra ERP
-│   ├── event_bus.py           # Bus de eventos MongoDB
-│   ├── inventory_service.py   # Extracción motos desde PDF
-│   ├── routers/               # Endpoints por módulo
-│   └── requirements.txt
-├── frontend/
-│   ├── src/
-│   │   ├── pages/             # AgentChatPage, InventarioAuteco, Loanbook, etc.
-│   │   ├── components/        # UI components (Shadcn/UI)
-│   │   └── App.tsx
-│   ├── package.json
-│   ├── tsconfig.json
-│   └── tailwind.config.js
-├── scripts/                   # Utilidades y migraciones
-├── memory/                    # PRD, arquitectura, changelog
-├── .env.example
-├── .gitignore
-└── README.md
+MONGO_URL=mongodb://localhost:27017
+DB_NAME=roddos_contable
+ALEGRA_EMAIL=email@empresa.com
+ALEGRA_TOKEN=tu-token-alegra
+ALEGRA_WEBHOOK_SECRET=tu-secret
+JWT_SECRET=secreto-largo-seguro
+EMERGENT_LLM_KEY=sk-ant-...
+APP_URL=https://tu-dominio.com
+CORS_ORIGINS=http://localhost:3000
 ```
 
----
+**frontend/.env:**
+```
+REACT_APP_BACKEND_URL=http://localhost:8001
+```
+
+## Colecciones MongoDB
+
+| Colección | Descripción |
+|-----------|-------------|
+| `loanbook` | Créditos activos/pendientes con plan de cuotas semanal |
+| `inventario_motos` | 33 motos TVS con VINs, motores, estado y precio |
+| `cartera_pagos` | Registro histórico de pagos de cuotas |
+| `cartera_gestiones` | Gestiones de cobranza y PTPs |
+| `cfo_deudas` | Deudas no productivas (Auteco + operativas) |
+| `cfo_cache` | Caché de panel CFO (TTL 5 min, invalida en eventos) |
+| `cfo_configuracion` | Parámetros CFO: meta ventas, gastos fijos, nómina |
+| `cfo_instrucciones` | Reglas de negocio para el agente CFO |
+| `cfo_compromisos` | Compromisos de pago registrados por el CFO |
+| `proveedores_config` | ReteFuente y ReteICA por proveedor |
+| `roddos_events` | Log de eventos: ventas, pagos, entregas, webhooks |
+| `agent_errors` | Errores del agente para debugging |
+| `contactos` | Clientes con perfil 360° + historial CRM |
+
+## Endpoints principales
+
+### Auth
+```
+POST /api/auth/login          Login con email/password → JWT
+POST /api/auth/register       Crear usuario
+GET  /api/auth/me             Perfil del usuario autenticado
+```
+
+### Inventario
+```
+GET  /api/inventario/motos    Listar motos con filtros
+GET  /api/inventario/stats    Resumen: total, disponibles, vendidas, entregadas
+POST /api/inventario/motos    Crear moto
+PUT  /api/inventario/motos/{id} Actualizar moto
+```
+
+### Loanbook (Créditos)
+```
+GET  /api/loanbook            Listar créditos (con filtros)
+GET  /api/loanbook/stats      KPIs: activos, cartera, pendientes entrega
+POST /api/loanbook            Crear crédito
+PUT  /api/loanbook/{id}/entrega  Registrar entrega → activa crédito + genera cuotas
+POST /api/loanbook/{id}/pago  Registrar pago de cuota
+GET  /api/loanbook/{id}       Detalle + plan de cuotas
+```
+
+### Dashboard / Ventas
+```
+GET  /api/dashboard/overview  KPIs generales
+GET  /api/ventas/dashboard    Ventas del mes: meta, referencias, detalle
+```
+
+### CFO
+```
+GET  /api/cfo/semaforo        Semáforo: caja/cartera/ventas/roll_rate/impuestos
+GET  /api/cfo/pyg             PyG mensual
+GET  /api/cfo/plan-accion     Plan de deudas + proyección
+GET  /api/cfo/alertas         Alertas activas
+POST /api/cfo/generar         Generar informe CFO (async)
+POST /api/cfo/chat/message    Chat CFO Estratégico
+```
+
+### Agente Contador
+```
+POST /api/chat/message        Mensaje al agente (crea factura, cobra, audita)
+GET  /api/chat/sessions       Historial de sesiones
+```
+
+### Impuestos
+```
+GET  /api/impuestos/iva-status    Estado IVA cuatrimestral desde Alegra
+GET  /api/impuestos/config        Configuración períodos fiscales
+POST /api/impuestos/config        Actualizar configuración
+```
+
+### Alegra / Webhooks
+```
+GET  /api/alegra/invoices     Facturas de venta
+GET  /api/alegra/bills        Facturas de compra
+GET  /api/webhooks/status     Estado webhooks (activos/inactivos)
+POST /api/webhooks/setup      Intentar registro automático webhooks
+POST /webhooks/alegra         Receptor de webhooks Alegra (ruta pública)
+```
+
+### Sistema
+```
+GET  /api/health/smoke        Smoke test completo
+GET  /api/scheduler/jobs      Estado jobs del scheduler
+GET  /api/audit/log           Log de acciones
+```
+
+## Builds completados
+
+| Build | Fecha | Descripción |
+|-------|-------|-------------|
+| BUILD 10 | Ene 2026 | Inventario TVS base + Loanbook créditos semanales |
+| BUILD 11 | Ene 2026 | Agente Contador v1 + integración Alegra facturas |
+| BUILD 12 | Feb 2026 | CFO Estratégico + plan de deudas + semáforo financiero |
+| BUILD 13 | Feb 2026 | Módulo Impuestos + calendario fiscal Colombia |
+| BUILD 14 | Feb 2026 | RADAR cobranza + gestiones + PTPs + CRM clientes |
+| BUILD 15 | Feb 2026 | WhatsApp Mercately: 5 templates + 4 cron jobs |
+| BUILD 16 | Mar 2026 | Gastos masivos CSV + Estado de Resultados + presupuesto |
+| BUILD 17 | Mar 2026 | Hotfix: VINs reales, motor en loanbooks, safe_str, polling |
+| BUILD 18 | Mar 2026 | Dashboard ventas, filtros globales, gestión entregas, calificación 8.63/10 |
+
+## Flujo automático Alegra → Inventario
+
+Cada 5 minutos el scheduler hace polling de nuevas facturas en Alegra.
+Al detectar una factura de venta de moto:
+1. Extrae VIN (regex `9FL...`) y motor (`BF3...` / `RF5...`) del campo `anotation`
+2. Actualiza `inventario_motos.estado` → `Vendida`
+3. Crea registro `loanbook` con `estado: pendiente_entrega`
+4. Emite evento en `roddos_events`
+5. Invalida caché CFO
 
 ## Licencia
 
-Proyecto propietario de RODDOS Colombia SAS. Desarrollo con [emergent.sh](https://emergent.sh).
+Uso interno — RODDOS S.A.S. — Bogotá D.C., Colombia.
