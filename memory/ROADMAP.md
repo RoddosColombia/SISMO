@@ -5,15 +5,6 @@
   - Procesar mensajes libres de clientes
   - Enviar recordatorios automáticos de cuotas
 
-## P1 — BUILD 14/15
-- Módulo Impuestos: mejoras adicionales
-  - ReteFuente del período desde Alegra
-  - ReteICA Bogotá 0.414%
-  - Provisión renta 33% automática
-- UI Proveedores: pantalla para gestionar autoretenedores
-  - Ver/editar lista de proveedores en proveedores_config
-  - Agregar/quitar autoretenedor status
-
 ## P2 — Futuro
 - Dashboard Inventory Widget (tabla motos disponibles)
 - Panel de Aprendizaje ML (patrones de mora)
