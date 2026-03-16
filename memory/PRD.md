@@ -158,6 +158,17 @@ Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
 - POST /api/webhooks/alegra (receptor seguro <1s), 12 handlers de eventos, cron sync pagos 5min
 - WebhooksTab en Settings: grid 12 eventos, stats sync, re-register y manual sync buttons
 
+### BUILD 16 — Carga Masiva de Gastos vía Excel ✅ COMPLETADO (Mar 2026)
+- **GET /api/gastos/plantilla**: Genera plantilla Excel oficial con 12 columnas, dropdowns, hoja de instrucciones, fila ejemplo Auteco Kawasaki
+- **POST /api/gastos/cargar**: Parsea Excel uploaded, detecta headers (exact + substring matching), calcula retenciones automáticas (ReteFuente + IVA), detecta autoretenedores desde DB y columna, retorna preview + resumen
+- **POST /api/gastos/procesar**: Inicia job asíncrono (background task), retorna job_id inmediatamente. Lógica mixta: Contado → journal-entry en Alegra, Credito_N → bill con vencimiento calculado
+- **GET /api/gastos/jobs/{job_id}**: Polling de estado (iniciando|procesando|completado)
+- **GET /api/gastos/reporte-errores/{job_id}**: Descarga Excel con filas fallidas
+- **AI keyword detection**: "carga masiva", "cargar gastos", "excel gastos" → retorna gastos_masivos_card
+- **Frontend GastosMasivosCard**: 4 estados (initial/preview/processing/done), KPIs en preview (base, IVA, ReteFuente, neto), tabla expandible, progreso en tiempo real vía polling, chip acceso rápido
+- Mapeo automático tipo_gasto → cuenta Alegra: arriendo=3.5%, honorarios_pn=10%, honorarios_pj=11%, servicios=4%, compras=2.5%
+- Auteco Kawasaki NIT 860024781 siempre sin ReteFuente (autoretenedor)
+
 - GAP 1: Normalización teléfonos ✅
 - GAP 2: Inventario + Alegra Sync ✅
 - GAP 3: CFO Asíncrono ✅
@@ -190,7 +201,12 @@ users · audit_logs · gestiones_cartera · learning_outcomes · learning_patter
 Ver `/app/memory/ARCHITECTURE.md` sección 3.6 para lista completa.
 NUNCA crear /api/cartera/* — la ruta correcta es /api/radar/*
 
-## NUEVOS ENDPOINTS (GAPs Marzo 2026)
+## NUEVOS ENDPOINTS (GAPs Marzo 2026 + BUILD 16)
 - GET /api/inventario/stats — estadísticas inventario motos
 - POST /api/cfo/generar — ahora retorna {job_id, estado} (async)
 - GET /api/cfo/status/{job_id} — polling estado job CFO
+- GET /api/gastos/plantilla — plantilla Excel 12 columnas con instrucciones y dropdowns
+- POST /api/gastos/cargar — parse+validación+retenciones desde Excel (multipart/form-data)
+- POST /api/gastos/procesar — procesar rows en Alegra (journal-entries o bills), retorna job_id
+- GET /api/gastos/jobs/{job_id} — polling estado job carga masiva
+- GET /api/gastos/reporte-errores/{job_id} — Excel con filas fallidas

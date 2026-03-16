@@ -628,7 +628,7 @@ function CuotasInicialesCard({ card }: { card: any }): React.ReactElement {
 /* ── GastosMasivosCard ── */
 type GastosStep = "initial" | "preview" | "processing" | "done";
 
-function GastosMasivosCard({ card, token }: { card: GastosMasivosCardData; token?: string }): React.ReactElement {
+function GastosMasivosCard({ card, api }: { card: GastosMasivosCardData; api: any }): React.ReactElement {
   const [step, setStep]               = useState<GastosStep>("initial");
   const [preview, setPreview]         = useState<any[]>([]);
   const [resumen, setResumen]         = useState<any>(null);
@@ -642,7 +642,6 @@ function GastosMasivosCard({ card, token }: { card: GastosMasivosCardData; token
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollRef      = useRef<ReturnType<typeof setInterval> | null>(null);
   const fmtCOP = (n: number) => `$${Number(n || 0).toLocaleString("es-CO")}`;
-  const fmtPct = (n: number) => `${n.toFixed(1)}%`;
 
   const handleDownloadTemplate = () => {
     const url = `${API}/api/gastos/plantilla`;
@@ -659,14 +658,12 @@ function GastosMasivosCard({ card, token }: { card: GastosMasivosCardData; token
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const res = await fetch(`${API}/api/gastos/cargar`, {
-        method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: formData,
+      const res = await api.post("/gastos/cargar", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
       });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        setUploadError(data.error || data.detail || "Error al procesar el archivo");
+      const data = res.data;
+      if (!data.ok) {
+        setUploadError(data.error || "Error al procesar el archivo");
         return;
       }
       setPreview(data.gastos || []);
@@ -674,7 +671,7 @@ function GastosMasivosCard({ card, token }: { card: GastosMasivosCardData; token
       setWarnings(data.advertencias || []);
       setStep("preview");
     } catch (e: any) {
-      setUploadError(e.message || "Error de red al subir el archivo");
+      setUploadError(e?.response?.data?.error || e?.response?.data?.detail || e?.message || "Error al subir el archivo");
     } finally {
       setUploading(false);
     }
@@ -684,24 +681,15 @@ function GastosMasivosCard({ card, token }: { card: GastosMasivosCardData; token
     setStep("processing");
     setProgress({ procesados: 0, total: preview.length, exitosos: 0, errores: 0 });
     try {
-      const res = await fetch(`${API}/api/gastos/procesar`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ gastos: preview }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) throw new Error(data.detail || "Error al procesar");
+      const res = await api.post("/gastos/procesar", { gastos: preview });
+      const data = res.data;
+      if (!data.ok) throw new Error(data.detail || "Error al procesar");
       setJobId(data.job_id);
       // Start polling
       pollRef.current = setInterval(async () => {
         try {
-          const pRes = await fetch(`${API}/api/gastos/jobs/${data.job_id}`, {
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-          });
-          const pData = await pRes.json();
+          const pRes = await api.get(`/gastos/jobs/${data.job_id}`);
+          const pData = pRes.data;
           setProgress({
             procesados: pData.procesados || 0,
             total:      pData.total || preview.length,
@@ -716,7 +704,7 @@ function GastosMasivosCard({ card, token }: { card: GastosMasivosCardData; token
         } catch {}
       }, 1000);
     } catch (e: any) {
-      setUploadError(e.message);
+      setUploadError(e?.response?.data?.detail || e?.message || "Error al procesar");
       setStep("preview");
     }
   };
@@ -1713,7 +1701,7 @@ export default function AgentChatPage() {
         {gastosMasivosCard && !loading && (
           <GastosMasivosCard
             card={gastosMasivosCard}
-            token={(api as any).defaults?.headers?.Authorization?.replace("Bearer ", "")}
+            api={api}
           />
         )}
 
