@@ -160,12 +160,12 @@ async def get_iva_status(ano: int = None, current_user=Depends(get_current_user)
             retefuente_facturas += 1
 
     # ── ReteICA Bogotá (Industria y Comercio) ────────────────────────────────
-    # RODDOS: comercio motos → tarifa 0.414% anual ≈ 4.14‰ anual
-    # Para el período: proporción de meses
-    RETICA_TARIFA_ANUAL = 0.00414  # 4.14‰ anual = 0.414% anual
+    # RODDOS: comercio motos → tarifa 0.414% POR OPERACIÓN GRAVADA (no anual)
+    RETICA_TARIFA = 0.00414  # 0.414% sobre el valor gravado de cada operación
     ingresos_gravables_ica = total_ventas / 1.19  # base sin IVA
-    retica_acumulada = round(ingresos_gravables_ica * RETICA_TARIFA_ANUAL * meses_transcurridos / 12)
-    retica_proyectada = round(ingresos_gravables_ica * RETICA_TARIFA_ANUAL * meses_periodo / 12)
+    retica_acumulada = round(ingresos_gravables_ica * RETICA_TARIFA)
+    # Proyección: si el período no ha terminado, estimar el total con factor proporcional
+    retica_proyectada = round(ingresos_gravables_ica * RETICA_TARIFA * factor)
 
     mes_limite = fin_mes + periodo_actual.get("mes_limite_offset", 1)
     ano_limite = ano
@@ -217,8 +217,8 @@ async def get_iva_status(ano: int = None, current_user=Depends(get_current_user)
         "retica": {
             "acumulada": retica_acumulada,
             "proyectada_periodo": retica_proyectada,
-            "tarifa_anual_pct": round(RETICA_TARIFA_ANUAL * 100, 3),
+            "tarifa_pct": round(RETICA_TARIFA * 100, 3),
             "base_ingresos": round(ingresos_gravables_ica),
-            "nota": "ReteICA Bogotá — comercio motos (4.14‰ anual)",
+            "nota": "ReteICA Bogotá — 0.414% por operación gravada (comercio motos)",
         },
     }

@@ -145,14 +145,14 @@ export default function Proveedores() {
   };
 
   const handleDelete = async (nombre) => {
-    if (!window.confirm(`¿Eliminar ${nombre} de la configuración?`)) return;
+    if (!window.confirm(`¿Eliminar a ${nombre} de la configuración?\n\nEsta acción no se puede deshacer.`)) return;
     try {
-      // Delete by posting with es_autoretenedor=false and empty NIT as a soft-clear,
-      // or call a delete endpoint if available. For now, we'll mark as inactive via notes.
-      await api.post("/proveedores/config", { nombre, nit: "", es_autoretenedor: false, notas: "ELIMINADO" });
-      toast.success(`${nombre} eliminado`);
+      await api.delete(`/proveedores/config/${encodeURIComponent(nombre)}`);
+      toast.success(`${nombre} eliminado correctamente`);
       load();
-    } catch { toast.error("Error eliminando proveedor"); }
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Error eliminando proveedor");
+    }
   };
 
   const filtered = proveedores.filter(p =>

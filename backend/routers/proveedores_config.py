@@ -40,6 +40,18 @@ async def save_proveedor_config(body: ProveedorConfigIn, user=Depends(get_curren
     return {"ok": True, "proveedor": body.nombre, "es_autoretenedor": body.es_autoretenedor}
 
 
+@router.delete("/config/{nombre}")
+async def delete_proveedor_config(nombre: str, user=Depends(get_current_user)):
+    result = await db.proveedores_config.delete_one(
+        {"nombre": {"$regex": f"^{re.escape(nombre)}$", "$options": "i"}}
+    )
+    if result.deleted_count == 0:
+        result = await db.proveedores_config.delete_one(
+            {"nombre": {"$regex": re.escape(nombre), "$options": "i"}}
+        )
+    return {"ok": True, "deleted": result.deleted_count > 0}
+
+
 @router.get("/config/{nombre}")
 async def get_proveedor_by_name(nombre: str, user=Depends(get_current_user)):
     # Try exact match first, then partial (contains) match

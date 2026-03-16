@@ -87,7 +87,7 @@ function ReteICACard({ status, onGoProveedores }) {
           ReteICA Bogotá
         </h3>
         <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">
-          {tarifa_anual_pct}% anual
+          {tarifa_pct || tarifa_anual_pct}% por operación
         </span>
       </div>
       <div className="grid grid-cols-2 gap-3 mb-3">

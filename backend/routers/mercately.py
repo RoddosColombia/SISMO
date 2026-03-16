@@ -2,7 +2,8 @@
 
 Webhook URL: POST /api/mercately/webhook  (public — no JWT)
 Sender types: CLIENTE | INTERNO | DESCONOCIDO
-Flows: comprobante de pago (cliente), factura proveedor (interno), confirmación SI/NO
+Flows: comprobante de pago (cliente), factura proveedor (interno), confirmación SI/NO,
+       mensajes libres con detección de intención, templates automáticos (5 tipos)
 """
 import base64
 import logging
@@ -25,6 +26,17 @@ SESSION_TTL_MINUTES = 5
 _CONFIRMATION_WORDS = {"si", "sí", "yes", "confirmar", "confirm", "ok", "listo", "dale"}
 _CANCEL_WORDS = {"no", "cancelar", "cancel"}
 
+# ── Intent detection para mensajes libres de CLIENTES ─────────────────────────
+_SALDO_WORDS = ["cuanto debo", "cuánto debo", "mi saldo", "cuantas cuotas", "cuántas cuotas",
+                "cuanto me falta", "mi deuda", "saldo", "cuanto queda", "cuánto queda",
+                "cuotas me quedan", "que debo"]
+_PAGO_WORDS = ["ya pagué", "ya pague", "hice la transferencia", "te mando el comprobante",
+               "pague", "pagué", "transferi", "transferí", "consigne", "consigné",
+               "ya abonė", "ya abonе", "realicé el pago", "realice el pago"]
+_DIFICULTAD_WORDS = ["no puedo pagar", "no puedo", "estoy complicado", "dame más tiempo",
+                     "mas tiempo", "más tiempo", "acuerdo de pago", "no tengo", "plazo",
+                     "difícil", "dificil", "problema con el pago", "no hay"]
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -44,6 +56,393 @@ def _normalize_phone(phone: str) -> str:
     """Normalize Colombian phone numbers to +57XXXXXXXXXX format."""
     from services.crm_service import normalizar_telefono
     return normalizar_telefono(phone)
+
+
+async def _get_telefono_roddos() -> str:
+    """Return RODDOS contact number from config."""
+    cfg = await _get_config()
+    return cfg.get("phone_number") or "3001234567"
+
+
+async def _get_loan_by_cliente(cliente: dict) -> dict | None:
+    """Find active loanbook entry for a CRM client."""
+    if not cliente:
+        return None
+    cedula = cliente.get("cedula") or ""
+    telefono = cliente.get("telefono_principal") or ""
+    query = {"estado": "activo"}
+    if cedula:
+        query["cliente_nit"] = cedula
+    elif telefono:
+        query["cliente_telefono"] = {"$regex": telefono[-10:]}
+    return await db.loanbook.find_one(query, {"_id": 0}) if (cedula or telefono) else None
+
+
+async def _get_proxima_cuota(loan: dict) -> dict | None:
+    """Return next pending cuota from loanbook."""
+    if not loan:
+        return None
+    cuotas = loan.get("cuotas") or []
+    for c in cuotas:
+        if c.get("estado") in ("pendiente", "vencido"):
+            return c
+    return None
+
+
+async def _log_gestion_whatsapp(
+    cliente: dict | None,
+    tipo: str,
+    template: str,
+    mensaje: str,
+    mercately_id: str = "",
+    estado: str = "enviado",
+    intencion: str = "",
+):
+    """Log WA message to cartera_gestiones collection."""
+    try:
+        nombre = ""
+        cliente_id = ""
+        if cliente:
+            nombre = cliente.get("nombre_completo") or cliente.get("nombre") or ""
+            cliente_id = cliente.get("cedula") or cliente.get("id") or ""
+        await db.cartera_gestiones.insert_one({
+            "cliente_id": cliente_id,
+            "cliente_nombre": nombre,
+            "fecha": datetime.now(timezone.utc).isoformat(),
+            "canal": "whatsapp_mercately",
+            "tipo": tipo,
+            "template": template,
+            "intencion": intencion,
+            "mensaje": mensaje[:500],
+            "estado": estado,
+            "mercately_message_id": mercately_id,
+        })
+    except Exception as e:
+        logger.warning("[Mercately] log_gestion error: %s", e)
+
+
+async def _crear_alerta_cartera(cliente: dict | None, tipo: str, mensaje: str):
+    """Create a priority alert in cartera for the given client."""
+    try:
+        nombre = (cliente or {}).get("nombre_completo") or (cliente or {}).get("nombre") or "Desconocido"
+        await db.roddos_events.insert_one({
+            "tipo": tipo,
+            "canal": "whatsapp",
+            "cliente_nombre": nombre,
+            "cedula": (cliente or {}).get("cedula", ""),
+            "mensaje": mensaje,
+            "fecha": datetime.now(timezone.utc).isoformat(),
+            "resuelto": False,
+        })
+    except Exception as e:
+        logger.warning("[Mercately] alerta_cartera error: %s", e)
+
+
+async def _handle_cliente_text(phone: str, cliente: dict | None, content: str):
+    """Process free text from a CLIENTE with intent detection."""
+    content_l = content.lower()
+    nombre = ""
+    if cliente:
+        full = cliente.get("nombre_completo") or cliente.get("nombre") or ""
+        nombre = full.split()[0] if full else "Cliente"
+    if not nombre:
+        nombre = "Cliente"
+
+    loan = await _get_loan_by_cliente(cliente)
+    proxima = await _get_proxima_cuota(loan)
+
+    # Detect intent (ordered by priority)
+    intencion = "NO_RECONOCIDA"
+    for w in _SALDO_WORDS:
+        if w in content_l:
+            intencion = "SALDO"
+            break
+    if intencion == "NO_RECONOCIDA":
+        for w in _PAGO_WORDS:
+            if w in content_l:
+                intencion = "PAGO"
+                break
+    if intencion == "NO_RECONOCIDA":
+        for w in _DIFICULTAD_WORDS:
+            if w in content_l:
+                intencion = "DIFICULTAD"
+                break
+
+    telefono_roddos = await _get_telefono_roddos()
+    respuesta = ""
+
+    if intencion == "SALDO" and loan:
+        pagadas = loan.get("num_cuotas_pagadas", 0)
+        total = loan.get("num_cuotas", 0)
+        saldo = loan.get("saldo_pendiente", 0)
+        cuota_valor = proxima.get("valor", loan.get("cuota_valor", 0)) if proxima else loan.get("cuota_valor", 0)
+        fecha_prox = proxima.get("fecha_vencimiento", "próximo miércoles") if proxima else "próximo miércoles"
+        respuesta = (
+            f"Hola {nombre} 👋\n"
+            f"Tu saldo actual es:\n"
+            f"• Cuotas pagadas: {pagadas} de {total}\n"
+            f"• Saldo pendiente: {_fmt(saldo)}\n"
+            f"• Próxima cuota: {fecha_prox} — {_fmt(cuota_valor)}\n"
+            f"¡Cualquier duda estamos aquí! — RODDOS 🏍️"
+        )
+    elif intencion == "SALDO":
+        respuesta = (
+            f"Hola {nombre} 👋\n"
+            f"No encontré tu crédito activo. Por favor comunícate:\n"
+            f"📞 {telefono_roddos}\n"
+            f"— RODDOS 🏍️"
+        )
+    elif intencion == "PAGO":
+        respuesta = (
+            f"Hola {nombre}, recibimos tu mensaje 👋\n"
+            f"En breve verificamos tu pago y te confirmamos.\n"
+            f"Si tienes el comprobante, puedes enviarlo aquí mismo. — RODDOS 🏍️"
+        )
+        await _crear_alerta_cartera(
+            cliente, "pago_reportado_whatsapp",
+            f"📱 {nombre} reportó pago por WhatsApp — pendiente verificación"
+        )
+    elif intencion == "DIFICULTAD":
+        respuesta = (
+            f"Hola {nombre}, entendemos que hay momentos difíciles.\n"
+            f"Comunícate con nosotros hoy:\n"
+            f"📞 {telefono_roddos}\n"
+            f"Buscaremos la mejor solución juntos. — RODDOS"
+        )
+        await _crear_alerta_cartera(
+            cliente, "dificultad_pago_whatsapp",
+            f"📱 {nombre} reportó dificultad de pago por WhatsApp — gestión prioritaria"
+        )
+    else:
+        respuesta = (
+            f"Hola {nombre} 👋 Recibimos tu mensaje.\n"
+            f"Un asesor de RODDOS te contactará pronto.\n"
+            f"Si es urgente llámanos: 📞 {telefono_roddos} — RODDOS"
+        )
+
+    sent = await enviar_whatsapp(phone, respuesta)
+    await _log_gestion_whatsapp(
+        cliente=cliente,
+        tipo="recibido",
+        template="libre",
+        mensaje=content[:500],
+        estado="procesado",
+        intencion=intencion,
+    )
+    if sent:
+        await _log_gestion_whatsapp(
+            cliente=cliente,
+            tipo="enviado",
+            template="respuesta_automatica",
+            mensaje=respuesta[:500],
+            estado="enviado",
+            intencion=intencion,
+        )
+
+
+# ── Templates automáticos ─────────────────────────────────────────────────────
+
+async def enviar_template_1_preventivo(loan: dict) -> bool:
+    """Template 1: Recordatorio D-2 (lunes, 2 días antes del miércoles)."""
+    telefono = loan.get("cliente_telefono") or ""
+    if not telefono:
+        return False
+    nombre = (loan.get("cliente_nombre") or "Cliente").split()[0]
+    moto = loan.get("moto_descripcion") or "tu moto"
+    proxima = await _get_proxima_cuota(loan)
+    if not proxima:
+        return False
+    num = proxima.get("numero", "?")
+    fecha = proxima.get("fecha_vencimiento", "el miércoles")
+    monto = _fmt(proxima.get("valor", loan.get("cuota_valor", 0)))
+
+    msg = (
+        f"Hola {nombre}, te recordamos que tu cuota #{num} "
+        f"de {moto} vence el próximo miércoles {fecha} por {monto}.\n"
+        f"¡Recuerda tenerla lista! — RODDOS 🏍️"
+    )
+    sent = await enviar_whatsapp(telefono, msg)
+    if sent:
+        await _log_gestion_whatsapp(
+            cliente={"nombre_completo": loan.get("cliente_nombre"), "cedula": loan.get("cliente_nit")},
+            tipo="enviado", template="recordatorio_preventivo",
+            mensaje=msg, estado="enviado"
+        )
+    return sent
+
+
+async def enviar_template_2_vencimiento(loan: dict) -> bool:
+    """Template 2: Recordatorio D-0 (miércoles 8am, día de vencimiento)."""
+    telefono = loan.get("cliente_telefono") or ""
+    if not telefono:
+        return False
+    nombre = (loan.get("cliente_nombre") or "Cliente").split()[0]
+    proxima = await _get_proxima_cuota(loan)
+    if not proxima:
+        return False
+    num = proxima.get("numero", "?")
+    monto = _fmt(proxima.get("valor", loan.get("cuota_valor", 0)))
+    cfg = await _get_config()
+    datos_bancarios = cfg.get("datos_bancarios") or "Nuestras cuentas bancarias"
+
+    msg = (
+        f"Hola {nombre}, hoy vence tu cuota #{num} por {monto}.\n"
+        f"Puedes pagar por transferencia a:\n{datos_bancarios}\n"
+        f"¡Gracias por tu puntualidad! — RODDOS 🏍️"
+    )
+    sent = await enviar_whatsapp(telefono, msg)
+    if sent:
+        await _log_gestion_whatsapp(
+            cliente={"nombre_completo": loan.get("cliente_nombre"), "cedula": loan.get("cliente_nit")},
+            tipo="enviado", template="vencimiento_hoy",
+            mensaje=msg, estado="enviado"
+        )
+    return sent
+
+
+async def enviar_template_3_mora_d1(loan: dict) -> bool:
+    """Template 3: Alerta mora D+1 (jueves, si el miércoles no pagó)."""
+    telefono = loan.get("cliente_telefono") or ""
+    if not telefono:
+        return False
+    nombre = (loan.get("cliente_nombre") or "Cliente").split()[0]
+    proxima = await _get_proxima_cuota(loan)
+    if not proxima:
+        return False
+    num = proxima.get("numero", "?")
+    monto = _fmt(proxima.get("valor", loan.get("cuota_valor", 0)))
+    fecha_venc = proxima.get("fecha_vencimiento", "ayer")
+
+    msg = (
+        f"Hola {nombre}, tu cuota #{num} por {monto} "
+        f"quedó pendiente desde el miércoles {fecha_venc}.\n"
+        f"Para evitar inconvenientes comunícate hoy con nosotros. — RODDOS 🏍️"
+    )
+    sent = await enviar_whatsapp(telefono, msg)
+    if sent:
+        await _log_gestion_whatsapp(
+            cliente={"nombre_completo": loan.get("cliente_nombre"), "cedula": loan.get("cliente_nit")},
+            tipo="enviado", template="mora_d1",
+            mensaje=msg, estado="enviado"
+        )
+    return sent
+
+
+async def enviar_template_4_confirmacion_pago(
+    nombre_cliente: str, telefono: str, monto: float,
+    numero_cuota: int, saldo_pendiente: float,
+    cedula: str = ""
+) -> bool:
+    """Template 4: Confirmación de pago (disparado al registrar pago)."""
+    if not telefono:
+        return False
+    nombre = nombre_cliente.split()[0] if nombre_cliente else "Cliente"
+    msg = (
+        f"✅ Hola {nombre}, recibimos tu pago de {_fmt(monto)} "
+        f"para la cuota #{numero_cuota}.\n"
+        f"Saldo restante: {_fmt(saldo_pendiente)}.\n"
+        f"¡Gracias! — RODDOS 🏍️"
+    )
+    sent = await enviar_whatsapp(telefono, msg)
+    if sent:
+        await _log_gestion_whatsapp(
+            cliente={"nombre_completo": nombre_cliente, "cedula": cedula},
+            tipo="enviado", template="confirmacion_pago",
+            mensaje=msg, estado="enviado"
+        )
+    return sent
+
+
+async def enviar_template_5_mora_severa(loan: dict) -> bool:
+    """Template 5: Mora severa +30 días."""
+    telefono = loan.get("cliente_telefono") or ""
+    if not telefono:
+        return False
+    nombre = (loan.get("cliente_nombre") or "Cliente").split()[0]
+    dpd = loan.get("dpd_actual", 0)
+    vencidas = [c for c in (loan.get("cuotas") or []) if c.get("estado") == "vencido"]
+    monto_vencido = _fmt(sum(c.get("valor", 0) for c in vencidas))
+    n_vencidas = len(vencidas)
+    fecha_primera = vencidas[0].get("fecha_vencimiento", "") if vencidas else ""
+    cfg = await _get_config()
+    telefono_roddos = cfg.get("phone_number") or "3001234567"
+
+    msg = (
+        f"Hola {nombre}, tienes {n_vencidas} cuota{'s' if n_vencidas != 1 else ''} pendiente{'s' if n_vencidas != 1 else ''} "
+        f"por un total de {monto_vencido} desde {fecha_primera}.\n"
+        f"Es importante que te comuniques con nosotros hoy para buscar una solución.\n"
+        f"📞 {telefono_roddos} — RODDOS 🏍️"
+    )
+    sent = await enviar_whatsapp(telefono, msg)
+    if sent:
+        await _log_gestion_whatsapp(
+            cliente={"nombre_completo": loan.get("cliente_nombre"), "cedula": loan.get("cliente_nit")},
+            tipo="enviado", template="mora_severa",
+            mensaje=msg, estado="enviado"
+        )
+    return sent
+
+
+# ── Template scheduler trigger functions ─────────────────────────────────────
+
+async def run_recordatorios_preventivos() -> int:
+    """Lunes 8am — Template 1: send D-2 reminder to clients with cuota due this Wednesday."""
+    from datetime import date
+    today = date.today()
+    # Wednesday = weekday 2; from Monday (weekday 0), Wednesday is in 2 days
+    wed = today + timedelta(days=2)
+    wed_str = wed.strftime("%Y-%m-%d")
+    sent = 0
+    async for loan in db.loanbook.find({"estado": "activo"}, {"_id": 0}):
+        for cuota in (loan.get("cuotas") or []):
+            if cuota.get("estado") == "pendiente" and cuota.get("fecha_vencimiento") == wed_str:
+                if await enviar_template_1_preventivo(loan):
+                    sent += 1
+                break
+    logger.info("[Mercately] T1 preventivo: %d enviados para %s", sent, wed_str)
+    return sent
+
+
+async def run_recordatorios_vencimiento() -> int:
+    """Miércoles 8am — Template 2: send D-0 reminder to clients with cuota due today."""
+    from datetime import date
+    today = date.today().strftime("%Y-%m-%d")
+    sent = 0
+    async for loan in db.loanbook.find({"estado": "activo"}, {"_id": 0}):
+        for cuota in (loan.get("cuotas") or []):
+            if cuota.get("estado") == "pendiente" and cuota.get("fecha_vencimiento") == today:
+                if await enviar_template_2_vencimiento(loan):
+                    sent += 1
+                break
+    logger.info("[Mercately] T2 vencimiento: %d enviados para %s", sent, today)
+    return sent
+
+
+async def run_alertas_mora_d1() -> int:
+    """Jueves 9am — Template 3: alert for loans where yesterday's cuota wasn't paid."""
+    from datetime import date
+    ayer = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
+    sent = 0
+    async for loan in db.loanbook.find({"estado": "activo"}, {"_id": 0}):
+        for cuota in (loan.get("cuotas") or []):
+            if cuota.get("estado") == "vencido" and cuota.get("fecha_vencimiento") == ayer:
+                if await enviar_template_3_mora_d1(loan):
+                    sent += 1
+                break
+    logger.info("[Mercately] T3 mora D+1: %d enviados", sent)
+    return sent
+
+
+async def run_alertas_mora_severa() -> int:
+    """Weekly — Template 5: alert clients with dpd > 30."""
+    sent = 0
+    async for loan in db.loanbook.find({"estado": "activo", "dpd_actual": {"$gt": 30}}, {"_id": 0}):
+        if await enviar_template_5_mora_severa(loan):
+            sent += 1
+    logger.info("[Mercately] T5 mora severa: %d enviados", sent)
+    return sent
+
+
 
 
 async def enviar_whatsapp(phone: str, mensaje: str) -> bool:
