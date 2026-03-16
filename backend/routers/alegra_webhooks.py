@@ -10,9 +10,10 @@ import os
 import httpx
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 
 from database import db
+from dependencies import get_current_user
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks-alegra"])
 logger = logging.getLogger(__name__)
@@ -402,7 +403,7 @@ async def setup_webhooks():
 
 
 @router.get("/status")
-async def webhook_status():
+async def webhook_status(current_user=Depends(get_current_user)):
     """List subscription status + payment cron info."""
     subs = await db.webhook_subscriptions.find({}, {"_id": 0}).to_list(20)
     cfg = await db.cfo_configuracion.find_one({}, {"_id": 0, "ultimo_payment_id_sync": 1}) or {}
@@ -428,7 +429,7 @@ async def webhook_status():
 
 
 @router.post("/sync-pagos-ahora")
-async def sync_pagos_ahora():
+async def sync_pagos_ahora(current_user=Depends(get_current_user)):
     """Trigger payment sync manually from UI."""
     procesados = await sincronizar_pagos_externos()
     return {"procesados": procesados, "message": f"{procesados} pagos nuevos sincronizados"}

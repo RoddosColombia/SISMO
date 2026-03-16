@@ -151,6 +151,13 @@ Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
 - Filtro de ELIMINADO eliminado del frontend (ya no necesario)
 
 ### P0 — GAPs v1.0 ✅ COMPLETADO (Marzo 2026)
+
+### BUILD 15 — Webhooks Alegra + Console Error Fixes ✅ COMPLETADO (Feb 2026)
+- JWT 168h (7 días), AuthContext 401 anti-storm guard, AgentChatPage retry backoff, offline guard en polls
+- MongoDB 5-min cache para cfo/semaforo + cfo/pyg (36s → 0.2s, eliminó los 504s)
+- POST /api/webhooks/alegra (receptor seguro <1s), 12 handlers de eventos, cron sync pagos 5min
+- WebhooksTab en Settings: grid 12 eventos, stats sync, re-register y manual sync buttons
+
 - GAP 1: Normalización teléfonos ✅
 - GAP 2: Inventario + Alegra Sync ✅
 - GAP 3: CFO Asíncrono ✅
