@@ -3,7 +3,8 @@ import { useAuth } from "../contexts/AuthContext";
 import { useSharedState } from "../hooks/useSharedState";
 import { RadarCard, RadarItem } from "../components/shared/RadarCard";
 import { GestionModal } from "../components/shared/GestionModal";
-import { RefreshCw, TrendingUp, Users, AlertTriangle, BarChart2, Package, Bell } from "lucide-react";
+import { FiltroFecha, DateRange, loadRange } from "../components/FiltroFecha";
+import { RefreshCw, TrendingUp, Users, AlertTriangle, BarChart2, Package, Bell, ShoppingBag, ArrowUp, ArrowDown } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -21,6 +22,21 @@ interface CfoAlerta { id: string; dimension?: string; mensaje?: string; color?: 
 interface CfoIndicadores {
   creditos_activos?: number; creditos_minimos?: number; recaudo_semanal_base?: number;
   gastos_fijos_semanales?: number; margen_semanal?: number; autosostenible?: boolean;
+}
+interface VentasKpis {
+  total_motos?: number; meta_mensual?: number; pct_meta?: number;
+  valor_facturado?: number; cuotas_iniciales_cobradas?: number; cuotas_iniciales_pendientes?: number;
+  creditos_nuevos?: number;
+}
+interface PorModelo { referencia: string; unidades: number; pct: number; }
+interface VentaDetalle {
+  cliente_nombre: string; referencia: string; vin: string; plan?: string;
+  valor_cuota?: number; estado_entrega?: string; fecha_venta?: string; loanbook_codigo?: string;
+}
+interface VentasData {
+  mes?: string; mes_label?: string;
+  kpis?: VentasKpis; por_modelo?: PorModelo[]; detalle?: VentaDetalle[];
+  comparativo?: { mes_actual: { mes: string; ventas: number }; mes_anterior: { mes: string; ventas: number }; delta: number; tendencia: string };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -121,6 +137,207 @@ function SostenibilidadWidget({ indicadores }: { indicadores: CfoIndicadores }) 
   );
 }
 
+// ── Ventas Dashboard Section ──────────────────────────────────────────────────
+
+function fmtCOP(n?: number) {
+  if (n === undefined || n === null) return "—";
+  return `$${Math.round(n).toLocaleString("es-CO")}`;
+}
+
+function estadoBadge(estado?: string) {
+  if (estado === "Entregada") return "bg-emerald-100 text-emerald-700";
+  if (estado === "Vendida")   return "bg-amber-100 text-amber-700";
+  return "bg-slate-100 text-slate-600";
+}
+
+const VentasDashboard: React.FC<{ api: any; filtro: DateRange }> = ({ api, filtro }) => {
+  const [data, setData] = useState<VentasData>({});
+  const [loading, setLoading] = useState(true);
+  const [detalleAbierto, setDetalleAbierto] = useState(false);
+  const [detalleFilter, setDetalleFilter] = useState("Todas");
+
+  useEffect(() => {
+    const mes = filtro.desde.slice(0, 7); // YYYY-MM
+    setLoading(true);
+    api.get("/ventas/dashboard", { params: { mes } })
+      .then((r: any) => { setData(r.data); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [filtro, api]);
+
+  const kpis = data.kpis || {};
+  const porModelo = data.por_modelo || [];
+  const detalle = data.detalle || [];
+  const comp = data.comparativo;
+  const maxUnidades = Math.max(...porModelo.map(m => m.unidades), 1);
+
+  const detalleFiltered = detalleFilter === "Todas" ? detalle
+    : detalleFilter === "Entregadas" ? detalle.filter(d => d.estado_entrega === "Entregada")
+    : detalle.filter(d => d.estado_entrega !== "Entregada");
+
+  if (loading) return (
+    <div className="flex items-center justify-center py-8 text-slate-500 text-sm">
+      <RefreshCw size={14} className="animate-spin mr-2" /> Cargando ventas...
+    </div>
+  );
+
+  return (
+    <div className="space-y-3" data-testid="ventas-dashboard">
+      {/* Cards grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        {/* Card 1 — Resumen mes */}
+        <div className="bg-[#0D1E3A] border border-[#1E3A5F] rounded-xl p-4 space-y-3" data-testid="ventas-card-resumen">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Ventas {data.mes_label}</p>
+              <div className="flex items-end gap-1.5 mt-1">
+                <span className="text-3xl font-bold text-white" data-testid="ventas-total-motos">{kpis.total_motos ?? 0}</span>
+                <span className="text-sm text-slate-400 mb-1">/ {kpis.meta_mensual ?? 45} meta</span>
+              </div>
+            </div>
+            <span className={`text-xs font-bold px-2 py-1 rounded-full ${
+              (kpis.pct_meta ?? 0) >= 66 ? "bg-emerald-900/50 text-emerald-300"
+              : (kpis.pct_meta ?? 0) >= 33 ? "bg-yellow-900/50 text-yellow-300"
+              : "bg-slate-800 text-slate-400"
+            }`}>
+              {kpis.pct_meta ?? 0}%
+            </span>
+          </div>
+          {/* Progress bar */}
+          <div>
+            <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-blue-500 to-emerald-500 rounded-full transition-all duration-700"
+                style={{ width: `${Math.min(100, kpis.pct_meta ?? 0)}%` }}
+              />
+            </div>
+            <p className="text-[10px] text-slate-500 mt-1">{kpis.pct_meta ?? 0}% hacia la meta mensual</p>
+          </div>
+          {/* KPIs */}
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="bg-slate-900/50 rounded-lg px-2 py-1.5">
+              <p className="text-slate-500">Valor facturado</p>
+              <p className="font-bold text-white">{fmtCOP(kpis.valor_facturado)}</p>
+            </div>
+            <div className="bg-slate-900/50 rounded-lg px-2 py-1.5">
+              <p className="text-slate-500">Cuotas iniciales</p>
+              <p className="font-bold text-emerald-400">{fmtCOP(kpis.cuotas_iniciales_cobradas)} cobradas</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Card 2 — Por modelo */}
+        <div className="bg-[#0D1E3A] border border-[#1E3A5F] rounded-xl p-4" data-testid="ventas-card-modelos">
+          <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold mb-3">Referencias vendidas</p>
+          <div className="space-y-2.5">
+            {porModelo.length === 0 && (
+              <p className="text-xs text-slate-500 text-center py-4">Sin ventas en este período</p>
+            )}
+            {porModelo.map((m) => (
+              <div key={m.referencia}>
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span className="text-slate-300 truncate max-w-[60%]">{m.referencia}</span>
+                  <span className="text-slate-400 font-semibold">{m.unidades} uds · {m.pct}%</span>
+                </div>
+                <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-blue-500 rounded-full"
+                    style={{ width: `${(m.unidades / maxUnidades) * 100}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Card 4 — Comparativo */}
+      {comp && (
+        <div className="bg-[#0D1E3A] border border-[#1E3A5F] rounded-xl p-4" data-testid="ventas-card-comparativo">
+          <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold mb-3">Comparativo mensual</p>
+          <div className="flex items-center gap-6">
+            <div className="text-center">
+              <p className="text-[10px] text-slate-500">{comp.mes_anterior.mes}</p>
+              <p className="text-2xl font-bold text-slate-400">{comp.mes_anterior.ventas}</p>
+            </div>
+            <div className="flex-1 flex flex-col items-center">
+              <div className={`flex items-center gap-1 text-sm font-bold ${comp.delta > 0 ? "text-emerald-400" : comp.delta < 0 ? "text-red-400" : "text-slate-400"}`}>
+                {comp.delta > 0 ? <ArrowUp size={14} /> : comp.delta < 0 ? <ArrowDown size={14} /> : null}
+                {comp.delta > 0 ? `+${comp.delta}` : comp.delta}
+              </div>
+              <div className="w-full h-0.5 bg-slate-700 relative">
+                <div className="absolute left-0 top-0 w-full h-full bg-gradient-to-r from-slate-600 to-blue-500" />
+              </div>
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] text-slate-500">{comp.mes_actual.mes}</p>
+              <p className="text-2xl font-bold text-white">{comp.mes_actual.ventas}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Card 3 — Detalle de ventas (expandible) */}
+      <div className="bg-[#0D1E3A] border border-[#1E3A5F] rounded-xl" data-testid="ventas-card-detalle">
+        <button
+          onClick={() => setDetalleAbierto(o => !o)}
+          className="w-full flex items-center justify-between px-4 py-3"
+        >
+          <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
+            Detalle ventas ({detalle.length})
+          </p>
+          <RefreshCw size={12} className={`text-slate-500 transition-transform ${detalleAbierto ? "rotate-180" : ""}`} />
+        </button>
+        {detalleAbierto && (
+          <div className="px-4 pb-4 space-y-2">
+            {/* Filter tabs */}
+            <div className="flex gap-2 mb-2">
+              {["Todas", "Entregadas", "Pendientes"].map(f => (
+                <button key={f} onClick={() => setDetalleFilter(f)}
+                  className={`text-[10px] px-2 py-1 rounded-full font-medium transition-colors ${
+                    detalleFilter === f ? "bg-blue-600 text-white" : "bg-slate-800 text-slate-400 hover:text-white"
+                  }`}>
+                  {f}
+                </button>
+              ))}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-slate-700">
+                    <th className="text-left py-1.5 text-slate-400 font-medium">Cliente</th>
+                    <th className="text-left py-1.5 text-slate-400 font-medium">Referencia</th>
+                    <th className="text-left py-1.5 text-slate-400 font-medium hidden sm:table-cell">VIN</th>
+                    <th className="text-left py-1.5 text-slate-400 font-medium">Plan</th>
+                    <th className="text-right py-1.5 text-slate-400 font-medium">Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detalleFiltered.length === 0 && (
+                    <tr><td colSpan={5} className="py-4 text-center text-slate-500">Sin ventas</td></tr>
+                  )}
+                  {detalleFiltered.map((v, i) => (
+                    <tr key={i} className="border-b border-slate-800/50 hover:bg-slate-800/30">
+                      <td className="py-1.5 text-slate-300 max-w-[120px] truncate">{v.cliente_nombre}</td>
+                      <td className="py-1.5 text-slate-400 max-w-[120px] truncate">{v.referencia}</td>
+                      <td className="py-1.5 text-slate-500 font-mono text-[10px] hidden sm:table-cell">{v.vin?.slice(-6) || "—"}</td>
+                      <td className="py-1.5 text-slate-400">{v.plan || "—"}</td>
+                      <td className="py-1.5 text-right">
+                        <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${estadoBadge(v.estado_entrega)}`}>
+                          {v.estado_entrega || "—"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
@@ -136,6 +353,7 @@ export default function Dashboard() {
   const [loadingInit, setLoadingInit] = useState(true);
   const [gestionItem, setGestionItem] = useState<RadarItem | null>(null);
   const [smokeStatus, setSmokeStatus] = useState<"ok"|"degradado"|"critico"|null>(null);
+  const [ventasFiltro, setVentasFiltro] = useState<DateRange>(() => loadRange("dashboard_ventas"));
 
   const loadAll = useCallback(async () => {
     try {
@@ -317,7 +535,23 @@ export default function Dashboard() {
         </div>
       </section>
 
-      {/* Row 5 — Alertas CFO */}
+      {/* Row 5 — Dashboard de Ventas */}
+      <section data-testid="ventas-section">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <ShoppingBag className="w-4 h-4 text-blue-400" />
+            <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Dashboard de Ventas</p>
+          </div>
+          <FiltroFecha
+            moduleKey="dashboard_ventas"
+            onChange={setVentasFiltro}
+            compact
+          />
+        </div>
+        <VentasDashboard api={api} filtro={ventasFiltro} />
+      </section>
+
+      {/* Row 6 — Alertas CFO */}
       {alertas.length > 0 && (
         <section data-testid="alertas-cfo-section">
           <div className="flex items-center gap-2 mb-2">

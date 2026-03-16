@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { FiltroFecha, loadRange } from "../components/FiltroFecha";
 import {
   Upload, RefreshCw, CheckCircle2, XCircle, Loader2, Bike,
   TrendingUp, Package, Tag, AlertCircle, Edit2, Trash2, Link, ShoppingBag, FileDown,
@@ -77,6 +78,7 @@ export default function InventarioAuteco() {
   const [uploading, setUploading] = useState(false);
   const [registeringId, setRegisteringId] = useState(null);
   const [filterEstado, setFilterEstado] = useState("Disponible");
+  const [filtroFecha, setFiltroFecha] = useState(() => loadRange("inventario"));
   const [editId, setEditId] = useState(null);
   const [editData, setEditData] = useState({});
   const [selling, setSelling] = useState(null);
@@ -397,6 +399,9 @@ export default function InventarioAuteco() {
               </button>
             );
           })}
+          <div className="ml-auto">
+            <FiltroFecha moduleKey="inventario" onChange={setFiltroFecha} compact />
+          </div>
         </div>
       )}
 

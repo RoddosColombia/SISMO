@@ -36,6 +36,12 @@ class LoanCreate(BaseModel):
 
 class EntregaRequest(BaseModel):
     fecha_entrega: str  # ISO date string
+    # Optional fields to complete for datos_completos=False loanbooks
+    plan: Optional[str] = None
+    cuota_inicial: Optional[float] = None
+    valor_cuota: Optional[float] = None
+    cliente_nit: Optional[str] = None
+    precio_venta: Optional[float] = None
 
 class PagoRequest(BaseModel):
     cuota_numero: int
@@ -150,6 +156,7 @@ async def get_stats(current_user=Depends(get_current_user)):
                 valor_semana += c.get("valor", 0)
     return {
         "total": total,
+        "activo": activos,           # alias for frontend
         "activos": activos,
         "en_mora": en_mora,
         "completados": completados,
@@ -293,77 +300,125 @@ async def get_loan(loan_id: str, current_user=Depends(get_current_user)):
 
 @router.put("/{loan_id}/entrega")
 async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depends(get_current_user)):
-    """Register delivery date → generate weekly installment schedule."""
+    """Register delivery date → generate weekly installment schedule.
+    Also accepts optional plan/cuota_inicial/valor_cuota/cedula to complete
+    loanbooks created automatically from Alegra (datos_completos=False).
+    """
+    from routers.cfo import invalidar_cache_cfo
+
     loan = await db.loanbook.find_one({"id": loan_id}, {"_id": 0})
     if not loan:
         raise HTTPException(status_code=404, detail="Plan no encontrado")
-    if loan["plan"] == "Contado":
-        raise HTTPException(status_code=400, detail="Plan Contado no requiere fecha de entrega")
     if loan.get("fecha_entrega"):
         raise HTTPException(status_code=400, detail="La fecha de entrega ya fue registrada. Contacte al administrador para modificarla.")
 
-    fecha_entrega = date.fromisoformat(req.fecha_entrega)
+    # Complete missing data if provided
+    update_fields: dict = {}
+    if req.plan and not loan.get("plan"):
+        if req.plan not in PLAN_CUOTAS:
+            raise HTTPException(status_code=400, detail=f"Plan inválido. Opciones: {list(PLAN_CUOTAS.keys())}")
+        update_fields["plan"] = req.plan
+        update_fields["num_cuotas"] = PLAN_CUOTAS[req.plan]
+    if req.cuota_inicial is not None and not loan.get("cuota_inicial"):
+        update_fields["cuota_inicial"] = req.cuota_inicial
+    if req.valor_cuota is not None and not loan.get("valor_cuota"):
+        update_fields["valor_cuota"] = req.valor_cuota
+    if req.precio_venta is not None and not loan.get("precio_venta"):
+        update_fields["precio_venta"] = req.precio_venta
+    if req.cliente_nit and not loan.get("cliente_nit"):
+        update_fields["cliente_nit"] = req.cliente_nit
+
+    # Merge updates into loan object for processing
+    loan.update(update_fields)
+
+    plan = loan.get("plan", req.plan)
+    if plan == "Contado":
+        raise HTTPException(status_code=400, detail="Plan Contado no requiere fecha de entrega")
+    if not plan:
+        raise HTTPException(status_code=400, detail="Plan de crédito requerido para registrar entrega")
 
     # ── MUTEX R5: verify moto state before delivery ───────────────────────────
-    if loan.get("moto_id"):
-        moto = await db.inventario_motos.find_one({"id": loan["moto_id"]}, {"_id": 0})
-        if moto:
-            estado_moto = (moto.get("estado") or "").lower()
-            if estado_moto != "vendida":
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Moto no disponible para entrega. Estado actual: {moto.get('estado')}",
-                )
-            loanbook_id_moto = moto.get("loanbook_id")
-            if loanbook_id_moto and loanbook_id_moto != loan_id:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Esta moto ya está asignada a otro crédito: {loanbook_id_moto}",
-                )
-    # ─────────────────────────────────────────────────────────────────────────
-    # RODDOS rule: first payment = first Wednesday >= (fecha_entrega + 7 days)
-    fecha_primer_pago = _first_wednesday(fecha_entrega)
-    num_cuotas  = loan["num_cuotas"]
-    valor_cuota = loan.get("cuota_valor") or loan.get("valor_cuota") or 0
-    valor_financiado = loan.get("valor_financiado") or (valor_cuota * num_cuotas)
+    # Check by moto_chasis (preferred) or moto_id
+    chasis = loan.get("moto_chasis")
+    moto_ref = None
+    if chasis:
+        moto_ref = await db.inventario_motos.find_one({"chasis": chasis}, {"_id": 0, "id": 1, "estado": 1})
+    elif loan.get("moto_id"):
+        moto_ref = await db.inventario_motos.find_one({"id": loan["moto_id"]}, {"_id": 0, "id": 1, "estado": 1})
 
-    # Keep cuota inicial (index 0) if present, else start fresh
+    if moto_ref:
+        estado_moto = (moto_ref.get("estado") or "").lower()
+        if estado_moto not in ("vendida", "disponible"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Moto no disponible para entrega. Estado actual: {moto_ref.get('estado')}",
+            )
+    # ─────────────────────────────────────────────────────────────────────────
+
+    fecha_entrega = date.fromisoformat(req.fecha_entrega)
+    fecha_primer_pago = _first_wednesday(fecha_entrega)
+    num_cuotas  = loan.get("num_cuotas", 0)
+    valor_cuota_final = loan.get("valor_cuota") or 0
+    valor_financiado = loan.get("valor_financiado") or (valor_cuota_final * num_cuotas)
+
+    # Build cuotas schedule
+    cuota_inicial_val = loan.get("cuota_inicial", 0)
     cuotas_base = loan.get("cuotas") or []
-    cuotas = [cuotas_base[0]] if cuotas_base else []
+    # Keep existing cuota inicial if present, else create it
+    cuota_0 = next((c for c in cuotas_base if c.get("tipo") == "inicial"), None)
+    cuotas = []
+    if cuota_0:
+        cuotas.append(cuota_0)
+    elif cuota_inicial_val > 0:
+        cuotas.append({
+            "numero": 0, "tipo": "inicial",
+            "fecha_vencimiento": loan.get("fecha_factura", req.fecha_entrega),
+            "valor": cuota_inicial_val,
+            "estado": "pendiente", "fecha_pago": None,
+            "valor_pagado": 0.0, "alegra_payment_id": None,
+            "comprobante": None, "notas": "",
+        })
+
     for i in range(1, num_cuotas + 1):
         fecha_cuota = fecha_primer_pago + timedelta(weeks=i - 1)
         cuotas.append({
-            "numero": i,
-            "tipo": "semanal",
+            "numero": i, "tipo": "semanal",
             "fecha_vencimiento": fecha_cuota.isoformat(),
-            "valor": valor_cuota,
+            "valor": valor_cuota_final,
             "estado": "vencida" if fecha_cuota.isoformat() < date.today().isoformat() else "pendiente",
-            "fecha_pago": None,
-            "valor_pagado": 0.0,
-            "alegra_payment_id": None,
-            "comprobante": None,
-            "notas": "",
+            "fecha_pago": None, "valor_pagado": 0.0,
+            "alegra_payment_id": None, "comprobante": None, "notas": "",
         })
 
-    update = {
+    update: dict = {
+        **update_fields,
         "fecha_entrega": req.fecha_entrega,
         "fecha_primer_pago": fecha_primer_pago.isoformat(),
         "cuotas": cuotas,
         "estado": "activo",
+        "datos_completos": True,
+        "campos_pendientes": [],
         "saldo_pendiente": valor_financiado,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.loanbook.update_one({"id": loan_id}, {"$set": update})
     loan.update(update)
     stats = _compute_stats(loan)
+    await db.loanbook.update_one({"id": loan_id}, {"$set": stats})
     loan.update(stats)
     loan.pop("_id", None)
 
-    # Update moto status to "Entregada" if moto_id available
-    if loan.get("moto_id"):
+    # Update moto status to "Entregada" (by chasis or by moto_id)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    if chasis:
+        await db.inventario_motos.update_one(
+            {"chasis": chasis},
+            {"$set": {"estado": "Entregada", "fecha_entrega": req.fecha_entrega, "updated_at": now_iso}},
+        )
+    elif loan.get("moto_id"):
         await db.inventario_motos.update_one(
             {"id": loan["moto_id"]},
-            {"$set": {"estado": "Entregada", "fecha_entrega": req.fecha_entrega}},
+            {"$set": {"estado": "Entregada", "fecha_entrega": req.fecha_entrega, "updated_at": now_iso}},
         )
 
     # Emit loanbook.activado event
@@ -375,6 +430,9 @@ async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depen
         "primera_cuota": fecha_primer_pago.isoformat(),
         "num_cuotas": num_cuotas,
     })
+
+    # Invalidate CFO cache
+    await invalidar_cache_cfo()
 
     await log_action(current_user, f"/loanbook/{loan_id}/entrega", "PUT", {"fecha_entrega": req.fecha_entrega})
     return {

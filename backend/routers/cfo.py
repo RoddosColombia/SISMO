@@ -47,6 +47,19 @@ async def _set_cache(key: str, value: dict, ttl: int = _CFO_CACHE_TTL):
     )
 
 
+async def invalidar_cache_cfo():
+    """Invalidate all CFO cache entries immediately.
+    Call this after any event that changes financial state:
+    - Payment registered
+    - Delivery confirmed
+    - Excel expenses loaded
+    - Purchase invoice created
+    - gastos_fijos updated
+    """
+    await db.cfo_cache.delete_many({})
+    logger.info("[CFO] Cache invalidada por evento de negocio")
+
+
 # ── GET /semaforo ─────────────────────────────────────────────────────────────
 @router.get("/semaforo")
 async def get_semaforo(current_user=Depends(get_current_user)):

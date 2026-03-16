@@ -94,6 +94,82 @@ async def procesar_evento_webhook(payload: dict):
 
 # ── Handlers ──────────────────────────────────────────────────────────────────
 
+async def _auto_crear_loanbook(
+    factura_id: str, cliente: dict, chasis: str, motor_val, modelo_val, fecha: str, total: float
+):
+    """PASO C: Auto-create a loanbook in pendiente_entrega when a factura arrives
+    without an existing loanbook. The loanbook will be datos_completos=False until
+    the user completes plan/cuota/cedula from the delivery panel.
+    """
+    import uuid as _uuid
+    # Get next LB code
+    year = datetime.now(timezone.utc).year
+    count = await db.loanbook.count_documents({}) + 1
+    codigo = f"LB-{year}-{str(count).zfill(4)}"
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    lb_doc = {
+        "id": str(_uuid.uuid4()),
+        "codigo": codigo,
+        "factura_alegra_id": factura_id,
+        "factura_numero": None,
+        "moto_id": None,
+        "moto_chasis": chasis,
+        "motor": motor_val,
+        "modelo_moto": modelo_val,
+        "moto_descripcion": f"{modelo_val or 'TVS'} — VIN: {chasis}",
+        "cliente_id": str(cliente.get("id", "")),
+        "cliente_alegra_id": str(cliente.get("id", "")),
+        "cliente_nombre": cliente.get("name", ""),
+        "cliente_nit": str(cliente.get("identification", "")),
+        "cliente_telefono": str(cliente.get("phonePrimary", "")),
+        "plan": None,
+        "fecha_factura": fecha,
+        "fecha_entrega": None,
+        "fecha_entrega_programada": None,
+        "fecha_primer_pago": None,
+        "precio_venta": total,
+        "cuota_inicial": 0,
+        "valor_financiado": total,
+        "num_cuotas": 0,
+        "valor_cuota": 0,
+        "cuotas": [],
+        "estado": "pendiente_entrega",
+        "num_cuotas_pagadas": 0,
+        "num_cuotas_vencidas": 0,
+        "total_cobrado": 0.0,
+        "saldo_pendiente": total,
+        "datos_completos": False,
+        "campos_pendientes": ["plan", "cuota_semanal", "cuota_inicial", "cedula"],
+        "fuente_creacion": "alegra_automatico",
+        "ai_suggested": False,
+        "created_at": now_iso,
+        "updated_at": now_iso,
+    }
+    await db.loanbook.insert_one(lb_doc)
+    lb_doc.pop("_id", None)
+
+    # Event + notification
+    await db.roddos_events.insert_one({
+        "event_type": "loanbook.creado.automaticamente",
+        "source": "alegra_polling",
+        "factura_id": factura_id,
+        "loanbook_codigo": codigo,
+        "cliente": cliente.get("name", ""),
+        "chasis": chasis,
+        "timestamp": now_iso,
+        "nota": "Creado desde factura Alegra sin pasar por el agente — completar datos",
+    })
+    await db.notifications.insert_one({
+        "type": "loanbook_nuevo_automatico",
+        "message": f"Nuevo crédito detectado desde Alegra: {codigo} — {cliente.get('name','')}. Completar datos antes de registrar entrega.",
+        "data": {"codigo": codigo, "factura_id": factura_id, "cliente": cliente.get("name", "")},
+        "read": False,
+        "timestamp": now_iso,
+    })
+    logger.info("[Webhook] LB %s creado automáticamente desde factura %s para %s", codigo, factura_id, cliente.get("name", ""))
+
+
 async def _nueva_factura(datos: dict):
     """Process new invoice: detect VIN, update inventory + loanbook, or flag for review."""
     factura_id = str(datos.get("id", ""))
@@ -141,14 +217,34 @@ async def _nueva_factura(datos: dict):
                 logger.info("[Webhook] Moto VIN=%s marcada como Vendida (factura %s)", chasis, factura_id)
             else:
                 logger.info("[Webhook] Moto VIN=%s ya estaba %s (factura %s) — sin cambios", chasis, moto.get("estado"), factura_id)
+        else:
+            # Moto not in inventory yet — create it
+            await db.inventario_motos.insert_one({
+                "id": str(__import__("uuid").uuid4()),
+                "chasis": chasis,
+                "motor": motor_val,
+                "modelo": modelo_val,
+                "estado": "Vendida",
+                "factura_alegra_id": factura_id,
+                "fecha_venta": fecha,
+                "propietario": cliente.get("name", ""),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            })
+            await db.roddos_events.insert_one({
+                "event_type": "moto.nueva.creada.desde.factura",
+                "chasis": chasis, "factura_id": factura_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+            logger.info("[Webhook] Moto VIN=%s creada automáticamente desde factura %s", chasis, factura_id)
 
-        # Update loanbook with VIN + motor
+        # Update existing loanbook with VIN + motor if found
         loanbook = await db.loanbook.find_one(
             {"$or": [
                 {"factura_alegra_id": factura_id},
                 {"cliente_nombre": {"$regex": re.escape(cliente.get("name", "")), "$options": "i"}},
             ]},
-            {"_id": 0, "id": 1, "codigo": 1},
+            {"_id": 0, "id": 1, "codigo": 1, "datos_completos": 1},
         )
         if loanbook:
             await db.loanbook.update_one(
@@ -161,6 +257,9 @@ async def _nueva_factura(datos: dict):
                 }},
             )
             logger.info("[Webhook] Loanbook %s actualizado con VIN=%s", loanbook.get("codigo"), chasis)
+        else:
+            # PASO C: Auto-create loanbook for invoice without existing loanbook
+            await _auto_crear_loanbook(factura_id, cliente, chasis, motor_val, modelo_val, fecha, total)
 
         await db.roddos_events.insert_one({
             "event_type": "moto.vendida.webhook",
@@ -435,6 +534,12 @@ async def sincronizar_pagos_externos():
 
         if procesados:
             logger.info("[PaymentSync] %d nuevos pagos procesados (último id=%s)", procesados, nuevo_max if nuevos else "?")
+            # Invalidate CFO cache when new payments arrive
+            try:
+                from routers.cfo import invalidar_cache_cfo
+                await invalidar_cache_cfo()
+            except Exception:
+                pass
         return procesados
 
     except Exception as exc:

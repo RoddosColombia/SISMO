@@ -747,6 +747,15 @@ async def procesar_gastos(
     return {"ok": True, "job_id": job_id, "total": len(req.gastos)}
 
 
+async def _invalidate_cfo_after_bulk():
+    """Called in background after bulk gastos job completes to refresh CFO cache."""
+    try:
+        from routers.cfo import invalidar_cache_cfo
+        await invalidar_cache_cfo()
+    except Exception:
+        pass
+
+
 # ── GET /gastos/jobs/{job_id} ──────────────────────────────────────────────────
 @router.get("/jobs/{job_id}")
 async def get_job_status(job_id: str, current_user=Depends(get_current_user)):

@@ -6,9 +6,10 @@ import { es } from "date-fns/locale";
 import {
   BookOpen, Plus, Search, ChevronRight, Calendar,
   CheckCircle, Clock, AlertTriangle, XCircle, Truck, DollarSign,
-  Edit3, X, TrendingUp, Users, RefreshCw, Star,
+  Edit3, X, TrendingUp, Users, RefreshCw, Star, Bell, ClipboardList,
 } from "lucide-react";
 import { toast } from "sonner";
+import { FiltroFecha, DateRange, loadRange } from "../components/FiltroFecha";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -39,6 +40,8 @@ interface Loan {
   id: string;
   codigo: string;
   moto_descripcion?: string;
+  moto_chasis?: string;
+  motor?: string;
   cliente_nombre: string;
   cliente_nit?: string;
   cliente_telefono?: string;
@@ -46,6 +49,7 @@ interface Loan {
   plan: string;
   fecha_factura?: string;
   fecha_entrega?: string | null;
+  fecha_entrega_programada?: string | null;
   fecha_primer_pago?: string | null;
   precio_venta?: number;
   cuota_inicial?: number;
@@ -57,6 +61,9 @@ interface Loan {
   num_cuotas_vencidas?: number;
   total_cobrado?: number;
   saldo_pendiente?: number;
+  datos_completos?: boolean;
+  campos_pendientes?: string[];
+  fuente_creacion?: string;
   // BUILD 3 — DPD y Score
   dpd_actual?: number;
   dpd_bucket?: string;
@@ -67,6 +74,7 @@ interface Loan {
 }
 
 interface Stats {
+  activo?: number;
   activos?: number;
   pendiente_entrega?: number;
   total_cartera_activa?: number;
@@ -114,14 +122,14 @@ const SCORE_STYLE: Record<string, { color: string; stars: number }> = {
 
 const StatCard: React.FC<{
   label: string; value: string | number; icon: React.ElementType;
-  color?: string; sub?: string;
-}> = ({ label, value, icon: Icon, color = "text-[#00A9E0]", sub }) => (
+  color?: string; sub?: string; subTestId?: string;
+}> = ({ label, value, icon: Icon, color = "text-[#00A9E0]", sub, subTestId }) => (
   <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5 flex items-start gap-4">
     <div className={`p-2.5 rounded-lg bg-slate-50 ${color}`}><Icon size={20} /></div>
     <div>
       <p className="text-xs text-slate-400 font-medium uppercase tracking-wide">{label}</p>
       <p className="text-xl font-bold text-slate-800 mt-0.5">{value}</p>
-      {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
+      {sub && <p className="text-xs text-slate-400 mt-0.5" data-testid={subTestId}>{sub}</p>}
     </div>
   </div>
 );
@@ -146,6 +154,218 @@ const ScoreBadge: React.FC<{ score?: string; estrellas?: number }> = ({ score = 
       <span className="text-yellow-400 text-xs leading-none ml-0.5">
         {"★".repeat(s.stars)}{"☆".repeat(5 - s.stars)}
       </span>
+    </div>
+  );
+};
+
+// ─── Entrega Modal ────────────────────────────────────────────────────────────
+
+const EntregaModal: React.FC<{
+  loan: Loan; onClose: () => void; onSuccess: () => void;
+}> = ({ loan, onClose, onSuccess }) => {
+  const { token } = useAuth();
+  const [loading, setLoading] = useState(false);
+  const today = new Date().toISOString().slice(0, 10);
+  const [fecha, setFecha] = useState(loan.fecha_entrega_programada || today);
+  const [plan, setPlan] = useState(loan.plan || "P52S");
+  const [cuotaInicial, setCuotaInicial] = useState(String(loan.cuota_inicial || ""));
+  const [valorCuota, setValorCuota] = useState(String(loan.valor_cuota || ""));
+  const [cedula, setCedula] = useState(loan.cliente_nit || "");
+  const [precioVenta, setPrecioVenta] = useState(String(loan.precio_venta || ""));
+
+  const incomplete = !loan.datos_completos && loan.datos_completos !== undefined;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!fecha) { toast.error("Selecciona una fecha de entrega"); return; }
+    if (incomplete && !plan) { toast.error("Selecciona el plan de crédito"); return; }
+    setLoading(true);
+    try {
+      const body: any = { fecha_entrega: fecha };
+      if (incomplete) {
+        if (plan) body.plan = plan;
+        if (cuotaInicial) body.cuota_inicial = parseFloat(cuotaInicial);
+        if (valorCuota) body.valor_cuota = parseFloat(valorCuota);
+        if (cedula) body.cliente_nit = cedula;
+        if (precioVenta) body.precio_venta = parseFloat(precioVenta);
+      }
+      const res = await axios.put(`${API}/api/loanbook/${loan.id}/entrega`, body,
+        { headers: { Authorization: `Bearer ${token}` } });
+      const primeraCuota = res.data?.primera_cuota_fecha;
+      toast.success(`Entrega registrada${primeraCuota ? ` — Primera cuota: ${fdate(primeraCuota)}` : ""}`, { duration: 5000 });
+      onSuccess();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || "Error registrando entrega");
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between p-5 border-b">
+          <div className="flex items-center gap-2">
+            <Truck size={18} className="text-amber-500" />
+            <div>
+              <h3 className="font-bold text-slate-800">Registrar Entrega</h3>
+              <p className="text-xs text-slate-500">{loan.codigo} — {loan.cliente_nombre}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          {/* Moto info */}
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+            <p className="text-xs font-semibold text-amber-800">{loan.moto_descripcion || "TVS"}</p>
+            {loan.moto_chasis && <p className="text-[11px] text-amber-700 font-mono mt-0.5">VIN: {loan.moto_chasis}</p>}
+            {loan.motor && <p className="text-[11px] text-amber-700 font-mono">Motor: {loan.motor}</p>}
+          </div>
+
+          {/* Complete missing data if needed */}
+          {incomplete && (
+            <div className="space-y-3 border border-slate-200 rounded-xl p-3 bg-slate-50">
+              <p className="text-xs font-semibold text-slate-600 flex items-center gap-1.5">
+                <ClipboardList size={13} className="text-blue-500" />
+                Completar datos del crédito
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Plan de crédito *</label>
+                  <select value={plan} onChange={e => setPlan(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm">
+                    <option value="">Seleccionar</option>
+                    <option value="P26S">P26S (26 sem)</option>
+                    <option value="P39S">P39S (39 sem)</option>
+                    <option value="P52S">P52S (52 sem)</option>
+                    <option value="P78S">P78S (78 sem)</option>
+                    <option value="Contado">Contado</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Cédula</label>
+                  <input value={cedula} onChange={e => setCedula(e.target.value)}
+                    placeholder="1234567890" className="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Cuota inicial</label>
+                  <input type="number" value={cuotaInicial} onChange={e => setCuotaInicial(e.target.value)}
+                    placeholder="0" className="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Cuota semanal</label>
+                  <input type="number" value={valorCuota} onChange={e => setValorCuota(e.target.value)}
+                    placeholder="0" className="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm" />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Precio venta total</label>
+                  <input type="number" value={precioVenta} onChange={e => setPrecioVenta(e.target.value)}
+                    placeholder="0" className="w-full border border-slate-300 rounded-lg px-2 py-1.5 text-sm" />
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Fecha de entrega *
+            </label>
+            <input type="date" value={fecha} onChange={e => setFecha(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400" />
+            {fecha && (
+              <p className="text-xs text-slate-400 mt-1">
+                Primera cuota: próximo miércoles &gt;= {fecha} + 7 días
+              </p>
+            )}
+          </div>
+
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={onClose}
+              className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+              Cancelar
+            </button>
+            <button type="submit" disabled={loading}
+              className="flex-1 px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-medium hover:bg-amber-600 disabled:opacity-50 flex items-center justify-center gap-2">
+              {loading ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+              {loading ? "Procesando..." : "Confirmar entrega"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// ─── Pending Delivery Banner ──────────────────────────────────────────────────
+
+const PendientesBanner: React.FC<{
+  loans: Loan[];
+  onEntrega: (loan: Loan) => void;
+}> = ({ loans, onEntrega }) => {
+  const pendientes = loans.filter(l => l.estado === "pendiente_entrega");
+  if (pendientes.length === 0) return null;
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  return (
+    <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 shadow-sm" data-testid="pendientes-entrega-banner">
+      <div className="flex items-center gap-2 mb-3">
+        <Bell size={16} className="text-amber-600" />
+        <h3 className="font-bold text-amber-800 text-sm">
+          PENDIENTES DE ENTREGA: {pendientes.length}
+        </h3>
+      </div>
+      <div className="space-y-3">
+        {pendientes.map(loan => {
+          const isManana = loan.fecha_entrega_programada === new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+          const isHoy    = loan.fecha_entrega_programada === today;
+          const esVencida = loan.fecha_entrega_programada && loan.fecha_entrega_programada < today;
+          const incomplete = !loan.datos_completos && loan.datos_completos !== undefined;
+
+          return (
+            <div key={loan.id}
+              className={`bg-white rounded-xl border p-3 flex flex-col sm:flex-row sm:items-center gap-3 ${esVencida ? "border-red-200" : "border-amber-200"}`}
+              data-testid={`pendiente-entrega-${loan.id}`}>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-semibold text-slate-800 text-sm">{loan.cliente_nombre}</span>
+                  {incomplete && (
+                    <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-semibold">Datos incompletos</span>
+                  )}
+                  {isManana && (
+                    <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full font-semibold">Entrega mañana</span>
+                  )}
+                  {isHoy && (
+                    <span className="text-[10px] bg-green-100 text-green-600 px-1.5 py-0.5 rounded-full font-semibold">Entrega hoy</span>
+                  )}
+                  {esVencida && (
+                    <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-semibold">Vencida</span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">{loan.moto_descripcion || "TVS"}</p>
+                {loan.moto_chasis && (
+                  <p className="text-[11px] font-mono text-slate-400">VIN: {loan.moto_chasis}</p>
+                )}
+                {loan.fecha_entrega_programada && (
+                  <p className="text-[11px] text-slate-400">
+                    Entrega programada: {fdate(loan.fecha_entrega_programada)}
+                  </p>
+                )}
+                {loan.fecha_factura && !loan.fecha_entrega_programada && (
+                  <p className="text-[11px] text-slate-400">
+                    Facturado: {fdate(loan.fecha_factura)}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => onEntrega(loan)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-semibold hover:bg-amber-600 whitespace-nowrap"
+                data-testid={`btn-registrar-entrega-${loan.id}`}>
+                <CheckCircle size={12} />
+                {incomplete ? "Completar y entregar" : "Registrar entrega"}
+              </button>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 };
@@ -589,8 +809,10 @@ export default function Loanbook() {
   const [loading, setLoading] = useState(true);
   const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [entregaLoan, setEntregaLoan] = useState<Loan | null>(null);
   const [filters, setFilters] = useState({ estado: "", plan: "", search: "" });
   const [sortBy, setSortBy]   = useState<string>("");
+  const [filtroFecha, setFiltroFecha] = useState<DateRange>(() => loadRange("loanbook"));
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -647,9 +869,15 @@ export default function Loanbook() {
         </div>
       </div>
 
+      {/* Pending Delivery Banner */}
+      <PendientesBanner
+        loans={loans}
+        onEntrega={(loan) => setEntregaLoan(loan)}
+      />
+
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Créditos activos"    value={stats.activos || 0}           icon={Users}      sub={`${stats.pendiente_entrega || 0} sin entrega`} />
+        <StatCard label="Créditos activos"    value={(stats.activo || stats.activos) || 0} icon={Users} sub={`${stats.pendiente_entrega || 0} sin entrega`} subTestId="kpi-sin-entrega" />
         <StatCard label="Cartera activa"      value={fmt(stats.total_cartera_activa)} icon={DollarSign} color="text-red-500" sub="saldo pendiente" />
         <StatCard label="Total cobrado"       value={fmt(stats.total_cobrado_historico)} icon={TrendingUp} color="text-green-600" />
         <StatCard label="Cuotas esta semana"  value={`${stats.cuotas_esta_semana || 0}`} icon={Calendar} color="text-amber-500" sub={fmt(stats.valor_esta_semana)} />
@@ -667,6 +895,7 @@ export default function Loanbook() {
           className="border border-slate-300 rounded-lg px-3 py-2 text-sm min-w-36" data-testid="filter-plan">
           <option value="">Todos los planes</option>
           <option value="Contado">Contado</option>
+          <option value="P26S">P26S</option>
           <option value="P39S">P39S</option>
           <option value="P52S">P52S</option>
           <option value="P78S">P78S</option>
@@ -679,6 +908,7 @@ export default function Loanbook() {
           <option value="pendiente_entrega">Sin entrega</option>
           <option value="completado">Completados</option>
         </select>
+        <FiltroFecha moduleKey="loanbook" onChange={setFiltroFecha} compact />
         {(filters.estado || filters.plan || filters.search) && (
           <button onClick={() => setFilters({ estado: "", plan: "", search: "" })}
             className="text-xs text-slate-400 hover:text-red-500 flex items-center gap-1">
@@ -800,6 +1030,13 @@ export default function Loanbook() {
         <CreateLoanModal
           onClose={() => setShowCreate(false)}
           onSuccess={() => { setShowCreate(false); fetchData(); }}
+        />
+      )}
+      {entregaLoan && (
+        <EntregaModal
+          loan={entregaLoan}
+          onClose={() => setEntregaLoan(null)}
+          onSuccess={() => { setEntregaLoan(null); fetchData(); }}
         />
       )}
     </div>

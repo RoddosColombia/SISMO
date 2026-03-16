@@ -25,6 +25,7 @@ from routers import learning as learning_router
 from routers import estado_resultados as er_router
 from routers import alegra_webhooks as webhooks_router
 from routers import gastos as gastos_router
+from routers import ventas as ventas_router
 from services.scheduler import start_scheduler, stop_scheduler
 from services.loanbook_scheduler import start_loanbook_scheduler, stop_loanbook_scheduler
 from migration_v24 import run_migration_v24
@@ -242,6 +243,7 @@ app.include_router(webhooks_router.router,  prefix=PREFIX)
 app.include_router(cfo_chat_router.router,  prefix=PREFIX)
 app.include_router(proveedores_router.router, prefix=PREFIX)
 app.include_router(gastos_router.router,     prefix=PREFIX)
+app.include_router(ventas_router.router,     prefix=PREFIX)
 
 
 # ─── Smoke Test (PASO 5 — verificación post-deploy) ───────────────────────────

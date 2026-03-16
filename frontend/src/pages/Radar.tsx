@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { Target, Loader2, RefreshCw, Search } from "lucide-react";
+import { Target, Loader2, RefreshCw, Search, Calendar } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "../components/ui/sonner";
 import { RadarCard, RadarItem } from "../components/shared/RadarCard";
 import { GestionModal } from "../components/shared/GestionModal";
+import { FiltroFecha, DateRange, loadRange } from "../components/FiltroFecha";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -77,6 +78,7 @@ export default function Radar() {
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const [buscar, setBuscar]     = useState("");
   const [gestionItem, setGestionItem] = useState<RadarItem | null>(null);
+  const [filtroFecha, setFiltroFecha] = useState<DateRange>(() => loadRange("cartera"));
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -133,6 +135,7 @@ export default function Radar() {
           <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
           Actualizar
         </button>
+        <FiltroFecha moduleKey="cartera" onChange={setFiltroFecha} compact />
       </div>
 
       {/* KPI Bar */}
