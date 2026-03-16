@@ -30,6 +30,11 @@ KNOWN_EVENT_TYPES: frozenset[str] = frozenset({
     "loanbook.bucket_change",
     "protocolo_recuperacion",
     "ptp.registrado",
+    "moto.vendida.webhook",
+    "moto.vendida.polling",
+    "moto.vendida.retroactivo",
+    "alegra.invoice.polling",
+    "alegra.webhook.new-invoice",
 })
 
 
@@ -191,6 +196,17 @@ async def _sync_pagos_alegra() -> None:
         logger.error("[Scheduler] Alegra payment sync error: %s", e)
 
 
+async def _sincronizar_facturas_recientes() -> None:
+    """Every 5 min: pull recent Alegra invoices and update inventory if VIN detected."""
+    try:
+        from routers.alegra_webhooks import sincronizar_facturas_recientes
+        n = await sincronizar_facturas_recientes()
+        if n:
+            logger.info("[Scheduler] Alegra invoice sync: %d facturas nuevas procesadas", n)
+    except Exception as e:
+        logger.error("[Scheduler] Alegra invoice sync error: %s", e)
+
+
 def start_scheduler() -> None:
     """Registra el job y arranca el scheduler. Llamar desde startup de FastAPI."""
     _scheduler.add_job(
@@ -264,6 +280,17 @@ def start_scheduler() -> None:
         misfire_grace_time=60,
     )
 
+    # ── Alegra invoice sync every 5 min (fallback para webhooks rotos) ─────────
+    _scheduler.add_job(
+        _sincronizar_facturas_recientes,
+        trigger="interval",
+        minutes=5,
+        id="sync_facturas_alegra",
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=60,
+    )
+
     # ── Inventario reconciliación cada lunes 7am ────────────────────────────────
     _scheduler.add_job(
         _reconciliar_inventario_lunes,
@@ -279,7 +306,8 @@ def start_scheduler() -> None:
     logger.info(
         "[Scheduler] APScheduler iniciado — "
         "process_pending_events@60s | informe_cfo@día1 08:00 | "
-        "WA: T1@lun08 T2@mié08 T3@jue09 T5@sab09 | inventario@lun07 (COT)"
+        "WA: T1@lun08 T2@mié08 T3@jue09 T5@sab09 | "
+        "inventario@lun07 | sync_pagos@5min | sync_facturas@5min (COT)"
     )
 
 

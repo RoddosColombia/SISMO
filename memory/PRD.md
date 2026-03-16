@@ -177,7 +177,24 @@ Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
 - Frontend: polling 30s en módulo Motos + scheduler reconciliación inventario lunes 7am COT
 - Autoco NIT 890.900.317-0 confirmado AUTORRETENEDOR (sin ReteFuente)
 
-### BUILD 16 — Carga Masiva de Gastos vía Excel ✅ COMPLETADO (Mar 2026)
+### HOTFIX FINAL — Inventario + Webhook en Tiempo Real ✅ (Mar 2026)
+
+**Diagnóstico confirmado:**
+- Inventario: ya estaba en 33 motos (22 Disponible + 11 Vendida/Entregada). No se necesitó corrección adicional.
+- LB-2026-0016: corregido typo en moto_chasis (`9FLT81003VDB62143` → `9FLT81003VDB62413`)
+- Webhook Alegra: API de Alegra rechaza URLs con `https://` (bug confirmado). Sin posibilidad de registro vía API.
+
+**Solución implementada — Polling Permanente:**
+- `sincronizar_facturas_recientes()` en `alegra_webhooks.py`: fetch de facturas Alegra (`api.alegra.com/api/v1/invoices`), deduplicación por `alegra_invoice_id` + `ultima_factura_id_sync`, ignora motos ya en Vendida/Entregada.
+- Nuevo job `sync_facturas_alegra` cada 5 min en `scheduler.py` (APScheduler).
+- Nuevo endpoint `POST /api/webhooks/sync-facturas-ahora` con parámetro `fecha_desde` para sync retroactivo.
+- `webhook_status` endpoint actualizado con estadísticas del polling.
+- UI Settings.tsx: panel "Polling de Facturas Alegra", banner de alerta webhook bug, botón manual trigger.
+
+**Prueba end-to-end confirmada:**
+- Factura FE455 (ID=24) creada en Alegra con VIN `9FL25AF32VDB95022`. El polling la detectó y procesó en ~12 segundos via trigger manual. Factura eliminada y moto restaurada al estado de prueba.
+
+
 - **GET /api/gastos/plantilla**: Genera plantilla Excel oficial con 12 columnas, dropdowns, hoja de instrucciones, fila ejemplo Auteco Kawasaki
 - **POST /api/gastos/cargar**: Parsea Excel uploaded, detecta headers (exact + substring matching), calcula retenciones automáticas (ReteFuente + IVA), detecta autoretenedores desde DB y columna, retorna preview + resumen
 - **POST /api/gastos/procesar**: Inicia job asíncrono (background task), retorna job_id inmediatamente. Lógica mixta: Contado → journal-entry en Alegra, Credito_N → bill con vencimiento calculado

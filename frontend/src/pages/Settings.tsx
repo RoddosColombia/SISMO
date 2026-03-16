@@ -1448,6 +1448,7 @@ function WebhooksTab({ api }: { api: any }) {
   const [webhookStatus, setWebhookStatus] = useState<any>(null);
   const [registering, setRegistering] = useState(false);
   const [runningSyncPago, setRunningSyncPago] = useState(false);
+  const [runningSyncFactura, setRunningSyncFactura] = useState(false);
 
   const loadWebhookStatus = async () => {
     try {
@@ -1462,7 +1463,11 @@ function WebhooksTab({ api }: { api: any }) {
     setRegistering(true);
     try {
       const res = await api.post("/webhooks/setup");
-      toast.success(`${res.data.registradas}/${res.data.total} suscripciones registradas en Alegra`);
+      if (res.data.nota_alegra_bug) {
+        toast.warning(res.data.nota_alegra_bug, { duration: 8000 });
+      } else {
+        toast.success(`${res.data.registradas}/${res.data.total} suscripciones registradas en Alegra`);
+      }
       await loadWebhookStatus();
     } catch (err: any) {
       toast.error(err.response?.data?.detail || "Error registrando webhooks");
@@ -1478,6 +1483,17 @@ function WebhooksTab({ api }: { api: any }) {
     } catch (err: any) {
       toast.error(err.response?.data?.detail || "Error ejecutando sync");
     } finally { setRunningSyncPago(false); }
+  };
+
+  const handleRunSyncFactura = async () => {
+    setRunningSyncFactura(true);
+    try {
+      const res = await api.post("/webhooks/sync-facturas-ahora", {});
+      toast.success(`Polling ejecutado: ${res.data.procesadas} facturas nuevas procesadas`);
+      await loadWebhookStatus();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || "Error ejecutando sync de facturas");
+    } finally { setRunningSyncFactura(false); }
   };
 
   const EVENTOS_ESPERADOS = [
@@ -1543,6 +1559,21 @@ function WebhooksTab({ api }: { api: any }) {
             })}
           </div>
         </div>
+
+        {/* Nota sobre bug de Alegra API */}
+        {webhookStatus && webhookStatus.total_activas === 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2">
+            <AlertTriangle size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-semibold text-amber-800">Webhooks no disponibles via API</p>
+              <p className="text-[11px] text-amber-700 mt-0.5">
+                La API de Alegra rechaza URLs con https:// (bug conocido). El polling automático cada 5 min
+                está activo como reemplazo funcional. Para webhooks en tiempo real, regístralos manualmente
+                en <strong>app.alegra.com → Integraciones → Webhooks</strong>.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Webhook URL */}
         <div className="bg-[#F0F7FF] rounded-xl p-3 border border-blue-100">
@@ -1617,6 +1648,57 @@ function WebhooksTab({ api }: { api: any }) {
           data-testid="run-sync-pagos-btn">
           {runningSyncPago ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
           Ejecutar sync de pagos ahora
+        </Button>
+      </div>
+
+      {/* Invoice polling cron */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 max-w-2xl space-y-4">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
+            <RefreshCw size={18} className="text-emerald-600" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-[#0F2A5C]">Polling de Facturas Alegra (Fallback Webhook)</h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Revisa facturas nuevas en Alegra cada 5 min. Actualiza inventario y loanbooks automáticamente.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-3">
+          <div className="bg-slate-50 rounded-xl p-3 text-center border border-slate-100">
+            <p className="text-[10px] text-slate-400 uppercase font-semibold">Intervalo</p>
+            <p className="text-sm font-bold text-[#0F2A5C] mt-0.5">cada 5 min</p>
+          </div>
+          <div className="bg-slate-50 rounded-xl p-3 text-center border border-slate-100">
+            <p className="text-[10px] text-slate-400 uppercase font-semibold">Procesadas hoy</p>
+            <p className="text-sm font-bold text-[#0F2A5C] mt-0.5" data-testid="facturas-polling-hoy">
+              {webhookStatus?.facturas_procesadas_hoy ?? "—"}
+            </p>
+          </div>
+          <div className="bg-slate-50 rounded-xl p-3 text-center border border-slate-100">
+            <p className="text-[10px] text-slate-400 uppercase font-semibold">Último poll</p>
+            <p className="text-[11px] font-semibold text-slate-600 mt-0.5 truncate">
+              {webhookStatus?.ultimo_polling_timestamp === "nunca" ? "Nunca" :
+               webhookStatus?.ultimo_polling_timestamp
+                 ? new Date(webhookStatus.ultimo_polling_timestamp).toLocaleTimeString("es-CO", {hour: "2-digit", minute: "2-digit"})
+                 : "—"}
+            </p>
+          </div>
+        </div>
+
+        {webhookStatus?.ultima_factura_procesada_id ? (
+          <p className="text-[11px] text-slate-400">
+            Última factura Alegra procesada: ID <strong>{webhookStatus.ultima_factura_procesada_id}</strong>
+          </p>
+        ) : null}
+
+        <Button onClick={handleRunSyncFactura} disabled={runningSyncFactura}
+          variant="outline"
+          className="flex items-center gap-2 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+          data-testid="run-sync-facturas-btn">
+          {runningSyncFactura ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+          Ejecutar polling de facturas ahora
         </Button>
       </div>
     </TabsContent>

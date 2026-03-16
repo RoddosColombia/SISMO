@@ -24,6 +24,7 @@ router = APIRouter(prefix="/webhooks", tags=["webhooks-alegra"])
 logger = logging.getLogger(__name__)
 
 ALEGRA_BASE = "https://app.alegra.com/api/r1"
+ALEGRA_API_V1 = "https://api.alegra.com/api/v1"
 ALEGRA_USER = os.environ.get("ALEGRA_USER", "")
 ALEGRA_TOKEN = os.environ.get("ALEGRA_TOKEN", "")
 WEBHOOK_SECRET = os.environ.get("ALEGRA_WEBHOOK_SECRET", "roddos-webhook-2026")
@@ -123,20 +124,23 @@ async def _nueva_factura(datos: dict):
             break
 
     if chasis:
-        # Update inventory
+        # Update inventory — only if currently Disponible (don't downgrade from Entregada)
         moto = await db.inventario_motos.find_one({"chasis": chasis}, {"_id": 0, "id": 1, "estado": 1})
         if moto:
-            await db.inventario_motos.update_one(
-                {"chasis": chasis},
-                {"$set": {
-                    "estado": "Vendida",
-                    "factura_alegra_id": factura_id,
-                    "fecha_venta": fecha,
-                    "propietario": cliente.get("name", ""),
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
-                }},
-            )
-            logger.info("[Webhook] Moto VIN=%s marcada como Vendida (factura %s)", chasis, factura_id)
+            if moto.get("estado") not in ("Vendida", "Entregada"):
+                await db.inventario_motos.update_one(
+                    {"chasis": chasis},
+                    {"$set": {
+                        "estado": "Vendida",
+                        "factura_alegra_id": factura_id,
+                        "fecha_venta": fecha,
+                        "propietario": cliente.get("name", ""),
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }},
+                )
+                logger.info("[Webhook] Moto VIN=%s marcada como Vendida (factura %s)", chasis, factura_id)
+            else:
+                logger.info("[Webhook] Moto VIN=%s ya estaba %s (factura %s) — sin cambios", chasis, moto.get("estado"), factura_id)
 
         # Update loanbook with VIN + motor
         loanbook = await db.loanbook.find_one(
@@ -162,6 +166,7 @@ async def _nueva_factura(datos: dict):
             "event_type": "moto.vendida.webhook",
             "source": "alegra_webhook",
             "factura_id": factura_id,
+            "alegra_invoice_id": factura_id,
             "chasis": chasis,
             "motor": motor_val,
             "cliente": cliente.get("name", ""),
@@ -175,6 +180,7 @@ async def _nueva_factura(datos: dict):
             "event_type": "factura.externa.sin_vin",
             "source": "alegra_webhook",
             "factura_id": factura_id,
+            "alegra_invoice_id": factura_id,
             "cliente": cliente.get("name", ""),
             "total": total,
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -436,6 +442,128 @@ async def sincronizar_pagos_externos():
         return 0
 
 
+# ── Invoice sync cron (called from scheduler.py every 5 min) ─────────────────
+
+async def _get_alegra_auth() -> tuple[str, str]:
+    """Return (email, token) from DB credentials."""
+    creds = await db.alegra_credentials.find_one({}, {"_id": 0, "email": 1, "token": 1}) or {}
+    return creds.get("email", ""), creds.get("token", "")
+
+
+async def sincronizar_facturas_recientes(fecha_desde: str = None) -> int:
+    """
+    Pull recent Alegra invoices and process new ones via _nueva_factura handler.
+    Deduplicates by alegra_invoice_id in roddos_events.
+    Uses ultima_factura_id_sync in cfo_configuracion to avoid reprocessing.
+
+    Args:
+        fecha_desde: Optional ISO date string (e.g. "2026-03-16T00:00:00"). Overrides
+                     the rolling 24h window when provided.
+    """
+    try:
+        email, token = await _get_alegra_auth()
+        if not email or not token:
+            logger.warning("[InvoiceSync] Sin credenciales Alegra en DB")
+            return 0
+
+        import base64 as _b64
+        auth_str = _b64.b64encode(f"{email}:{token}".encode()).decode()
+
+        # Determine starting invoice ID to avoid full re-scan
+        cfg = await db.cfo_configuracion.find_one({}, {"_id": 0, "ultima_factura_id_sync": 1}) or {}
+        ultimo_id = int(cfg.get("ultima_factura_id_sync") or 0)
+
+        params: dict = {"order_direction": "DESC", "order_field": "id", "limit": 20}
+        if fecha_desde:
+            # When a specific date is provided, fetch more (max allowed by Alegra is 30)
+            params["limit"] = 30
+
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await client.get(
+                f"{ALEGRA_API_V1}/invoices",
+                headers={"Authorization": f"Basic {auth_str}", "Content-Type": "application/json"},
+                params=params,
+            )
+
+        if resp.status_code != 200:
+            logger.warning("[InvoiceSync] Alegra returned %s: %s", resp.status_code, resp.text[:200])
+            return 0
+
+        facturas = resp.json()
+        if not isinstance(facturas, list):
+            logger.warning("[InvoiceSync] Unexpected Alegra response: %s", str(facturas)[:200])
+            return 0
+
+        # Filter: only invoices newer than ultimo_id (or from fecha_desde)
+        if fecha_desde:
+            fecha_dt = fecha_desde[:10]  # YYYY-MM-DD
+            nuevas = [f for f in facturas if f.get("date", "") >= fecha_dt]
+        else:
+            nuevas = [f for f in facturas if int(f.get("id", 0) or 0) > ultimo_id]
+
+        procesadas = 0
+        max_id = ultimo_id
+
+        for factura in reversed(nuevas):
+            fid = str(factura.get("id", ""))
+            fid_int = int(fid or 0)
+
+            # Deduplication: skip if already processed
+            ya_procesada = await db.roddos_events.find_one(
+                {"$or": [
+                    {"alegra_invoice_id": fid},
+                    {"factura_id": fid, "event_type": {"$in": ["moto.vendida.webhook", "moto.vendida.polling", "moto.vendida.retroactivo"]}},
+                ]},
+                {"_id": 0, "event_type": 1},
+            )
+            if ya_procesada:
+                if fid_int > max_id:
+                    max_id = fid_int
+                continue
+
+            # Process invoice using the same handler as webhook
+            try:
+                await _nueva_factura(factura)
+                # Mark as processed with source=polling
+                await db.roddos_events.update_one(
+                    {"factura_id": fid, "event_type": "factura.externa.sin_vin"},
+                    {"$set": {"source": "polling"}},
+                )
+                # Log the polling event
+                await db.roddos_events.insert_one({
+                    "event_type": "alegra.invoice.polling",
+                    "alegra_invoice_id": fid,
+                    "source": "invoice_polling_cron",
+                    "cliente": (factura.get("client") or {}).get("name", ""),
+                    "fecha_factura": factura.get("date", ""),
+                    "total": float(factura.get("total", 0) or 0),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                })
+                procesadas += 1
+                logger.info("[InvoiceSync] Factura %s procesada via polling", fid)
+            except Exception as exc:
+                logger.error("[InvoiceSync] Error procesando factura %s: %s", fid, exc)
+
+            if fid_int > max_id:
+                max_id = fid_int
+
+        # Update watermark only if we processed new invoices or advanced
+        if max_id > ultimo_id:
+            await db.cfo_configuracion.update_one(
+                {},
+                {"$set": {"ultima_factura_id_sync": max_id}},
+                upsert=True,
+            )
+
+        if procesadas:
+            logger.info("[InvoiceSync] %d facturas procesadas (último id=%s)", procesadas, max_id)
+        return procesadas
+
+    except Exception as exc:
+        logger.error("[InvoiceSync] Error general: %s", exc)
+        return 0
+
+
 # ── Setup subscriptions ───────────────────────────────────────────────────────
 
 EVENTOS_WEBHOOK = [
@@ -452,24 +580,37 @@ async def setup_webhooks():
     if not APP_URL:
         raise HTTPException(status_code=400, detail="APP_URL no configurada en .env")
     if not ALEGRA_USER or not ALEGRA_TOKEN:
-        raise HTTPException(status_code=400, detail="ALEGRA_USER / ALEGRA_TOKEN no configurados")
+        # Try DB credentials
+        email, token = await _get_alegra_auth()
+        if not email or not token:
+            raise HTTPException(status_code=400, detail="ALEGRA_USER / ALEGRA_TOKEN no configurados")
+        auth = (email, token)
+    else:
+        auth = (ALEGRA_USER, ALEGRA_TOKEN)
 
     webhook_url = f"{APP_URL}/api/webhooks/alegra"
     resultados = []
 
+    # NOTE: Alegra v1 API rejects URLs with "https://" or "http://" prefix.
+    # This is a known API bug. We attempt registration and capture the error.
     async with httpx.AsyncClient(timeout=15) as client:
         for evento in EVENTOS_WEBHOOK:
             try:
                 r = await client.post(
-                    "https://api.alegra.com/api/v1/webhooks/subscriptions",
+                    f"{ALEGRA_API_V1}/webhooks/subscriptions",
                     json={
                         "event": evento,
                         "url": webhook_url,
                         "headers": {"x-api-key": WEBHOOK_SECRET},
                     },
-                    auth=(ALEGRA_USER, ALEGRA_TOKEN),
+                    auth=auth,
                 )
-                resultados.append({"evento": evento, "status": r.status_code, "ok": r.status_code in (200, 201)})
+                ok = r.status_code in (200, 201)
+                err_msg = None
+                if not ok:
+                    err_body = r.json() if r.content else {}
+                    err_msg = err_body.get("error", r.text[:200])
+                resultados.append({"evento": evento, "status": r.status_code, "ok": ok, "error": err_msg})
             except Exception as exc:
                 resultados.append({"evento": evento, "status": 0, "ok": False, "error": str(exc)})
 
@@ -482,14 +623,33 @@ async def setup_webhooks():
 
     total_ok = sum(1 for r in resultados if r["ok"])
     logger.info("[WebhookSetup] %d/%d suscripciones registradas", total_ok, len(resultados))
-    return {"registradas": total_ok, "total": len(resultados), "resultados": resultados}
+
+    # Check if all failed due to URL protocol issue
+    first_error = next((r.get("error", "") for r in resultados if not r["ok"]), "")
+    nota = None
+    if "http" in str(first_error).lower() and ("https" in str(first_error).lower() or "url" in str(first_error).lower()):
+        nota = (
+            "Alegra API rechaza URLs con 'https://' o 'http://'. "
+            "El polling automático cada 5min está activo como fallback. "
+            "Para activar webhooks reales, regístralos manualmente en app.alegra.com → Integraciones → Webhooks "
+            f"con URL: {webhook_url}"
+        )
+
+    return {
+        "registradas": total_ok,
+        "total": len(resultados),
+        "resultados": resultados,
+        "nota_alegra_bug": nota,
+        "polling_activo": True,
+        "polling_intervalo": "cada 5 minutos",
+    }
 
 
 @router.get("/status")
 async def webhook_status(current_user=Depends(get_current_user)):
-    """List subscription status + payment cron info."""
+    """List subscription status + payment cron info + invoice polling info."""
     subs = await db.webhook_subscriptions.find({}, {"_id": 0}).to_list(20)
-    cfg = await db.cfo_configuracion.find_one({}, {"_id": 0, "ultimo_payment_id_sync": 1}) or {}
+    cfg = await db.cfo_configuracion.find_one({}, {"_id": 0, "ultimo_payment_id_sync": 1, "ultima_factura_id_sync": 1}) or {}
     # Count recent payments synced via cron (today)
     hoy = datetime.now(timezone.utc).date().isoformat()
     pagos_hoy = await db.cartera_pagos.count_documents({
@@ -501,6 +661,16 @@ async def webhook_status(current_user=Depends(get_current_user)):
         {"_id": 0, "fecha": 1},
         sort=[("fecha", -1)],
     )
+    # Invoice polling stats
+    facturas_hoy = await db.roddos_events.count_documents({
+        "event_type": "alegra.invoice.polling",
+        "timestamp": {"$regex": f"^{hoy}"},
+    })
+    ultimo_polling = await db.roddos_events.find_one(
+        {"event_type": "alegra.invoice.polling"},
+        {"_id": 0, "timestamp": 1, "alegra_invoice_id": 1},
+        sort=[("timestamp", -1)],
+    )
     return {
         "suscripciones": subs,
         "total_activas": sum(1 for s in subs if s.get("ok")),
@@ -508,6 +678,12 @@ async def webhook_status(current_user=Depends(get_current_user)):
         "pagos_sincronizados_hoy": pagos_hoy,
         "ultimo_sync_pago": (ultimo_pago or {}).get("fecha", "nunca"),
         "ultimo_payment_id": cfg.get("ultimo_payment_id_sync", 0),
+        "polling_facturas_activo": True,
+        "polling_facturas_intervalo": "cada 5 minutos",
+        "facturas_procesadas_hoy": facturas_hoy,
+        "ultima_factura_procesada_id": cfg.get("ultima_factura_id_sync", 0),
+        "ultimo_polling_timestamp": (ultimo_polling or {}).get("timestamp", "nunca"),
+        "nota": "Alegra webhooks API no acepta URLs con https:// (bug conocido). Polling es el mecanismo principal.",
     }
 
 
@@ -516,3 +692,12 @@ async def sync_pagos_ahora(current_user=Depends(get_current_user)):
     """Trigger payment sync manually from UI."""
     procesados = await sincronizar_pagos_externos()
     return {"procesados": procesados, "message": f"{procesados} pagos nuevos sincronizados"}
+
+
+@router.post("/sync-facturas-ahora")
+async def sync_facturas_ahora(body: dict = None, current_user=Depends(get_current_user)):
+    """Trigger invoice sync manually from UI. Accepts optional fecha_desde (ISO string)."""
+    body = body or {}
+    fecha_desde = body.get("fecha_desde")
+    procesadas = await sincronizar_facturas_recientes(fecha_desde=fecha_desde)
+    return {"procesadas": procesadas, "message": f"{procesadas} facturas nuevas procesadas"}
