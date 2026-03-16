@@ -177,7 +177,23 @@ Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
 - Frontend: polling 30s en módulo Motos + scheduler reconciliación inventario lunes 7am COT
 - Autoco NIT 890.900.317-0 confirmado AUTORRETENEDOR (sin ReteFuente)
 
-### HOTFIX FINAL — Inventario + Webhook en Tiempo Real ✅ (Mar 2026)
+## BUILD 18 — COMPLETADO (Marzo 2026)
+
+### Módulos nuevos y mejoras
+- **Dashboard de Ventas**: Sección `/dashboard` con 4 cards: resumen mensual (meta, %, progreso), referencias vendidas, comparativo mensual, detalle expandible por cliente
+- **Gestión de Entregas**: Panel `PendientesBanner` + `EntregaModal` en `/loanbook`. Flujo completo: selección de fecha → actualiza loanbook (activo) + moto (Entregada) + genera cuotas → invalida caché CFO
+- **Filtros Globales `FiltroFecha`**: Componente reutilizable en 6 módulos: Dashboard, Loanbook, Motos, RADAR, Impuestos, CFO Estratégico
+- **Sidebar actualizado**: "Cartera" → "RADAR" apuntando a `/radar`
+- **Botón Webhooks Manual**: Settings > Webhooks > "Abrir Alegra → Webhooks" con guía paso a paso
+- **CFO Cache Invalidation inmediata**: `invalidar_cache_cfo()` integrado en pagos, gastos y entregas
+- **Polling facturas automático**: Cada 5 min detecta facturas Alegra y actualiza inventario + loanbooks
+- **Corrección datos**: LB-2026-0021 (Sindy) y LB-2026-0022 (Manuel) corregidos a `estado: pendiente_entrega`
+- **Formato factura reforzado**: System prompt con `description` en items + `anotation` para detección fiable de VIN/Motor
+
+### Tests verificados (18/18 PASS)
+- Smoke test: status=ok, loanbooks=9, inventario=33, alegra=true
+- RADAR nav sidebar, FiltroFecha en 6 módulos, 2 pendientes entrega, VentasDashboard, modal entrega Sindy
+
 
 **Diagnóstico confirmado:**
 - Inventario: ya estaba en 33 motos (22 Disponible + 11 Vendida/Entregada). No se necesitó corrección adicional.
