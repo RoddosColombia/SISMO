@@ -90,13 +90,11 @@ export default function InventarioAuteco() {
   const [confirming, setConfirming] = useState(false);
   const fileRef = useRef();
   const costFileRef = useRef();
+  const prevStatsRef = useRef(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      // TODAS: fetch all, then exclude Anulada client-side
-      // Anulada: fetch only Anulada
-      // Others: pass estado param directly
       const apiEstado = filterEstado === "TODAS" ? undefined : filterEstado || undefined;
       const [motosRes, statsRes] = await Promise.all([
         api.get("/inventario/motos", { params: { estado: apiEstado } }),
@@ -108,6 +106,7 @@ export default function InventarioAuteco() {
       }
       setMotos(motosData);
       setStats(statsRes.data);
+      prevStatsRef.current = statsRes.data;
     } catch {
       toast.error("Error cargando inventario");
     } finally {
@@ -116,6 +115,35 @@ export default function InventarioAuteco() {
   }, [api, filterEstado]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Polling cada 30s — refresca si los contadores cambian
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const statsRes = await api.get("/inventario/stats");
+        const newStats = statsRes.data;
+        const prev = prevStatsRef.current;
+        if (prev && (
+          newStats.total !== prev.total ||
+          newStats.disponibles !== prev.disponibles ||
+          newStats.vendidas !== prev.vendidas ||
+          newStats.entregadas !== prev.entregadas
+        )) {
+          prevStatsRef.current = newStats;
+          setStats(newStats);
+          const apiEstado = filterEstado === "TODAS" ? undefined : filterEstado || undefined;
+          const motosRes = await api.get("/inventario/motos", { params: { estado: apiEstado } });
+          let motosData = motosRes.data;
+          if (filterEstado === "TODAS") motosData = motosData.filter((m) => m.estado !== "Anulada");
+          setMotos(motosData);
+          toast.info("Inventario actualizado automáticamente");
+        }
+      } catch {
+        // ignore polling errors silently
+      }
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [api, filterEstado]);
 
   const handleUpload = async (e) => {
     const file = e.target.files?.[0];

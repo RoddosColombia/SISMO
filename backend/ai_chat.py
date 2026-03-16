@@ -281,6 +281,27 @@ FLUJO OBLIGATORIO — VENTA DE MOTO A CRÉDITO
 ═══════════════════════════════════════════════════
 Cuando el usuario quiera vender una moto:
 
+REGLA CRÍTICA — VIN Y MOTOR OBLIGATORIOS:
+ANTES de crear la factura, el agente SIEMPRE verifica que tiene:
+  1. Chasis / VIN de la moto específica (formato 9FL...)
+  2. Número de motor (formato BF3... o RF5...)
+  3. Modelo y color exactos
+
+Si el usuario no ha especificado el VIN/chasis → el agente PREGUNTA:
+  "Para facturar esta moto necesito saber qué unidad específica del inventario
+   vas a entregar.
+
+   Motos disponibles ahora mismo:
+   [lista con VIN, modelo y color de cada moto disponible en INVENTARIO_DISPONIBLE]
+
+   ¿Cuál VIN entrego a este cliente?"
+
+Formato obligatorio del campo 'anotation' en la factura Alegra:
+  "[Modelo] [Color] - VIN: [chasis] / Motor: [motor]"
+  Ejemplo: "Raider 125 Negro Nebulosa - VIN: 9FL25AF31VDB95058 / Motor: BF3AT18C2356"
+
+Esto garantiza que el webhook detecte automáticamente el VIN.
+
 PASO 1 — Verificar disponibilidad:
 Si el contexto incluye INVENTARIO_DISPONIBLE, verifica que la moto esté listada.
 
@@ -299,9 +320,9 @@ Si el usuario NO especificó chasis (venta genérica por modelo):
      Registra una compra primero para agregar unidades."
   - Si count > 0 → muestra las opciones:
     "Hay [N] unidades disponibles de [modelo]:
-     • Chasis [A] — [color A]
-     • Chasis [B] — [color B]
-     ¿Cuál vas a vender? (responde el número de chasis)"
+     • VIN: [A] — [color A] — Motor: [motor A]
+     • VIN: [B] — [color B] — Motor: [motor B]
+     ¿Cuál VIN entrego a este cliente?"
     Espera confirmación antes de continuar.
 
 PASO 2 — Confirmar plan y cuota:
@@ -327,8 +348,8 @@ FORMATO DE PAYLOAD EXACTO PARA CREAR_FACTURA_VENTA (Alegra API v1):
       "tax": [{"id": "4"}]          ← IVA 19% id=4
     }
   ],
-  "observations": "Venta [marca modelo] Chasis [XXX]",
-  "anotation": "[chasis]\n[motor]",
+  "observations": "Venta [marca modelo] Chasis [XXX] Motor [YYY]",
+  "anotation": "[Modelo] [Color] - VIN: [chasis] / Motor: [motor]",
   "_metadata": { ... }
 }
 
@@ -2002,7 +2023,113 @@ async def process_chat(
             "gastos_masivos_card": gastos_card,
         }
 
-    # ── BUILD 13: Detectar confirmación autoretenedor ─────────────────────────
+    # ── INVENTARIO — Auditoría automática ─────────────────────────────────────
+    _audit_kws = [
+        "audita el inventario", "audita inventario", "auditoría de inventario",
+        "el inventario tiene datos incorrectos", "hay una moto que no existe",
+        "falta una moto en el inventario", "el conteo de motos no cuadra",
+        "inventario descuadrado", "inconsistencias de inventario",
+    ]
+    if any(kw in msg_lower_cmd for kw in _audit_kws):
+        try:
+            _total = await db.inventario_motos.count_documents({})
+            _disp = await db.inventario_motos.count_documents({"estado": "Disponible"})
+            _vend = await db.inventario_motos.count_documents({"estado": {"$in": ["Vendida", "Entregada"]}})
+            _anuladas = await db.inventario_motos.count_documents({"estado": "Anulada"})
+            _lbs = await db.loanbook.count_documents({"estado": {"$in": ["activo", "mora", "pendiente_entrega"]}})
+            _cuadra = _vend == _lbs
+
+            # Find inconsistencies: phantoms + unlinked
+            _inconsistencias = []
+            async for _m in db.inventario_motos.find(
+                {"$or": [{"chasis": None}, {"chasis": ""}, {"chasis": {"$regex": "^PENDIENTE-"}}]},
+                {"_id": 0, "id": 1, "marca": 1, "modelo": 1, "chasis": 1}
+            ):
+                _inconsistencias.append(f"• FANTASMA: {_m.get('marca','?')} {_m.get('modelo','?')} — chasis '{_m.get('chasis','?')}' — acción: eliminar")
+
+            async for _lb in db.loanbook.find(
+                {"estado": {"$in": ["activo", "mora"]}, "$or": [{"moto_chasis": None}, {"moto_chasis": ""}]},
+                {"_id": 0, "codigo": 1, "cliente_nombre": 1}
+            ):
+                _inconsistencias.append(f"• SIN VIN: Loanbook {_lb.get('codigo')} ({_lb.get('cliente_nombre','?')}) — acción: asignar VIN")
+
+            _fmt_n = lambda n: f"${n:,.0f}".replace(",", ".")
+            _cuadra_icon = "✅" if _cuadra else "❌"
+            _inc_text = "\n".join(_inconsistencias) if _inconsistencias else "• Ninguna detectada ✅"
+
+            _audit_msg = (
+                f"**AUDITORÍA DE INVENTARIO**\n"
+                f"{'─'*40}\n"
+                f"Total motos en sistema:    **{_total}**\n"
+                f"Disponibles:               **{_disp}**\n"
+                f"Vendidas / Entregadas:     **{_vend}**\n"
+                f"Anuladas:                  **{_anuladas}**\n"
+                f"Loanbooks activos:         **{_lbs}**\n"
+                f"¿Vendidas = Loanbooks?     {_cuadra_icon} {'SÍ — cuadra correctamente' if _cuadra else 'NO — hay ' + str(abs(_vend - _lbs)) + ' descuadre'}\n\n"
+                f"**INCONSISTENCIAS DETECTADAS: {len(_inconsistencias)}**\n"
+                f"{'─'*40}\n"
+                f"{_inc_text}\n\n"
+            )
+            if _inconsistencias:
+                _audit_msg += "¿Quieres que corrija automáticamente las inconsistencias detectadas?"
+
+            await db.chat_messages.insert_one({
+                "id": str(uuid.uuid4()), "session_id": session_id, "role": "user",
+                "content": user_message, "timestamp": datetime.now(timezone.utc).isoformat(),
+                "user_id": user.get("id"),
+            })
+            await db.chat_messages.insert_one({
+                "id": str(uuid.uuid4()), "session_id": session_id, "role": "assistant",
+                "content": _audit_msg, "timestamp": datetime.now(timezone.utc).isoformat(),
+                "user_id": user.get("id"),
+            })
+            return {"message": _audit_msg, "pending_action": None, "session_id": session_id}
+        except Exception:
+            pass  # fall through to LLM
+
+    # ── INVENTARIO — Consulta moto de un cliente específico ───────────────────
+    _qué_moto_kws = ["qué moto tiene", "que moto tiene", "qué moto le entregamos", "vin de",
+                     "chasis de", "moto de ", "moto del cliente"]
+    if any(kw in msg_lower_cmd for kw in _qué_moto_kws):
+        try:
+            # Extract client name from message
+            _words = msg_lower_cmd
+            _client_name = None
+            for _kw in _qué_moto_kws:
+                if _kw in _words:
+                    _client_name = _words.split(_kw, 1)[-1].strip().rstrip("?").strip()
+                    break
+            if _client_name and len(_client_name) > 2:
+                _lb = await db.loanbook.find_one(
+                    {"cliente_nombre": {"$regex": _client_name, "$options": "i"}},
+                    {"_id": 0, "codigo": 1, "cliente_nombre": 1, "moto_chasis": 1, "motor": 1,
+                     "modelo_moto": 1, "color_moto": 1, "estado": 1}
+                )
+                if _lb:
+                    _chasis = _lb.get("moto_chasis") or "No registrado"
+                    _motor_v = _lb.get("motor") or "No registrado"
+                    _modelo_v = _lb.get("modelo_moto") or "No registrado"
+                    _moto_resp = (
+                        f"**Moto asignada a {_lb['cliente_nombre']}** ({_lb['codigo']}):\n"
+                        f"• Modelo:  {_modelo_v}\n"
+                        f"• Color:   {_lb.get('color_moto', 'No registrado')}\n"
+                        f"• VIN/Chasis: `{_chasis}`\n"
+                        f"• Motor:   `{_motor_v}`\n"
+                        f"• Estado loanbook: {_lb.get('estado', '?')}"
+                    )
+                    await db.chat_messages.insert_one({
+                        "id": str(uuid.uuid4()), "session_id": session_id, "role": "user",
+                        "content": user_message, "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "user_id": user.get("id"),
+                    })
+                    await db.chat_messages.insert_one({
+                        "id": str(uuid.uuid4()), "session_id": session_id, "role": "assistant",
+                        "content": _moto_resp, "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "user_id": user.get("id"),
+                    })
+                    return {"message": _moto_resp, "pending_action": None, "session_id": session_id}
+        except Exception:
+            pass  # fall through to LLM
     _autoret_sí_patterns = [
         r'sí[,\s].*autoretenedor', r'si[,\s].*autoretenedor',
         r'sí[,\s].*es\s+autoret', r'si[,\s].*es\s+autoret',

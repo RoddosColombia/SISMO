@@ -264,11 +264,22 @@ def start_scheduler() -> None:
         misfire_grace_time=60,
     )
 
+    # ── Inventario reconciliación cada lunes 7am ────────────────────────────────
+    _scheduler.add_job(
+        _reconciliar_inventario_lunes,
+        trigger="cron",
+        day_of_week="mon",
+        hour=7, minute=0,
+        timezone="America/Bogota",
+        id="reconciliar_inventario_lunes",
+        replace_existing=True, max_instances=1, misfire_grace_time=3600,
+    )
+
     _scheduler.start()
     logger.info(
         "[Scheduler] APScheduler iniciado — "
         "process_pending_events@60s | informe_cfo@día1 08:00 | "
-        "WA: T1@lun08 T2@mié08 T3@jue09 T5@sab09 (COT)"
+        "WA: T1@lun08 T2@mié08 T3@jue09 T5@sab09 | inventario@lun07 (COT)"
     )
 
 
@@ -277,3 +288,51 @@ def stop_scheduler() -> None:
     if _scheduler.running:
         _scheduler.shutdown(wait=False)
         logger.info("[Scheduler] APScheduler detenido")
+
+
+async def _reconciliar_inventario_lunes() -> None:
+    """Lunes 7am COT — Verifica que el conteo de motos cuadre. Genera alerta si no cuadra."""
+    from database import db
+    try:
+        total = await db.inventario_motos.count_documents({})
+        disponibles = await db.inventario_motos.count_documents({"estado": "Disponible"})
+        vendidas_entregadas = await db.inventario_motos.count_documents(
+            {"estado": {"$in": ["Vendida", "Entregada"]}}
+        )
+        anuladas = await db.inventario_motos.count_documents({"estado": "Anulada"})
+        otros = total - disponibles - vendidas_entregadas - anuladas
+        now = datetime.now(timezone.utc).isoformat()
+
+        if otros != 0:
+            await db.roddos_events.insert_one({
+                "event_type": "inventario.descuadre.detectado",
+                "total_motos": total,
+                "disponibles": disponibles,
+                "vendidas_entregadas": vendidas_entregadas,
+                "anuladas": anuladas,
+                "sin_estado_definido": otros,
+                "timestamp": now,
+                "nota": f"⚠️ Inventario descuadrado: {otros} motos sin estado definido",
+            })
+            await db.notifications.insert_one({
+                "type": "inventario_descuadrado",
+                "message": f"⚠️ Inventario descuadrado: {otros} motos sin estado definido. Total: {total}",
+                "data": {"total": total, "disponibles": disponibles, "vendidas_entregadas": vendidas_entregadas},
+                "read": False,
+                "timestamp": now,
+            })
+            logger.warning("[Scheduler] Inventario descuadrado: %d motos sin estado definido", otros)
+        else:
+            await db.roddos_events.insert_one({
+                "event_type": "inventario.reconciliacion.ok",
+                "total_motos": total,
+                "disponibles": disponibles,
+                "vendidas_entregadas": vendidas_entregadas,
+                "anuladas": anuladas,
+                "timestamp": now,
+                "nota": f"✅ Inventario cuadrado: {total} motos",
+            })
+            logger.info("[Scheduler] Inventario cuadrado: %d motos (D=%d VE=%d A=%d)", total, disponibles, vendidas_entregadas, anuladas)
+
+    except Exception as e:
+        logger.error("[Scheduler] Error reconciliación inventario: %s", e)

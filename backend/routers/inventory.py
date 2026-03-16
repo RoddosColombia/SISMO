@@ -77,6 +77,185 @@ async def get_inventario_stats(current_user=Depends(get_current_user)):
         "anuladas": anuladas,
         "total_inversion": totals.get("total_inversion", 0),
         "total_costo": totals.get("total_costo", 0),
+        "ultima_actualizacion": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/auditoria")
+async def auditoria_inventario(current_user=Depends(get_current_user)):
+    """Audita el inventario: detecta inconsistencias entre motos y loanbooks."""
+    total = await db.inventario_motos.count_documents({})
+    disponibles = await db.inventario_motos.count_documents({"estado": "Disponible"})
+    vendidas_entregadas = await db.inventario_motos.count_documents(
+        {"estado": {"$in": ["Vendida", "Entregada"]}}
+    )
+    anuladas = await db.inventario_motos.count_documents({"estado": "Anulada"})
+    loanbooks_activos = await db.loanbook.count_documents(
+        {"estado": {"$in": ["activo", "mora", "pendiente_entrega"]}}
+    )
+
+    inconsistencias = []
+
+    # 1. Motos fantasma (sin chasis válido o con marca inesperada)
+    marcas_validas = ["TVS", "Auteco", "Kawasaki", "Honda", "Yamaha", "Bajaj", "Hero", "AKT"]
+    fantasmas_cursor = db.inventario_motos.find({
+        "$or": [
+            {"chasis": None},
+            {"chasis": ""},
+            {"chasis": {"$regex": "^PENDIENTE-"}},
+            {"marca": {"$nin": marcas_validas}},
+        ]
+    }, {"_id": 0, "id": 1, "marca": 1, "modelo": 1, "chasis": 1, "estado": 1, "factura_compra": 1})
+    async for m in fantasmas_cursor:
+        inconsistencias.append({
+            "tipo": "moto_sin_chasis_valido",
+            "moto_id": m.get("id"),
+            "marca": m.get("marca"),
+            "modelo": m.get("modelo"),
+            "chasis": m.get("chasis"),
+            "accion_sugerida": "Revisar o eliminar si no tiene factura de compra",
+        })
+
+    # 2. Motos vendidas/entregadas sin loanbook
+    vend_cursor = db.inventario_motos.find(
+        {"estado": {"$in": ["Vendida", "Entregada"]}},
+        {"_id": 0, "id": 1, "chasis": 1, "propietario": 1, "loanbook_id": 1}
+    )
+    async for m in vend_cursor:
+        lb = None
+        if m.get("loanbook_id"):
+            lb = await db.loanbook.find_one({"id": m["loanbook_id"]}, {"_id": 0, "id": 1})
+        if not lb and m.get("chasis"):
+            lb = await db.loanbook.find_one({"moto_chasis": m["chasis"]}, {"_id": 0, "id": 1})
+        if not lb:
+            inconsistencias.append({
+                "tipo": "moto_vendida_sin_loanbook",
+                "moto_id": m.get("id"),
+                "chasis": m.get("chasis"),
+                "propietario": m.get("propietario"),
+                "accion_sugerida": "Verificar manualmente — puede ser venta sin crédito",
+            })
+
+    # 3. Loanbooks activos sin moto en inventario
+    lb_cursor = db.loanbook.find(
+        {"estado": {"$in": ["activo", "mora", "pendiente_entrega"]}},
+        {"_id": 0, "id": 1, "codigo": 1, "cliente_nombre": 1, "moto_chasis": 1}
+    )
+    async for lb in lb_cursor:
+        chasis = lb.get("moto_chasis")
+        if not chasis:
+            inconsistencias.append({
+                "tipo": "loanbook_sin_vin",
+                "loanbook_codigo": lb.get("codigo"),
+                "cliente": lb.get("cliente_nombre"),
+                "accion_sugerida": "Asignar VIN desde facturas de venta Alegra",
+            })
+            continue
+        moto = await db.inventario_motos.find_one({"chasis": chasis}, {"_id": 0, "id": 1, "estado": 1})
+        if not moto:
+            inconsistencias.append({
+                "tipo": "loanbook_moto_no_en_inventario",
+                "loanbook_codigo": lb.get("codigo"),
+                "cliente": lb.get("cliente_nombre"),
+                "chasis": chasis,
+                "accion_sugerida": "Registrar moto faltante en inventario",
+            })
+
+    cuadra = vendidas_entregadas == loanbooks_activos
+    return {
+        "total_motos": total,
+        "disponibles": disponibles,
+        "vendidas_entregadas": vendidas_entregadas,
+        "anuladas": anuladas,
+        "loanbooks_activos": loanbooks_activos,
+        "cuadra": cuadra,
+        "inconsistencias": inconsistencias,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.delete("/motos/{moto_id}")
+async def eliminar_moto(
+    moto_id: str,
+    body: dict = None,
+    current_user=Depends(require_admin),
+):
+    """Elimina una moto del inventario con verificación y log de evento."""
+    body = body or {}
+    moto = await db.inventario_motos.find_one({"id": moto_id}, {"_id": 0})
+    if not moto:
+        raise HTTPException(status_code=404, detail="Moto no encontrada")
+
+    # Verify no active loanbook
+    chasis = moto.get("chasis", "")
+    lb = None
+    if chasis and not chasis.startswith("PENDIENTE-"):
+        lb = await db.loanbook.find_one(
+            {"$or": [{"moto_chasis": chasis}, {"moto_id": moto_id}]},
+            {"_id": 0, "codigo": 1, "cliente_nombre": 1, "estado": 1}
+        )
+        if lb and lb.get("estado") in ("activo", "mora", "pendiente_entrega"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"No se puede eliminar: la moto tiene loanbook activo {lb.get('codigo')} — {lb.get('cliente_nombre')}",
+            )
+
+    await db.inventario_motos.delete_one({"id": moto_id})
+    await db.roddos_events.insert_one({
+        "event_type": "inventario.moto.eliminada",
+        "motivo": body.get("motivo", "Eliminada por administrador"),
+        "registro_eliminado": moto,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "ejecutado_por": current_user.get("email", "admin"),
+    })
+    return {"ok": True, "mensaje": f"Moto {moto.get('marca','')} {moto.get('modelo','')} chasis '{chasis}' eliminada del inventario."}
+
+
+@router.post("/asignar-chasis")
+async def asignar_chasis_loanbook(
+    body: dict,
+    current_user=Depends(require_admin),
+):
+    """Asigna VIN y motor a un loanbook y actualiza el estado de la moto."""
+    loanbook_codigo = body.get("loanbook_codigo")
+    chasis = body.get("chasis", "").strip()
+    motor = body.get("motor", "").strip()
+
+    if not loanbook_codigo or not chasis:
+        raise HTTPException(status_code=400, detail="Se requieren loanbook_codigo y chasis")
+
+    lb = await db.loanbook.find_one({"codigo": loanbook_codigo}, {"_id": 0, "id": 1, "estado": 1, "cliente_nombre": 1})
+    if not lb:
+        raise HTTPException(status_code=404, detail=f"Loanbook {loanbook_codigo} no encontrado")
+
+    moto = await db.inventario_motos.find_one({"chasis": chasis}, {"_id": 0, "id": 1, "estado": 1})
+    if not moto:
+        raise HTTPException(status_code=404, detail=f"Moto con chasis {chasis} no encontrada en inventario")
+
+    now = datetime.now(timezone.utc).isoformat()
+    lb_estado = lb.get("estado", "activo")
+    moto_nuevo_estado = "Entregada" if lb_estado in ("activo", "mora") else "Vendida"
+
+    await db.loanbook.update_one(
+        {"codigo": loanbook_codigo},
+        {"$set": {"moto_chasis": chasis, "motor": motor, "updated_at": now}},
+    )
+    await db.inventario_motos.update_one(
+        {"chasis": chasis},
+        {"$set": {
+            "estado": moto_nuevo_estado,
+            "propietario": lb.get("cliente_nombre", ""),
+            "loanbook_id": lb.get("id", ""),
+            "loanbook_codigo": loanbook_codigo,
+            "updated_at": now,
+        }},
+    )
+    return {
+        "ok": True,
+        "loanbook": loanbook_codigo,
+        "chasis": chasis,
+        "motor": motor,
+        "moto_estado": moto_nuevo_estado,
     }
 
 

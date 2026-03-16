@@ -7,6 +7,7 @@ Endpoints:
 """
 import logging
 import os
+import re
 import httpx
 from datetime import datetime, timezone
 
@@ -14,6 +15,10 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, 
 
 from database import db
 from dependencies import get_current_user
+
+# VIN patterns for Auteco/TVS motos
+_VIN_RE = re.compile(r'9FL[A-Z0-9]{14,17}', re.IGNORECASE)
+_MOTOR_RE = re.compile(r'(BF3[A-Z0-9]{6,12}|RF5[A-Z0-9]{6,12})', re.IGNORECASE)
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks-alegra"])
 logger = logging.getLogger(__name__)
@@ -89,22 +94,100 @@ async def procesar_evento_webhook(payload: dict):
 # ── Handlers ──────────────────────────────────────────────────────────────────
 
 async def _nueva_factura(datos: dict):
-    """Flag external invoice for review."""
-    await db.roddos_events.insert_one({
-        "event_type":        "factura.externa.detectada",
-        "source":            "alegra_webhook",
-        "payload":           datos,
-        "timestamp":         datetime.now(timezone.utc).isoformat(),
-        "requiere_revision": True,
-    })
-    # Notification
-    await db.notifications.insert_one({
-        "type": "alegra_factura_externa",
-        "message": f"Factura externa detectada en Alegra: {datos.get('number', datos.get('id', ''))}",
-        "data": {"factura_id": str(datos.get("id", "")), "cliente": datos.get("client", {}).get("name", "")},
-        "read": False,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    })
+    """Process new invoice: detect VIN, update inventory + loanbook, or flag for review."""
+    factura_id = str(datos.get("id", ""))
+    cliente = datos.get("client", {}) or {}
+    items = datos.get("items", []) or []
+    fecha = datos.get("date", "")
+    total = float(datos.get("total", 0) or 0)
+
+    # Build search text: anotation + item names + descriptions
+    anotation = str(datos.get("anotation", "") or "").upper()
+    items_text = " ".join(
+        str(it.get("name", "")) + " " + str(it.get("description", "")) + " " + str(it.get("observations", ""))
+        for it in items
+    ).upper()
+    full_text = anotation + " " + items_text
+
+    # Detect VIN and motor
+    vin_m = _VIN_RE.search(full_text)
+    motor_m = _MOTOR_RE.search(full_text)
+    chasis = vin_m.group().strip() if vin_m else None
+    motor_val = motor_m.group().strip() if motor_m else None
+
+    # Detect modelo
+    modelo_val = None
+    for modelo_key in ["RAIDER 125", "SPORT 100"]:
+        if modelo_key in full_text:
+            modelo_val = modelo_key.title()
+            break
+
+    if chasis:
+        # Update inventory
+        moto = await db.inventario_motos.find_one({"chasis": chasis}, {"_id": 0, "id": 1, "estado": 1})
+        if moto:
+            await db.inventario_motos.update_one(
+                {"chasis": chasis},
+                {"$set": {
+                    "estado": "Vendida",
+                    "factura_alegra_id": factura_id,
+                    "fecha_venta": fecha,
+                    "propietario": cliente.get("name", ""),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }},
+            )
+            logger.info("[Webhook] Moto VIN=%s marcada como Vendida (factura %s)", chasis, factura_id)
+
+        # Update loanbook with VIN + motor
+        loanbook = await db.loanbook.find_one(
+            {"$or": [
+                {"factura_alegra_id": factura_id},
+                {"cliente_nombre": {"$regex": re.escape(cliente.get("name", "")), "$options": "i"}},
+            ]},
+            {"_id": 0, "id": 1, "codigo": 1},
+        )
+        if loanbook:
+            await db.loanbook.update_one(
+                {"id": loanbook["id"]},
+                {"$set": {
+                    "moto_chasis": chasis,
+                    "motor": motor_val,
+                    "modelo_moto": modelo_val,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }},
+            )
+            logger.info("[Webhook] Loanbook %s actualizado con VIN=%s", loanbook.get("codigo"), chasis)
+
+        await db.roddos_events.insert_one({
+            "event_type": "moto.vendida.webhook",
+            "source": "alegra_webhook",
+            "factura_id": factura_id,
+            "chasis": chasis,
+            "motor": motor_val,
+            "cliente": cliente.get("name", ""),
+            "total": total,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "accion_ejecutada": "inventario+loanbook actualizados",
+        })
+    else:
+        # No VIN detected — flag for review
+        await db.roddos_events.insert_one({
+            "event_type": "factura.externa.sin_vin",
+            "source": "alegra_webhook",
+            "factura_id": factura_id,
+            "cliente": cliente.get("name", ""),
+            "total": total,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "requiere_revision": True,
+            "nota": "Factura sin VIN detectado — revisar manualmente",
+        })
+        await db.notifications.insert_one({
+            "type": "alegra_factura_sin_vin",
+            "message": f"Factura {datos.get('number', factura_id)} registrada sin VIN — requiere revisión manual",
+            "data": {"factura_id": factura_id, "cliente": cliente.get("name", "")},
+            "read": False,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
 
 
 async def _editar_factura(datos: dict):
