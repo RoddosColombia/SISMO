@@ -358,7 +358,8 @@ async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depen
     fecha_entrega = date.fromisoformat(req.fecha_entrega)
     fecha_primer_pago = _first_wednesday(fecha_entrega)
     num_cuotas  = loan.get("num_cuotas", 0)
-    valor_cuota_final = loan.get("valor_cuota") or 0
+    # Support both field names: valor_cuota (created via form) and cuota_valor (legacy/auto-created)
+    valor_cuota_final = loan.get("valor_cuota") or loan.get("cuota_valor") or 0
     valor_financiado = loan.get("valor_financiado") or (valor_cuota_final * num_cuotas)
 
     # Build cuotas schedule
