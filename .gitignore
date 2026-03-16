@@ -65,3 +65,7 @@ dump.rdb
 .emergent/
 frontend/node_modules/.cache/default-development/29.pack
 frontend/node_modules/.cache/default-development/27.pack
+-e 
+# Environment files
+*.env
+*.env.*
