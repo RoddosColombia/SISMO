@@ -345,7 +345,8 @@ FORMATO DE PAYLOAD EXACTO PARA CREAR_FACTURA_VENTA (Alegra API v1):
       "id": "[item_id_alegra]",
       "quantity": 1,
       "price": [precio_sin_iva],
-      "tax": [{"id": "4"}]          ← IVA 19% id=4
+      "tax": [{"id": "4"}],         ← IVA 19% id=4
+      "description": "[Modelo] [Color] - VIN: [chasis] / Motor: [motor]"  ← OBLIGATORIO para detección automática
     }
   ],
   "observations": "Venta [marca modelo] Chasis [XXX] Motor [YYY]",
@@ -353,6 +354,8 @@ FORMATO DE PAYLOAD EXACTO PARA CREAR_FACTURA_VENTA (Alegra API v1):
   "_metadata": { ... }
 }
 
+REGLA: El campo 'description' en el ítem Y el campo 'anotation' deben contener exactamente
+"[Modelo] [Color] - VIN: [chasis] / Motor: [motor]". Ambos son necesarios para detección confiable.
 REGLA: dueDate = date para crédito (Alegra gestiona los plazos internamente).
 NUNCA omitas dueDate ni paymentForm — la API los rechaza sin ellos.
 

@@ -5,6 +5,7 @@ import {
   Bookmark,
 } from "lucide-react";
 import axios from "axios";
+import { FiltroFecha, DateRange, loadRange } from "../components/FiltroFecha";
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -124,6 +125,7 @@ export default function CFOEstrategico() {
   const [indicadores, setIndicadores] = useState<Indicadores>({});
   const [instrucciones, setInstrucciones] = useState<any[]>([]);
   const [showInstrucciones, setShowInstrucciones] = useState(false);
+  const [filtroFecha, setFiltroFecha] = useState<DateRange>(() => loadRange("cfo_estrategico"));
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -225,6 +227,7 @@ export default function CFOEstrategico() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <FiltroFecha moduleKey="cfo_estrategico" onChange={setFiltroFecha} compact />
           <button
             onClick={() => setShowInstrucciones(!showInstrucciones)}
             className="text-[11px] text-slate-400 border border-slate-700 rounded-lg px-2.5 py-1.5 hover:border-cyan-500 hover:text-cyan-300 transition flex items-center gap-1"

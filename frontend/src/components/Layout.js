@@ -3,7 +3,7 @@ import { Outlet, NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Settings, LogOut, ChevronLeft, Menu, Bell, User,
   CreditCard, Receipt, BarChart2, Bike, X,
-  BookOpen, Wallet, Bot, BriefcaseBusiness, Brain, TrendingUp,
+  BookOpen, Wallet, Bot, BriefcaseBusiness, Brain, TrendingUp, Target,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useAlegra } from "../contexts/AlegraContext";
@@ -17,7 +17,7 @@ const MODULES = [
   { path: "/impuestos",        label: "Impuestos",           icon: Receipt,          group: null  },
   { path: "/inventario-auteco",label: "Motos",               icon: Bike,             group: null  },
   { path: "/loanbook",         label: "Loanbook",            icon: BookOpen,         group: null  },
-  { path: "/crm",              label: "Cartera",             icon: CreditCard,       group: null  },
+  { path: "/radar",             label: "RADAR",               icon: Target,           group: null  },
   { path: "/configuracion",    label: "Configuración",       icon: Settings,         group: null  },
 ];
 

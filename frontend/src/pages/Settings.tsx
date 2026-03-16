@@ -1560,20 +1560,42 @@ function WebhooksTab({ api }: { api: any }) {
           </div>
         </div>
 
-        {/* Nota sobre bug de Alegra API */}
-        {webhookStatus && webhookStatus.total_activas === 0 && (
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-start gap-2">
+        {/* Nota sobre bug de Alegra API + Registro Manual */}
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
+          <div className="flex items-start gap-2">
             <AlertTriangle size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-xs font-semibold text-amber-800">Webhooks no disponibles via API</p>
+            <div className="flex-1">
+              <p className="text-xs font-semibold text-amber-800">Registro automático via API no disponible</p>
               <p className="text-[11px] text-amber-700 mt-0.5">
-                La API de Alegra rechaza URLs con https:// (bug conocido). El polling automático cada 5 min
-                está activo como reemplazo funcional. Para webhooks en tiempo real, regístralos manualmente
-                en <strong>app.alegra.com → Integraciones → Webhooks</strong>.
+                La API de Alegra rechaza URLs con <code className="font-mono bg-amber-100 px-1 rounded">https://</code> (bug confirmado).
+                El polling automático cada 5 min está activo. Para activar webhooks en tiempo real, regístralos manualmente:
               </p>
             </div>
           </div>
-        )}
+          <ol className="text-[11px] text-amber-800 space-y-1 pl-5 list-decimal">
+            <li>Abre <strong>app.alegra.com → Configuración → Integraciones → Webhooks</strong></li>
+            <li>Copia la URL del receptor (botón abajo)</li>
+            <li>Crea un webhook con los 12 eventos listados arriba</li>
+          </ol>
+          <div className="flex gap-2">
+            <a
+              href="https://app.alegra.com/user/integrations/webhooks"
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1.5 text-xs font-semibold bg-amber-600 text-white px-3 py-1.5 rounded-lg hover:bg-amber-700 transition"
+              data-testid="open-alegra-webhooks-btn"
+            >
+              <Globe size={12} /> Abrir Alegra → Webhooks
+            </a>
+            <button
+              onClick={() => { navigator.clipboard.writeText(`${process.env.REACT_APP_BACKEND_URL}/api/webhooks/alegra`); toast.success("URL copiada"); }}
+              className="flex items-center gap-1.5 text-xs font-semibold border border-amber-400 text-amber-700 px-3 py-1.5 rounded-lg hover:bg-amber-100 transition"
+              data-testid="copy-webhook-url-manual-btn"
+            >
+              Copiar URL receptor
+            </button>
+          </div>
+        </div>
 
         {/* Webhook URL */}
         <div className="bg-[#F0F7FF] rounded-xl p-3 border border-blue-100">

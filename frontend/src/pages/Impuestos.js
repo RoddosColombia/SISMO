@@ -8,6 +8,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { formatCOP } from "../utils/formatters";
+import { FiltroFecha, loadRange } from "../components/FiltroFecha";
 
 const UVT_2025 = 49799;
 
@@ -477,6 +478,7 @@ export default function Impuestos() {
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [saving, setSaving] = useState(false);
   const [filterTipo, setFilterTipo] = useState("");
+  const [filtroFecha, setFiltroFecha] = useState(() => loadRange("impuestos"));
 
   const loadAll = useCallback(async () => {
     try {
@@ -532,13 +534,16 @@ export default function Impuestos() {
               Calendario fiscal Colombia 2025 — UVT ${UVT_2025.toLocaleString("es-CO")} | IVA cuatrimestral configurable
             </p>
           </div>
-          <button
-            onClick={() => navigate("/proveedores")}
-            className="flex items-center gap-1.5 text-xs border border-[#0F2A5C]/30 text-[#0F2A5C] px-3 py-1.5 rounded-lg hover:bg-[#0F2A5C] hover:text-white transition"
-            data-testid="go-proveedores-btn"
-          >
-            <ArrowRight size={12} /> Gestionar Proveedores
-          </button>
+          <div className="flex items-center gap-2">
+            <FiltroFecha moduleKey="impuestos" onChange={setFiltroFecha} compact />
+            <button
+              onClick={() => navigate("/proveedores")}
+              className="flex items-center gap-1.5 text-xs border border-[#0F2A5C]/30 text-[#0F2A5C] px-3 py-1.5 rounded-lg hover:bg-[#0F2A5C] hover:text-white transition"
+              data-testid="go-proveedores-btn"
+            >
+              <ArrowRight size={12} /> Gestionar Proveedores
+            </button>
+          </div>
         </div>
       </div>
 
