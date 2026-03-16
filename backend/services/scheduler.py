@@ -180,6 +180,17 @@ async def _wa_alertas_mora_severa() -> None:
         logger.error("[Scheduler] WA T5 error: %s", e)
 
 
+async def _sync_pagos_alegra() -> None:
+    """Every 5 min: pull Alegra payments and apply to loanbook."""
+    try:
+        from routers.alegra_webhooks import sincronizar_pagos_externos
+        n = await sincronizar_pagos_externos()
+        if n:
+            logger.info("[Scheduler] Alegra payment sync: %d nuevos pagos", n)
+    except Exception as e:
+        logger.error("[Scheduler] Alegra payment sync error: %s", e)
+
+
 def start_scheduler() -> None:
     """Registra el job y arranca el scheduler. Llamar desde startup de FastAPI."""
     _scheduler.add_job(
@@ -240,6 +251,17 @@ def start_scheduler() -> None:
         timezone="America/Bogota",
         id="wa_alertas_mora_severa",
         replace_existing=True, max_instances=1, misfire_grace_time=3600,
+    )
+
+    # ── Alegra payment sync every 5 min ────────────────────────────────────────
+    _scheduler.add_job(
+        _sync_pagos_alegra,
+        trigger="interval",
+        minutes=5,
+        id="sync_pagos_alegra",
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=60,
     )
 
     _scheduler.start()

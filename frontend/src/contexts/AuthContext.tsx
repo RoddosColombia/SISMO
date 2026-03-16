@@ -44,11 +44,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   api.interceptors.response.use(
     (res) => res,
     (err) => {
+      // Only redirect to login once — avoid redirect storm when multiple
+      // simultaneous requests fail with 401 (e.g. expired token + polling)
       if (err.response?.status === 401) {
-        localStorage.removeItem("roddos_token");
-        setToken(null);
-        setUser(null);
-        window.location.href = "/login";
+        const alreadyRedirecting = sessionStorage.getItem("_roddos_redirecting_401");
+        if (!alreadyRedirecting) {
+          sessionStorage.setItem("_roddos_redirecting_401", "1");
+          localStorage.removeItem("roddos_token");
+          setToken(null);
+          setUser(null);
+          setTimeout(() => {
+            sessionStorage.removeItem("_roddos_redirecting_401");
+            window.location.href = "/login";
+          }, 100);
+        }
       }
       return Promise.reject(err);
     }

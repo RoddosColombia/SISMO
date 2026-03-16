@@ -5,7 +5,7 @@ from datetime import datetime, timezone, timedelta
 
 SECRET_KEY = os.environ.get("JWT_SECRET", "roddos-jwt-secret-2025-secure")
 ALGORITHM = "HS256"
-EXPIRE_HOURS = 24
+EXPIRE_HOURS = 168   # 7 days
 
 
 def hash_password(password: str) -> str:

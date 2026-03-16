@@ -959,15 +959,18 @@ export default function AgentChatPage() {
     init();
   }, []); // eslint-disable-line
 
-  /* poll tarea activa every 3s */
+  /* poll tarea activa every 3s — with offline guard and 502 back-off */
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
     let completedTimer: ReturnType<typeof setTimeout>;
+    let retryDelay = 3000;
 
     const poll = async () => {
+      if (!navigator.onLine) return; // skip when offline
       try {
         const res = await api.get("/chat/tarea");
         const t: TareaActiva = res.data;
+        retryDelay = 3000; // reset on success
         if (t.estado === "completada") {
           setTareaActiva(t);
           clearInterval(interval);
@@ -977,11 +980,19 @@ export default function AgentChatPage() {
         } else {
           setTareaActiva(t);
         }
-      } catch {}
+      } catch (e: any) {
+        // On 502/503 back off exponentially up to 30s
+        if (e?.response?.status === 502 || e?.response?.status === 503 || !e?.response) {
+          retryDelay = Math.min(retryDelay * 2, 30000);
+          clearInterval(interval);
+          interval = setInterval(poll, retryDelay);
+        }
+        // On any error: silently keep the last known state
+      }
     };
 
     poll();
-    interval = setInterval(poll, 3000);
+    interval = setInterval(poll, retryDelay);
     return () => { clearInterval(interval); clearTimeout(completedTimer); };
   }, []); // eslint-disable-line
 

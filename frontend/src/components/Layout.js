@@ -80,14 +80,16 @@ export default function Layout() {
   const currentModule = MODULES.find(m => location.pathname.startsWith(m.path));
 
   const fetchNotifications = useCallback(async () => {
+    if (!navigator.onLine) return; // Don't poll when offline
     try {
       const res = await api.get("/notifications", { params: { unread_only: true } });
       setNotifications(res.data || []);
-    } catch {}
+    } catch {} // Always silent — badge shows 0 on error
   }, [api]);
 
   // Poll CFO alerts every 60s for sidebar badge
   const fetchCfoAlerts = useCallback(async () => {
+    if (!navigator.onLine) return; // Don't poll when offline
     try {
       const res = await api.get("/cfo/alertas");
       const activas = (res.data || []).filter((a) => a.estado === "nueva");

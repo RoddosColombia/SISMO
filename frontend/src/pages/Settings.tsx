@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import {
   Save, TestTube2, RefreshCw, Loader2, ToggleLeft, ToggleRight,
   Shield, Activity, Globe, QrCode, Download, Check, MessageCircle,
-  Plus, Pencil, X, Bike, Zap,
+  Plus, Pencil, X, Bike, Zap, AlertTriangle,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Button } from "../components/ui/button";
@@ -1447,62 +1447,177 @@ function MercatelyTab({ api }: { api: any }) {
 function WebhooksTab({ api }: { api: any }) {
   const [webhookStatus, setWebhookStatus] = useState<any>(null);
   const [registering, setRegistering] = useState(false);
+  const [runningSyncPago, setRunningSyncPago] = useState(false);
 
-  useEffect(() => {
-    api.get("/settings/webhooks/status").then((res: any) => setWebhookStatus(res.data)).catch(() => {});
-  }, [api]);
+  const loadWebhookStatus = async () => {
+    try {
+      const res = await api.get("/webhooks/status");
+      setWebhookStatus(res.data);
+    } catch {}
+  };
 
-  const handleRegister = async () => {
+  useEffect(() => { loadWebhookStatus(); }, []); // eslint-disable-line
+
+  const handleRegisterAll = async () => {
     setRegistering(true);
     try {
-      const res = await api.post("/settings/webhooks/register");
-      toast.success("Webhook registrado en Alegra");
-      setWebhookStatus({ webhook_id: res.data.webhook_id, url: res.data.url, registered_at: new Date().toISOString() });
+      const res = await api.post("/webhooks/setup");
+      toast.success(`${res.data.registradas}/${res.data.total} suscripciones registradas en Alegra`);
+      await loadWebhookStatus();
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || "Error registrando webhook");
+      toast.error(err.response?.data?.detail || "Error registrando webhooks");
     } finally { setRegistering(false); }
   };
 
-  return (
-    <TabsContent value="webhooks" className="mt-5">
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 max-w-lg space-y-4">
-        <h3 className="text-base font-bold text-[#0F2A5C] flex items-center gap-2">
-          <Globe size={16} className="text-[#C9A84C]" /> Webhooks de Alegra
-        </h3>
-        <p className="text-sm text-slate-500">
-          Registra RODDOS como receptor de eventos en Alegra para recibir notificaciones en tiempo real.
-        </p>
+  const handleRunSyncPago = async () => {
+    setRunningSyncPago(true);
+    try {
+      const res = await api.post("/webhooks/sync-pagos-ahora");
+      toast.success(`Sync ejecutado: ${res.data.procesados} pagos nuevos`);
+      await loadWebhookStatus();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || "Error ejecutando sync");
+    } finally { setRunningSyncPago(false); }
+  };
 
-        <div className="bg-[#F0F4FF] rounded-xl p-4 space-y-2 text-xs">
-          <p className="font-semibold text-[#0F2A5C]">Eventos suscritos:</p>
-          {["invoice.created", "invoice.voided", "bill.created", "payment.created"].map(e => (
-            <div key={e} className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#C9A84C]" />
-              <span className="text-slate-600">{e}</span>
+  const EVENTOS_ESPERADOS = [
+    "new-invoice", "edit-invoice", "delete-invoice",
+    "new-bill",    "edit-bill",    "delete-bill",
+    "new-client",  "edit-client",  "delete-client",
+    "new-item",    "edit-item",    "delete-item",
+  ];
+
+  const subs: any[] = webhookStatus?.suscripciones || [];
+
+  const getSubStatus = (evento: string) => {
+    const s = subs.find((x: any) => x.evento === evento);
+    return s?.ok ?? null;
+  };
+
+  return (
+    <TabsContent value="webhooks" className="mt-5 space-y-5">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 max-w-2xl space-y-5">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center flex-shrink-0">
+              <Globe size={18} className="text-[#C9A84C]" />
             </div>
-          ))}
+            <div>
+              <h3 className="text-base font-bold text-[#0F2A5C]">Webhooks Alegra — Sincronización Bidireccional</h3>
+              <p className="text-xs text-slate-500 mt-0.5">12 eventos suscritos. RODDOS recibe cambios de Alegra en tiempo real.</p>
+            </div>
+          </div>
+          {webhookStatus && (
+            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${webhookStatus.total_activas >= 12 ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+              {webhookStatus.total_activas >= 12 ? <Check size={11} /> : <AlertTriangle size={11} />}
+              {webhookStatus.total_activas}/12 activos
+            </div>
+          )}
         </div>
 
-        {webhookStatus?.webhook_id ? (
-          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-1">
-            <div className="flex items-center gap-2">
-              <Check size={14} className="text-emerald-600" />
-              <span className="text-sm font-semibold text-emerald-700">Webhook registrado</span>
-            </div>
-            <p className="text-[11px] text-slate-500 font-mono break-all">{webhookStatus.url}</p>
-            <p className="text-[10px] text-slate-400">ID: {webhookStatus.webhook_id} — {webhookStatus.registered_at?.slice(0, 10)}</p>
+        {/* 12 Events grid */}
+        <div>
+          <p className="text-xs font-semibold text-slate-600 mb-2">Estado de suscripciones</p>
+          <div className="grid grid-cols-3 gap-2">
+            {EVENTOS_ESPERADOS.map(ev => {
+              const ok = getSubStatus(ev);
+              return (
+                <div key={ev}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs ${
+                    ok === true  ? "bg-green-50 border-green-200" :
+                    ok === false ? "bg-red-50 border-red-200" :
+                                   "bg-slate-50 border-slate-200"
+                  }`}
+                  data-testid={`webhook-event-${ev}`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                    ok === true  ? "bg-green-500" :
+                    ok === false ? "bg-red-500"   : "bg-slate-300"
+                  }`} />
+                  <span className={ok === true ? "text-green-700 font-medium" : ok === false ? "text-red-600" : "text-slate-500"}>
+                    {ev}
+                  </span>
+                </div>
+              );
+            })}
           </div>
-        ) : (
-          <button onClick={handleRegister} disabled={registering}
-            className="flex items-center gap-2 bg-[#0F2A5C] text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#163A7A] disabled:opacity-50"
-            data-testid="register-webhook-btn">
+        </div>
+
+        {/* Webhook URL */}
+        <div className="bg-[#F0F7FF] rounded-xl p-3 border border-blue-100">
+          <p className="text-xs font-semibold text-[#0F2A5C] mb-1">URL Receptor del Webhook</p>
+          <div className="flex items-center gap-2">
+            <code className="text-[11px] text-blue-700 bg-white border border-blue-200 rounded px-2 py-1 flex-1 truncate">
+              {process.env.REACT_APP_BACKEND_URL}/api/webhooks/alegra
+            </code>
+            <button
+              onClick={() => { navigator.clipboard.writeText(`${process.env.REACT_APP_BACKEND_URL}/api/webhooks/alegra`); toast.success("URL copiada"); }}
+              className="text-[11px] text-blue-600 hover:text-blue-800 font-medium whitespace-nowrap"
+              data-testid="copy-webhook-receiver-url-btn"
+            >
+              Copiar
+            </button>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex gap-3">
+          <Button onClick={handleRegisterAll} disabled={registering}
+            className="flex-1 bg-[#0F2A5C] text-white hover:bg-[#163A7A] flex items-center justify-center gap-2"
+            data-testid="register-all-webhooks-btn">
             {registering ? <Loader2 size={14} className="animate-spin" /> : <Globe size={14} />}
-            Registrar Webhook en Alegra
-          </button>
-        )}
-        <p className="text-[10px] text-slate-400">
-          * Requiere credenciales de Alegra configuradas y modo demo desactivado.
-        </p>
+            Re-registrar todos los webhooks
+          </Button>
+          <Button onClick={() => loadWebhookStatus()} variant="outline"
+            className="flex items-center gap-1.5 border-slate-200 text-slate-600"
+            data-testid="refresh-webhook-status-btn">
+            <RefreshCw size={13} />
+          </Button>
+        </div>
+      </div>
+
+      {/* Payment sync cron */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 max-w-2xl space-y-4">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center flex-shrink-0">
+            <RefreshCw size={18} className="text-blue-600" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-[#0F2A5C]">Sincronización de Pagos Alegra (Cron)</h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Alegra no emite webhooks de pagos. Un cron ejecuta cada 5 min para detectar pagos externos.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-3">
+          <div className="bg-slate-50 rounded-xl p-3 text-center border border-slate-100">
+            <p className="text-[10px] text-slate-400 uppercase font-semibold">Intervalo</p>
+            <p className="text-sm font-bold text-[#0F2A5C] mt-0.5">cada 5 min</p>
+          </div>
+          <div className="bg-slate-50 rounded-xl p-3 text-center border border-slate-100">
+            <p className="text-[10px] text-slate-400 uppercase font-semibold">Pagos hoy</p>
+            <p className="text-sm font-bold text-[#0F2A5C] mt-0.5" data-testid="pagos-hoy-count">
+              {webhookStatus?.pagos_sincronizados_hoy ?? "—"}
+            </p>
+          </div>
+          <div className="bg-slate-50 rounded-xl p-3 text-center border border-slate-100 col-span-1">
+            <p className="text-[10px] text-slate-400 uppercase font-semibold">Último sync</p>
+            <p className="text-[11px] font-semibold text-slate-600 mt-0.5 truncate">
+              {webhookStatus?.ultimo_sync_pago === "nunca" ? "Nunca" :
+               webhookStatus?.ultimo_sync_pago ? new Date(webhookStatus.ultimo_sync_pago).toLocaleTimeString("es-CO", {hour: "2-digit", minute: "2-digit"}) : "—"}
+            </p>
+          </div>
+        </div>
+
+        <Button onClick={handleRunSyncPago} disabled={runningSyncPago}
+          variant="outline"
+          className="flex items-center gap-2 border-blue-300 text-blue-700 hover:bg-blue-50"
+          data-testid="run-sync-pagos-btn">
+          {runningSyncPago ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+          Ejecutar sync de pagos ahora
+        </Button>
       </div>
     </TabsContent>
   );

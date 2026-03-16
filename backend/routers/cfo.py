@@ -19,24 +19,59 @@ router = APIRouter(prefix="/cfo", tags=["cfo"])
 logger = logging.getLogger(__name__)
 
 
+# ── Cache helper ─────────────────────────────────────────────────────────────
+
+_CFO_CACHE_TTL = 300  # 5 minutes in seconds
+
+
+async def _get_cache(key: str):
+    """Return cached value if still valid, else None."""
+    doc = await db.cfo_cache.find_one({"key": key}, {"_id": 0})
+    if not doc:
+        return None
+    expires_at = doc.get("expires_at")
+    if expires_at and datetime.fromisoformat(expires_at) > datetime.now(timezone.utc):
+        return doc.get("value")
+    return None
+
+
+async def _set_cache(key: str, value: dict, ttl: int = _CFO_CACHE_TTL):
+    """Upsert a cache entry with TTL."""
+    expires_at = datetime.now(timezone.utc).replace(microsecond=0)
+    from datetime import timedelta
+    expires_at = expires_at.replace(second=0) + timedelta(seconds=ttl)
+    await db.cfo_cache.update_one(
+        {"key": key},
+        {"$set": {"key": key, "value": value, "expires_at": expires_at.isoformat()}},
+        upsert=True,
+    )
+
+
 # ── GET /semaforo ─────────────────────────────────────────────────────────────
 @router.get("/semaforo")
 async def get_semaforo(current_user=Depends(get_current_user)):
-    """Semáforo financiero en tiempo real (exactamente 5 dimensiones: caja, cartera, ventas, roll_rate, impuestos)."""
+    """Semáforo financiero — cached 5 min (calls Alegra + Claude, ~30s cold)."""
+    cached = await _get_cache("semaforo")
+    if cached:
+        return cached
     datos = await consolidar_datos_financieros(db)
     result = await generar_semaforo(datos)
-    # Retornar solo las 5 dimensiones de color (excluir metricas internas)
-    return {k: v for k, v in result.items() if k != "metricas"}
+    out = {k: v for k, v in result.items() if k != "metricas"}
+    await _set_cache("semaforo", out)
+    return out
 
 
 # ── GET /pyg ──────────────────────────────────────────────────────────────────
 @router.get("/pyg")
 async def get_pyg(current_user=Depends(get_current_user)):
-    """P&G del mes: ingresos, costos, margen, gastos, resultado."""
+    """P&G del mes — cached 5 min (calls Alegra 3x, ~30s cold)."""
+    cached = await _get_cache("pyg")
+    if cached:
+        return cached
     datos = await consolidar_datos_financieros(db)
     pyg = await analizar_pyg(datos)
-    # Attach periodo
     pyg["periodo"] = datos.get("periodo", "")
+    await _set_cache("pyg", pyg)
     return pyg
 
 
@@ -82,6 +117,8 @@ async def _generar_informe_background(job_id: str, triggered_by: str):
             }},
         )
         logger.info("[CFO] Job %s completado — informe %s", job_id, informe.get("id"))
+        # Invalidar cache tras nuevo informe
+        await db.cfo_cache.delete_many({"key": {"$in": ["semaforo", "pyg"]}})
     except Exception as exc:
         logger.error("[CFO] Job %s falló: %s", job_id, exc)
         await db.cfo_jobs.update_one(

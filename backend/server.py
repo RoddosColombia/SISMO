@@ -23,6 +23,7 @@ from routers import proveedores_config as proveedores_router
 from routers import scheduler as scheduler_router
 from routers import learning as learning_router
 from routers import estado_resultados as er_router
+from routers import alegra_webhooks as webhooks_router
 from services.scheduler import start_scheduler, stop_scheduler
 from services.loanbook_scheduler import start_loanbook_scheduler, stop_loanbook_scheduler
 from migration_v24 import run_migration_v24
@@ -236,6 +237,7 @@ app.include_router(crm_router.router,      prefix=PREFIX)
 app.include_router(scheduler_router.router, prefix=PREFIX)
 app.include_router(learning_router.router,  prefix=PREFIX)
 app.include_router(er_router.router,        prefix=PREFIX)
+app.include_router(webhooks_router.router,  prefix=PREFIX)
 app.include_router(cfo_chat_router.router,  prefix=PREFIX)
 app.include_router(proveedores_router.router, prefix=PREFIX)
 
