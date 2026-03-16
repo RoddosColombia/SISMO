@@ -116,6 +116,57 @@ async def get_iva_status(ano: int = None, current_user=Depends(get_current_user)
     iva_descontable_proyectado = round(iva_descontable * factor)
     iva_pagar_proyectado = max(0, round((iva_cobrado_proyectado - iva_descontable_proyectado) - saldo_favor))
 
+    # ── ReteFuente praticada a proveedores en el período ─────────────────────
+    # Aggregate retefuente from bill retentions, or estimate at 2.5% on qualifying purchases
+    UVT_2025 = 49799
+    BASE_MINIMA_COMPRAS = 27 * UVT_2025  # $1,344,573
+
+    retefuente_total = 0.0
+    retefuente_facturas = 0
+    # Load autoretenedores to exclude them
+    autoretenedores_docs = await db.proveedores_config.find(
+        {"es_autoretenedor": True}, {"_id": 0, "nombre": 1, "nit": 1}
+    ).to_list(100)
+    autoret_names = {a["nombre"].lower() for a in autoretenedores_docs}
+    autoret_nits = {a["nit"] for a in autoretenedores_docs if a.get("nit")}
+
+    for bill in bills:
+        proveedor_nombre = ""
+        proveedor_nit = ""
+        if isinstance(bill.get("vendor"), dict):
+            proveedor_nombre = (bill["vendor"].get("name") or "").lower()
+            proveedor_nit = bill["vendor"].get("identification", "")
+        if proveedor_nombre in autoret_names or proveedor_nit in autoret_nits:
+            continue  # skip autoretenedores
+
+        subtotal = float(bill.get("subtotal") or bill.get("total") or 0) / 1.19  # excl IVA
+
+        # Check if bill has retentions field (Alegra API)
+        retentions = bill.get("retentions") or bill.get("taxes") or []
+        bill_retefuente = 0.0
+        if isinstance(retentions, list):
+            for ret in retentions:
+                if isinstance(ret, dict):
+                    name_lower = (ret.get("name") or "").lower()
+                    if "retefuente" in name_lower or "rete fuente" in name_lower or "retención en la fuente" in name_lower:
+                        bill_retefuente += float(ret.get("value") or ret.get("amount") or 0)
+
+        if bill_retefuente > 0:
+            retefuente_total += bill_retefuente
+            retefuente_facturas += 1
+        elif subtotal >= BASE_MINIMA_COMPRAS:
+            # Estimate at 2.5% if no retention data in API
+            retefuente_total += round(subtotal * 0.025)
+            retefuente_facturas += 1
+
+    # ── ReteICA Bogotá (Industria y Comercio) ────────────────────────────────
+    # RODDOS: comercio motos → tarifa 0.414% anual ≈ 4.14‰ anual
+    # Para el período: proporción de meses
+    RETICA_TARIFA_ANUAL = 0.00414  # 4.14‰ anual = 0.414% anual
+    ingresos_gravables_ica = total_ventas / 1.19  # base sin IVA
+    retica_acumulada = round(ingresos_gravables_ica * RETICA_TARIFA_ANUAL * meses_transcurridos / 12)
+    retica_proyectada = round(ingresos_gravables_ica * RETICA_TARIFA_ANUAL * meses_periodo / 12)
+
     mes_limite = fin_mes + periodo_actual.get("mes_limite_offset", 1)
     ano_limite = ano
     if mes_limite > 12:
@@ -157,5 +208,17 @@ async def get_iva_status(ano: int = None, current_user=Depends(get_current_user)
             "iva_cobrado": iva_cobrado_proyectado,
             "iva_descontable": iva_descontable_proyectado,
             "iva_pagar": iva_pagar_proyectado,
+        },
+        "retefuente": {
+            "acumulada": round(retefuente_total),
+            "facturas_con_retencion": retefuente_facturas,
+            "nota": "Retenciones practicadas a proveedores en el período (excluye autoretenedores)",
+        },
+        "retica": {
+            "acumulada": retica_acumulada,
+            "proyectada_periodo": retica_proyectada,
+            "tarifa_anual_pct": round(RETICA_TARIFA_ANUAL * 100, 3),
+            "base_ingresos": round(ingresos_gravables_ica),
+            "nota": "ReteICA Bogotá — comercio motos (4.14‰ anual)",
         },
     }

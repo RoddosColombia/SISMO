@@ -16,6 +16,7 @@ import Loanbook from "./pages/Loanbook";
 import CRMList from "./pages/CRMList";
 import CRMCliente from "./pages/CRMCliente";
 import CFO from "./pages/CFO";
+import Proveedores from "./pages/Proveedores";
 import "./App.css";
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -52,6 +53,7 @@ function AppRoutes() {
           <Route path="crm" element={<CRMList />} />
           <Route path="crm/:id" element={<CRMCliente />} />
           <Route path="configuracion" element={<Settings />} />
+          <Route path="proveedores" element={<Proveedores />} />
           {/* Módulos eliminados del menú — redirigen al chat con contexto */}
           <Route path="facturacion-venta" element={<Navigate to="/agente-contable?hint=factura-venta" replace />} />
           <Route path="facturacion-compra" element={<Navigate to="/agente-contable?hint=factura-compra" replace />} />

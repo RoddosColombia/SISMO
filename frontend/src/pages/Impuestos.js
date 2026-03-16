@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback } from "react";
 import {
   Calendar, AlertTriangle, CheckCircle2, Clock, Settings2,
-  Save, Loader2, RefreshCw, TrendingDown, ChevronDown, ChevronUp, Info
+  Save, Loader2, RefreshCw, TrendingDown, ChevronDown, ChevronUp, Info,
+  ArrowRight, FileText
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { formatCOP } from "../utils/formatters";
 
@@ -40,6 +42,71 @@ function buildCalendar(tipo, periodos) {
   ];
 
   return [...ivaEvents, ...fixed];
+}
+
+function ReteFuenteCard({ status }) {
+  if (!status?.retefuente) return null;
+  const { acumulada, facturas_con_retencion, nota } = status.retefuente;
+  return (
+    <div className="bg-white rounded-xl border border-amber-200 shadow-sm p-5" data-testid="retefuente-card">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-base font-bold text-[#0F2A5C] flex items-center gap-2">
+          <FileText size={15} className="text-amber-500" />
+          ReteFuente Practicada
+        </h3>
+        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+          {status.periodo?.nombre}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div className="bg-amber-50 rounded-lg p-3">
+          <p className="text-[10px] text-slate-500 mb-0.5">Total retenido período</p>
+          <p className="text-lg font-bold text-amber-700">{formatCOP(acumulada)}</p>
+        </div>
+        <div className="bg-slate-50 rounded-lg p-3">
+          <p className="text-[10px] text-slate-500 mb-0.5">Facturas con retención</p>
+          <p className="text-lg font-bold text-[#0F2A5C]">{facturas_con_retencion}</p>
+        </div>
+      </div>
+      <p className="text-[10px] text-slate-400">{nota}</p>
+      <p className="text-[10px] text-slate-400 mt-1">
+        Vence declaración: día 20 del mes siguiente al período
+      </p>
+    </div>
+  );
+}
+
+function ReteICACard({ status, onGoProveedores }) {
+  if (!status?.retica) return null;
+  const { acumulada, proyectada_periodo, tarifa_anual_pct, base_ingresos, nota } = status.retica;
+  return (
+    <div className="bg-white rounded-xl border border-purple-200 shadow-sm p-5" data-testid="retica-card">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-base font-bold text-[#0F2A5C] flex items-center gap-2">
+          <FileText size={15} className="text-purple-500" />
+          ReteICA Bogotá
+        </h3>
+        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">
+          {tarifa_anual_pct}% anual
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div className="bg-purple-50 rounded-lg p-3">
+          <p className="text-[10px] text-slate-500 mb-0.5">Acumulado al mes {status.meses_transcurridos}</p>
+          <p className="text-lg font-bold text-purple-700">{formatCOP(acumulada)}</p>
+        </div>
+        <div className="bg-slate-50 rounded-lg p-3">
+          <p className="text-[10px] text-slate-500 mb-0.5">Proyección período completo</p>
+          <p className="text-lg font-bold text-[#0F2A5C]">{formatCOP(proyectada_periodo)}</p>
+        </div>
+      </div>
+      <div className="text-[10px] text-slate-400 space-y-0.5">
+        <p>Base ingresos gravables: {formatCOP(base_ingresos)}</p>
+        <p>{nota}</p>
+        <p>Vence declaración: día 20 del mes siguiente</p>
+      </div>
+    </div>
+  );
 }
 
 function IVAStatusCard({ status, loading, onRefresh }) {
@@ -403,6 +470,7 @@ function ConfigPanel({ config, presets, onSave, saving }) {
 
 export default function Impuestos() {
   const { api } = useAuth();
+  const navigate = useNavigate();
   const [config, setConfig] = useState(null);
   const [presets, setPresets] = useState({});
   const [status, setStatus] = useState(null);
@@ -457,10 +525,21 @@ export default function Impuestos() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-[#0F2A5C] font-montserrat">Impuestos y Alertas</h2>
-        <p className="text-sm text-slate-500 mt-1">
-          Calendario fiscal Colombia 2025 — UVT ${UVT_2025.toLocaleString("es-CO")} | IVA cuatrimestral configurable
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold text-[#0F2A5C] font-montserrat">Impuestos y Alertas</h2>
+            <p className="text-sm text-slate-500 mt-1">
+              Calendario fiscal Colombia 2025 — UVT ${UVT_2025.toLocaleString("es-CO")} | IVA cuatrimestral configurable
+            </p>
+          </div>
+          <button
+            onClick={() => navigate("/proveedores")}
+            className="flex items-center gap-1.5 text-xs border border-[#0F2A5C]/30 text-[#0F2A5C] px-3 py-1.5 rounded-lg hover:bg-[#0F2A5C] hover:text-white transition"
+            data-testid="go-proveedores-btn"
+          >
+            <ArrowRight size={12} /> Gestionar Proveedores
+          </button>
+        </div>
       </div>
 
       {/* Configuration panel */}
@@ -469,10 +548,12 @@ export default function Impuestos() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left column: IVA Status + Suggestions */}
+        {/* Left column: IVA Status + Suggestions + ReteFuente + ReteICA */}
         <div className="space-y-4">
           <IVAStatusCard status={status} loading={loadingStatus} onRefresh={loadStatus} />
           {status && <SugerenciasIVA status={status} />}
+          {status && <ReteFuenteCard status={status} />}
+          {status && <ReteICACard status={status} onGoProveedores={() => navigate("/proveedores")} />}
         </div>
 
         {/* Right column: Calendar + Rates */}
