@@ -1,5 +1,5 @@
 # RODDOS Contable IA — Product Requirements Document
-**Versión**: 9.0.0 | **Actualizado**: Marzo 2026
+**Versión**: 10.0.0 | **Actualizado**: Marzo 2026
 
 ---
 
@@ -25,7 +25,15 @@ Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
 - Módulo cobranza = RADAR (ruta /radar). NUNCA llamar 'cartera' o 'cola de cobranza'
 - Alegra: SIEMPRE /categories. NUNCA /accounts (devuelve 403)
 - **IVA: CUATRIMESTRAL** (Ene-Abr | May-Ago | Sep-Dic). NUNCA bimestral.
-- **Autoretenedores**: proveedores en `proveedores_config` con es_autoretenedor=true → NO aplicar ReteFuente. Actualmente: AUTECO KAWASAKI S.A.S. (NIT 860024781)
+- **Autoretenedores**: proveedores en `proveedores_config` con es_autoretenedor=true → NO aplicar ReteFuente. Actualmente: AUTECO KAWASAKI S.A.S. (NIT 860024781) + **AUTOTECNICA COLOMBIANA S.A.S. / Auteco (NIT 890.900.317-0)** — confirmado AUTORRETENEDOR
+
+### INVENTARIO TVS — REALIDAD ACTUAL (Marzo 2026)
+- **Compras a Auteco**: 2 facturas — E670155732 (23 motos, vence 26/05/2026) + E670156766 (10 motos, vence 03/06/2026)
+- **Total en inventario**: 34 motos (33 de facturas nuevas + 1 de batch anterior para LB-2026-0016)
+- **Estado**: 24 Disponibles + 10 Entregadas (todos los loanbooks con VIN asignado)
+- **VIN obligatorio en venta**: El agente SIEMPRE pide VIN antes de crear factura
+- **Bills registradas en Alegra**: E670155732 → ID=4 | E670156766 → ID=5
+- **Deudas productivas CFO**: E670155732=$132.668.200 + E670156766=$67.741.277
 - **Personas Naturales**: SIEMPRE ReteFuente. NUNCA pueden ser autoretenedoras.
 
 ---
@@ -158,6 +166,17 @@ Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
 - POST /api/webhooks/alegra (receptor seguro <1s), 12 handlers de eventos, cron sync pagos 5min
 - WebhooksTab en Settings: grid 12 eventos, stats sync, re-register y manual sync buttons
 
+### BUILD 17 — Inventario TVS Completo + Capacidades Agente ✅ COMPLETADO (Mar 2026)
+- Migración DB: eliminados 2 fantasmas (Honda, Yamaha) + 10 placeholders PENDIENTE-LB
+- 33 motos TVS reales cargadas con upsert por chasis (34 total incl. 1 de batch anterior para LB-2026-0016)
+- Cruce Alegra: 10/10 loanbooks ahora tienen moto_chasis + motor (leídos desde anotation de facturas de venta)
+- Bills E670155732 ($132.668.200, vence 26/05/2026) y E670156766 ($67.741.277, vence 03/06/2026) registradas en Alegra (ID=4, ID=5) y en cfo_deudas como deudas productivas
+- Nuevos endpoints: `GET /inventario/auditoria`, `DELETE /inventario/motos/{id}`, `POST /inventario/asignar-chasis`
+- Webhook actualizado: detecta VIN con regex (9FL...) en anotation, actualiza inventario + loanbook en tiempo real
+- AI Agent: auditoría automática sin LLM (keyword "audita el inventario"), consulta moto de cliente (keyword "qué moto tiene"), VIN obligatorio en flujo de venta con lista de disponibles
+- Frontend: polling 30s en módulo Motos + scheduler reconciliación inventario lunes 7am COT
+- Autoco NIT 890.900.317-0 confirmado AUTORRETENEDOR (sin ReteFuente)
+
 ### BUILD 16 — Carga Masiva de Gastos vía Excel ✅ COMPLETADO (Mar 2026)
 - **GET /api/gastos/plantilla**: Genera plantilla Excel oficial con 12 columnas, dropdowns, hoja de instrucciones, fila ejemplo Auteco Kawasaki
 - **POST /api/gastos/cargar**: Parsea Excel uploaded, detecta headers (exact + substring matching), calcula retenciones automáticas (ReteFuente + IVA), detecta autoretenedores desde DB y columna, retorna preview + resumen
@@ -201,8 +220,11 @@ users · audit_logs · gestiones_cartera · learning_outcomes · learning_patter
 Ver `/app/memory/ARCHITECTURE.md` sección 3.6 para lista completa.
 NUNCA crear /api/cartera/* — la ruta correcta es /api/radar/*
 
-## NUEVOS ENDPOINTS (GAPs Marzo 2026 + BUILD 16)
-- GET /api/inventario/stats — estadísticas inventario motos
+## NUEVOS ENDPOINTS (GAPs Marzo 2026 + BUILD 16 + BUILD 17)
+- GET /api/inventario/stats — estadísticas inventario motos (+ ultima_actualizacion)
+- GET /api/inventario/auditoria — auditoría completa con inconsistencias
+- DELETE /api/inventario/motos/{id} — elimina con verificación loanbook + log evento
+- POST /api/inventario/asignar-chasis — asigna VIN+motor a loanbook
 - POST /api/cfo/generar — ahora retorna {job_id, estado} (async)
 - GET /api/cfo/status/{job_id} — polling estado job CFO
 - GET /api/gastos/plantilla — plantilla Excel 12 columnas con instrucciones y dropdowns

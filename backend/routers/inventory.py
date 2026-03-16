@@ -270,14 +270,6 @@ async def update_moto(moto_id: str, body: dict, current_user=Depends(get_current
     return updated
 
 
-@router.delete("/motos/{moto_id}")
-async def delete_moto(moto_id: str, current_user=Depends(require_admin)):
-    result = await db.inventario_motos.delete_one({"id": moto_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Moto no encontrada")
-    return {"message": "Moto eliminada"}
-
-
 @router.post("/motos/{moto_id}/register-alegra")
 async def register_in_alegra(moto_id: str, current_user=Depends(get_current_user)):
     moto = await db.inventario_motos.find_one({"id": moto_id}, {"_id": 0})
