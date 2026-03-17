@@ -344,6 +344,7 @@ export default function Settings() {
         <WebhooksTab api={api} />
         <CfoTab api={api} />
         {user?.role === "admin" && <MercatelyTab api={api} />}
+        <DianTab api={api} />
         <TabsContent value="scheduler" className="mt-5">
           <SchedulerTab api={api} />
         </TabsContent>
@@ -1871,9 +1872,9 @@ function DianTab({ api }: { api: any }) {
   const loadStatus = React.useCallback(async () => {
     try {
       const s = await api.get("/dian/status");
-      setStatus(s);
+      setStatus(s.data);
       const h = await api.get("/dian/historial");
-      setHistorial(Array.isArray(h) ? h.slice(0, 10) : []);
+      setHistorial(Array.isArray(h.data) ? h.data.slice(0, 10) : []);
     } catch {}
   }, [api]);
 
@@ -1883,7 +1884,7 @@ function DianTab({ api }: { api: any }) {
     setSyncing(true);
     try {
       const res = await api.post("/dian/sync", {});
-      toast.success(`DIAN sync: ${res.procesadas} causadas, ${res.omitidas} omitidas`);
+      toast.success(`DIAN sync: ${res.data?.procesadas ?? 0} causadas, ${res.data?.omitidas ?? 0} omitidas`);
       await loadStatus();
     } catch { toast.error("Error en DIAN sync"); }
     finally { setSyncing(false); }
@@ -1893,31 +1894,33 @@ function DianTab({ api }: { api: any }) {
     setProbando(true);
     try {
       const res = await api.post("/dian/probar-conexion", {});
-      if (res.ok) toast.success(res.mensaje);
-      else toast.error(res.mensaje);
+      if (res.data?.ok) toast.success(res.data.mensaje);
+      else toast.error(res.data?.mensaje || "Error al probar conexión");
     } catch { toast.error("Error al probar conexión"); }
     finally { setProbando(false); }
   }
 
   return (
+    <TabsContent value="dian" className="mt-5">
     <div className="space-y-5" data-testid="dian-tab">
       {/* Banner modo simulación */}
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
-        <AlertTriangle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
+      <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 flex items-start gap-3">
+        <AlertTriangle size={18} className="text-amber-600 flex-shrink-0 mt-0.5" />
         <div className="flex-1">
-          <p className="text-sm font-semibold text-amber-800">
-            Modo simulación activo — datos realistas de proveedores RODDOS
+          <p className="text-sm font-bold text-amber-900">
+            ⚠️ Modo simulación activo — conecta credenciales reales para datos DIAN
           </p>
-          <p className="text-xs text-amber-700 mt-0.5">
-            Conecta tus credenciales DIAN o un proveedor intermediario
-            (Alanube, Facturalatam) para activar datos reales de la DIAN.
+          <p className="text-xs text-amber-700 mt-1">
+            Los datos mostrados son simulados con proveedores reales de RODDOS (Auteco, bancos, arriendo).
+            Para activar la integración real, configura un proveedor intermediario como
+            <strong> Alanube</strong> o <strong>Facturalatam</strong>.
           </p>
           <button
-            className="mt-2 text-xs font-semibold text-amber-700 border border-amber-400 px-3 py-1 rounded-lg hover:bg-amber-100 transition"
+            className="mt-2 text-xs font-semibold text-amber-800 border border-amber-500 bg-amber-100 px-3 py-1 rounded-lg hover:bg-amber-200 transition"
             data-testid="dian-configurar-credenciales-btn"
-            onClick={() => toast.info("Para conectar: configura DIAN_TOKEN, DIAN_AMBIENTE y DIAN_BASE_URL en las variables de entorno")}
+            onClick={() => toast.info("Para activar: configura DIAN_TOKEN, DIAN_AMBIENTE y DIAN_BASE_URL en las variables de entorno del backend")}
           >
-            Configurar credenciales reales
+            Configurar credenciales reales →
           </button>
         </div>
       </div>
@@ -1998,13 +2001,13 @@ function DianTab({ api }: { api: any }) {
                 </tr>
               </thead>
               <tbody>
-                {historial.map((h, i) => (
+                {historial.map((s: any, i: number) => (
                   <tr key={i} className="border-b border-slate-50 hover:bg-slate-50">
-                    <td className="py-1.5 pr-3 text-slate-500 whitespace-nowrap">{h.timestamp?.slice(0,10) || h.fecha || "—"}</td>
-                    <td className="py-1.5 pr-3 text-slate-700">{h.consultadas ?? 0}</td>
-                    <td className="py-1.5 pr-3"><span className="text-green-600 font-semibold">{h.procesadas ?? 0}</span></td>
-                    <td className="py-1.5 pr-3 text-slate-500">{h.omitidas ?? 0}</td>
-                    <td className="py-1.5">{(h.errores ?? 0) > 0 ? <span className="text-red-500 font-semibold">{h.errores}</span> : <span className="text-slate-300">0</span>}</td>
+                    <td className="py-2 pr-3 text-slate-600">{s.timestamp?.slice(0, 16).replace("T", " ")}</td>
+                    <td className="py-2 pr-3 text-slate-600">{s.consultadas ?? 0}</td>
+                    <td className="py-2 pr-3 text-green-600 font-medium">{s.procesadas ?? s.causadas ?? 0}</td>
+                    <td className="py-2 pr-3 text-slate-500">{s.omitidas ?? 0}</td>
+                    <td className="py-2 text-red-500">{s.errores ?? 0}</td>
                   </tr>
                 ))}
               </tbody>
@@ -2013,5 +2016,6 @@ function DianTab({ api }: { api: any }) {
         )}
       </div>
     </div>
+    </TabsContent>
   );
 }

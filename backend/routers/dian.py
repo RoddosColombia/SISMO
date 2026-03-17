@@ -54,8 +54,8 @@ class SyncRequest(BaseModel):
 async def dian_sync_manual(req: SyncRequest = None, current_user=Depends(get_current_user)):
     """Ejecuta un sync manual de facturas DIAN."""
     hoy = date.today()
-    ayer = hoy - timedelta(days=1)
-    f_desde = (req.fecha_desde if req and req.fecha_desde else ayer.isoformat())
+    inicio_mes = date(hoy.year, hoy.month, 1)
+    f_desde = (req.fecha_desde if req and req.fecha_desde else inicio_mes.isoformat())
     f_hasta = (req.fecha_hasta if req and req.fecha_hasta else hoy.isoformat())
 
     resumen = await sync_facturas_dian(f_desde, f_hasta, db)
