@@ -260,6 +260,14 @@ Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
 - Cambio de contraseña + re-login: PASS ✅
 - Backend 11/11 endpoints: 100% ✅
 
+### HOTFIX — Plan de Cuentas & Permisos Agente (Marzo 2026)
+- **Fix mapeo:** `PLAN_CUENTAS_RODDOS` (28 entries) con IDs reales Alegra. `_lookup_plan_cuentas_local(categoria, subcategoria)` resuelve cuenta correcta. `CUENTAS_GASTO["otros"]` corregido 5495→5493.
+- **Fix template:** columnas `Categoria`+`Subcategoria` con dropdowns, hoja `Plan_Cuentas` en Excel.
+- **Fix agente:** `anular_causacion` en ACTION_MAP (DELETE /journals/{id}). Plan de cuentas en system prompt permanente.
+- **Fix MongoDB:** colección `plan_cuentas_roddos` (28 docs), init en startup.
+- **Nuevos endpoints:** GET /plan-cuentas, POST /cleanup-preview (background job), GET /cleanup-status/{job_id}, POST /cleanup-execute
+- **Testing:** 18/18 backend tests PASS ✅
+
 ### Backlog Técnico
 - Detección automática UVT para retenciones (actualmente hardcoded)
 - DIAN producción: conectar a Alanube/Facturalatam con credenciales reales
