@@ -481,13 +481,28 @@ async def register_pago(loan_id: str, req: PagoRequest, current_user=Depends(get
     """Register payment for a cuota + create payment in Alegra."""
     loan = await db.loanbook.find_one({"id": loan_id}, {"_id": 0})
     if not loan:
-        raise HTTPException(status_code=404, detail="Plan no encontrado")
+        raise HTTPException(status_code=404, detail=f"Plan de crédito no encontrado (ID: {loan_id})")
+
+    # BUILD 21: descriptive state validation
+    if loan.get("estado") not in ("activo", "mora"):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"No puedes registrar el pago: el crédito está en estado '{loan.get('estado')}'."
+                + (" Confirma la entrega de la moto primero."
+                   if loan.get("estado") == "pendiente_entrega" else "")
+            ),
+        )
+
     cuotas = loan.get("cuotas", [])
     cuota = next((c for c in cuotas if c["numero"] == req.cuota_numero), None)
     if not cuota:
-        raise HTTPException(status_code=404, detail=f"Cuota {req.cuota_numero} no encontrada")
+        raise HTTPException(status_code=404, detail=f"Cuota {req.cuota_numero} no encontrada en {loan.get('codigo','')}")
     if cuota["estado"] == "pagada":
-        raise HTTPException(status_code=400, detail="Esta cuota ya está pagada")
+        raise HTTPException(
+            status_code=400,
+            detail=f"La cuota {req.cuota_numero} ya fue registrada (pagada el {cuota.get('fecha_pago','?')}).",
+        )
 
     # Create payment in Alegra
     service = AlegraService(db)
@@ -514,15 +529,15 @@ async def register_pago(loan_id: str, req: PagoRequest, current_user=Depends(get
     cuota["comprobante"] = comprobante_num
     cuota["notas"] = req.notas or ""
 
-    # Save payment record
+    # Save payment record — use .get() for optional fields to prevent KeyError
     await db.cartera_pagos.insert_one({
         "id": str(uuid.uuid4()),
         "loanbook_id": loan_id,
-        "codigo_loan": loan["codigo"],
+        "codigo_loan": loan.get("codigo", ""),
         "cuota_numero": req.cuota_numero,
-        "cliente_id": loan["cliente_id"],
-        "cliente_nombre": loan["cliente_nombre"],
-        "plan": loan["plan"],
+        "cliente_id": loan.get("cliente_id", ""),
+        "cliente_nombre": loan.get("cliente_nombre", ""),
+        "plan": loan.get("plan", ""),
         "fecha_pago": date.today().isoformat(),
         "valor_pagado": req.valor_pagado,
         "metodo_pago": req.metodo_pago,

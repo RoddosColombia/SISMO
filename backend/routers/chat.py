@@ -198,3 +198,68 @@ async def avanzar_tarea(
         {"$set": updates},
     )
     return {"ok": True, "completada": updates.get("estado") == "completada"}
+
+
+# ── BUILD 21 MODULE 4: Endpoints de Temas Pendientes ─────────────────────────
+
+@router.get("/pendientes")
+async def get_pendientes(current_user=Depends(get_current_user)):
+    """Retorna los temas pendientes activos del usuario (TTL 72h).
+
+    Usado por el badge en el header del chat.
+    """
+    from ai_chat import get_pending_topics
+    user_id = current_user.get("id", "")
+    if not user_id:
+        return {"pendientes": []}
+    topics = await get_pending_topics(db, user_id)
+    return {"pendientes": topics, "total": len(topics)}
+
+
+@router.post("/pendientes/{topic_key}/retomar")
+async def retomar_pendiente(topic_key: str, current_user=Depends(get_current_user)):
+    """Inyecta el tema pendiente como contexto en la próxima sesión del agente.
+
+    Retorna el contexto del tema para que el frontend lo use como mensaje inicial.
+    """
+    user_id = current_user.get("id", "")
+    topic = await db.agent_pending_topics.find_one(
+        {"user_id": user_id, "topic_key": topic_key, "estado": "pendiente"},
+        {"_id": 0},
+    )
+    if not topic:
+        raise HTTPException(status_code=404, detail="Tema pendiente no encontrado")
+
+    # Mark as in_progress (being retaken)
+    await db.agent_pending_topics.update_one(
+        {"user_id": user_id, "topic_key": topic_key},
+        {"$set": {"estado": "retomando", "retomado_en": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {
+        "topic_key": topic_key,
+        "descripcion": topic.get("descripcion", ""),
+        "datos_contexto": topic.get("datos_contexto", {}),
+        "mensaje_inicial": f"Retomando el tema pendiente: {topic.get('descripcion','')}. ¿Continuamos?",
+    }
+
+
+@router.delete("/pendientes/{topic_key}")
+async def descartar_pendiente(topic_key: str, current_user=Depends(get_current_user)):
+    """Descarta un tema pendiente individual (lo marca como descartado, no elimina)."""
+    user_id = current_user.get("id", "")
+    await db.agent_pending_topics.update_one(
+        {"user_id": user_id, "topic_key": topic_key},
+        {"$set": {"estado": "descartado", "descartado_en": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"ok": True, "topic_key": topic_key}
+
+
+@router.delete("/pendientes")
+async def descartar_todos_pendientes(current_user=Depends(get_current_user)):
+    """Descarta TODOS los temas pendientes del usuario."""
+    user_id = current_user.get("id", "")
+    result = await db.agent_pending_topics.update_many(
+        {"user_id": user_id, "estado": "pendiente"},
+        {"$set": {"estado": "descartado", "descartado_en": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"ok": True, "descartados": result.modified_count}

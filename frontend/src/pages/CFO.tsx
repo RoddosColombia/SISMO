@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { useAuth } from "../contexts/AuthContext";
+import { descargarArchivo } from "../utils/descargar";
 import {
   TrendingUp, TrendingDown, RefreshCw, Loader2, AlertTriangle,
   CheckCircle, Clock, BarChart2, ChevronRight, FileText,
@@ -201,6 +202,7 @@ function EstadoBadge({ estado }: { estado: PlanAccion["estado"] }): React.ReactE
 
 export default function CFO(): React.ReactElement {
   const { api } = useAuth() as any;
+  const token = (api as any)?.defaults?.headers?.Authorization?.replace("Bearer ", "") || localStorage.getItem("roddos_token");
 
   const [semaforo, setSemaforo]       = useState<Semaforo | null>(null);
   const [pyg, setPyg]                 = useState<Pyg | null>(null);
@@ -494,20 +496,16 @@ export default function CFO(): React.ReactElement {
     } catch { toast.error("Error cargando P&L"); } finally { setLoadingPl(false); }
   };
 
-  const handleExportarPdf = () => {
+  const handleExportarPdf = async () => {
     const url = `${API}/api/cfo/estado-resultados/pdf?periodo=${plPeriodo}`;
-    window.open(url, "_blank");
+    await descargarArchivo(url, `RODDOS_PL_${plPeriodo}.pdf`, token,
+      (msg) => toast.error(msg));
   };
 
   const handleExportarExcel = async () => {
-    try {
-      const res = await api.get(`/cfo/estado-resultados/excel?periodo=${plPeriodo}`, { responseType: "blob" });
-      const url  = window.URL.createObjectURL(new Blob([res.data]));
-      const link = document.createElement("a");
-      link.href  = url; link.setAttribute("download", `RODDOS_PL_${plPeriodo}.xlsx`);
-      document.body.appendChild(link); link.click();
-      document.body.removeChild(link); window.URL.revokeObjectURL(url);
-    } catch { toast.error("Error exportando Excel"); }
+    const url = `${API}/api/cfo/estado-resultados/excel?periodo=${plPeriodo}`;
+    await descargarArchivo(url, `RODDOS_PL_${plPeriodo}.xlsx`, token,
+      (msg) => toast.error(msg));
   };
 
   const handleReclasificar = async (id: string, nuevoTipo: string) => {

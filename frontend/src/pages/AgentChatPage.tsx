@@ -2,15 +2,17 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import { Bot, Send, Trash2, Paperclip, X, Play,
   CheckCircle2, Loader2, FileText, AlertCircle, Zap,
   Bike, CreditCard, Receipt, ScanLine, UserPlus, ArrowRight,
-  Download, Sheet, UploadCloud, TableProperties, ChevronDown, ChevronUp
+  Download, Sheet, UploadCloud, TableProperties, ChevronDown, ChevronUp,
+  MessageSquare
 } from "lucide-react";
-
-const API = process.env.REACT_APP_BACKEND_URL;
 import ReactMarkdown from "react-markdown";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
+import { descargarArchivo } from "../utils/descargar";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
+
+const API = process.env.REACT_APP_BACKEND_URL;
 
 /* ── types ── */
 interface AttachedFileInfo { name: string; type: string; preview: string | null; }
@@ -512,25 +514,19 @@ function TerceroCard({ action, onConfirm, onCancel, executing }: {
 function PlExportCard({ card, token }: { card: PlExportCardData; token?: string }): React.ReactElement {
   const [downloading, setDownloading] = useState<"pdf" | "excel" | null>(null);
 
-  const handlePdf = () => {
+  const handlePdf = async () => {
     const url = `${API}/api/cfo/estado-resultados/pdf?periodo=${card.periodo}`;
-    window.open(url, "_blank");
+    const ok = await descargarArchivo(url, `RODDOS_PL_${card.periodo}.pdf`, token,
+      (msg) => toast.error(msg));
+    if (!ok) return;
   };
 
   const handleExcel = async () => {
     setDownloading("excel");
-    try {
-      const res = await fetch(`${API}/api/cfo/estado-resultados/excel?periodo=${card.periodo}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!res.ok) throw new Error("Error");
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url; a.download = `RODDOS_PL_${card.periodo}.xlsx`;
-      document.body.appendChild(a); a.click();
-      document.body.removeChild(a); window.URL.revokeObjectURL(url);
-    } catch { /* silent */ } finally { setDownloading(null); }
+    const url = `${API}/api/cfo/estado-resultados/excel?periodo=${card.periodo}`;
+    await descargarArchivo(url, `RODDOS_PL_${card.periodo}.xlsx`, token,
+      (msg) => { toast.error(msg); });
+    setDownloading(null);
   };
 
   return (
@@ -628,7 +624,7 @@ function CuotasInicialesCard({ card }: { card: any }): React.ReactElement {
 /* ── GastosMasivosCard ── */
 type GastosStep = "initial" | "preview" | "processing" | "done";
 
-function GastosMasivosCard({ card, api }: { card: GastosMasivosCardData; api: any }): React.ReactElement {
+function GastosMasivosCard({ card, api, token }: { card: GastosMasivosCardData; api: any; token?: string | null }): React.ReactElement {
   const [step, setStep]               = useState<GastosStep>("initial");
   const [preview, setPreview]         = useState<any[]>([]);
   const [resumen, setResumen]         = useState<any>(null);
@@ -643,9 +639,10 @@ function GastosMasivosCard({ card, api }: { card: GastosMasivosCardData; api: an
   const pollRef      = useRef<ReturnType<typeof setInterval> | null>(null);
   const fmtCOP = (n: number) => `$${Number(n || 0).toLocaleString("es-CO")}`;
 
-  const handleDownloadTemplate = () => {
+  const handleDownloadTemplate = async () => {
     const url = `${API}/api/gastos/plantilla`;
-    window.open(url, "_blank");
+    await descargarArchivo(url, "RODDOS_Plantilla_Gastos.csv", token,
+      (msg) => toast.error(msg));
   };
 
   const handleFileSelect = async (file: File) => {
@@ -1242,7 +1239,7 @@ function TareaActivaBadge({ tarea, onPausar, onContinuar }: {
 
 /* ── main page ── */
 export default function AgentChatPage() {
-  const { api, user } = useAuth();
+  const { api, user, token } = useAuth() as any;
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -1257,6 +1254,10 @@ export default function AgentChatPage() {
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
   const [multiFileProcessing, setMultiFileProcessing] = useState(false);
   const [multiFileIdx, setMultiFileIdx] = useState(0);
+
+  // BUILD 21 MODULE 4: Pending topics badge state
+  const [pendingTopics, setPendingTopics] = useState<any[]>([]);
+  const [showPendingDropdown, setShowPendingDropdown] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [memorySuggestions, setMemorySuggestions] = useState<MemorySuggestion[]>([]);
   const [docTypeHint, setDocTypeHint] = useState("auto");
@@ -1307,6 +1308,17 @@ export default function AgentChatPage() {
     };
 
     init();
+  }, []); // eslint-disable-line
+
+  // BUILD 21 MODULE 4: Load pending topics on mount
+  useEffect(() => {
+    const loadPendingTopics = async () => {
+      try {
+        const res = await api.get("/chat/pendientes");
+        setPendingTopics(res.data?.pendientes || []);
+      } catch { /* silencioso — badge simplemente no aparece */ }
+    };
+    loadPendingTopics();
   }, []); // eslint-disable-line
 
   /* poll tarea activa every 3s — with offline guard and 502 back-off */
@@ -1598,6 +1610,36 @@ export default function AgentChatPage() {
     } catch { toast.error("Error al reanudar la tarea"); }
   };
 
+  // BUILD 21 MODULE 4: Pending topic handlers
+  const handleRetomarPendiente = async (topicKey: string) => {
+    try {
+      const res = await api.post(`/chat/pendientes/${topicKey}/retomar`);
+      const { mensaje_inicial } = res.data;
+      // Inject as a user message to the chat
+      setInput(mensaje_inicial || `Retomemos el tema pendiente: ${topicKey}`);
+      setShowPendingDropdown(false);
+      // Remove from local list (now being retaken)
+      setPendingTopics(prev => prev.filter(t => t.topic_key !== topicKey));
+    } catch { toast.error("Error al retomar el tema"); }
+  };
+
+  const handleDescartarPendiente = async (topicKey: string) => {
+    try {
+      await api.delete(`/chat/pendientes/${topicKey}`);
+      setPendingTopics(prev => prev.filter(t => t.topic_key !== topicKey));
+      toast.success("Tema descartado");
+    } catch { toast.error("Error al descartar el tema"); }
+  };
+
+  const handleDescartarTodosPendientes = async () => {
+    try {
+      await api.delete("/chat/pendientes");
+      setPendingTopics([]);
+      setShowPendingDropdown(false);
+      toast.success("Todos los temas pendientes descartados");
+    } catch { toast.error("Error al descartar los temas"); }
+  };
+
   const clearChat = async () => {
     try {
       await api.delete(`/chat/history/${sessionId}`);
@@ -1640,6 +1682,79 @@ export default function AgentChatPage() {
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               <span className="text-[10px] text-emerald-600">Claude Sonnet 4.5 · Alegra conectado</span>
             </div>
+            {/* BUILD 21 MODULE 4: Pending topics badge */}
+            {pendingTopics.length > 0 && (
+              <div className="relative mt-0.5">
+                <button
+                  data-testid="pending-topics-badge"
+                  onClick={() => setShowPendingDropdown(v => !v)}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-all"
+                  style={{
+                    background: "#EFF6FF",
+                    color: "#0F2A5C",
+                    border: "1px solid #BFDBFE",
+                    animation: pendingTopics.some(t => {
+                      const h = (new Date().getTime() - new Date(t.created_at || '').getTime()) / 3600000;
+                      return h > 24;
+                    }) ? "pendingPulse 2s infinite" : "none",
+                  }}
+                >
+                  <MessageSquare size={9} />
+                  {pendingTopics.length} tema{pendingTopics.length > 1 ? "s" : ""} pendiente{pendingTopics.length > 1 ? "s" : ""} ▾
+                </button>
+
+                {showPendingDropdown && (
+                  <div data-testid="pending-topics-dropdown"
+                    className="absolute top-full left-0 mt-1 z-50 w-72 rounded-xl shadow-xl overflow-hidden"
+                    style={{ background: "#fff", border: "1px solid #E2E8F0" }}>
+                    <div className="px-3 py-2 text-xs font-bold text-slate-600"
+                      style={{ borderBottom: "1px solid #F1F5F9" }}>
+                      Temas pendientes ({pendingTopics.length})
+                    </div>
+                    {pendingTopics.map(pt => {
+                      const horasAgo = Math.round((new Date().getTime() - new Date(pt.created_at || '').getTime()) / 3600000);
+                      const tiempoStr = horasAgo < 1 ? "Hace menos de 1h"
+                        : horasAgo < 24 ? `Hace ${horasAgo}h`
+                        : `Hace ${Math.floor(horasAgo/24)} día(s)`;
+                      return (
+                        <div key={pt.topic_key} className="px-3 py-2 hover:bg-slate-50 transition"
+                          style={{ borderBottom: "1px solid #F8FAFC" }}>
+                          <div className="flex items-start justify-between gap-1">
+                            <p className="text-xs text-slate-700 leading-tight flex-1">
+                              ⏳ {pt.descripcion || pt.topic_key}
+                            </p>
+                            <button
+                              data-testid={`discard-topic-${pt.topic_key}`}
+                              onClick={() => handleDescartarPendiente(pt.topic_key)}
+                              className="text-slate-400 hover:text-red-400 transition ml-1 flex-shrink-0"
+                              title="Descartar">
+                              <X size={12} />
+                            </button>
+                          </div>
+                          <div className="flex items-center justify-between mt-1.5">
+                            <span className="text-[10px] text-slate-400">{tiempoStr}</span>
+                            <button
+                              data-testid={`retomar-topic-${pt.topic_key}`}
+                              onClick={() => handleRetomarPendiente(pt.topic_key)}
+                              className="text-[10px] font-semibold text-sky-600 hover:text-sky-700 transition px-2 py-0.5 rounded bg-sky-50">
+                              Retomar
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div className="px-3 py-2">
+                      <button
+                        data-testid="discard-all-topics"
+                        onClick={handleDescartarTodosPendientes}
+                        className="text-[10px] text-slate-400 hover:text-red-500 transition w-full text-center">
+                        Descartar todos
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
         <button onClick={clearChat} className="p-2 rounded-lg hover:bg-slate-100 transition text-slate-400"
@@ -1702,7 +1817,7 @@ export default function AgentChatPage() {
         )}
 
         {plExportCard && !loading && (
-          <PlExportCard card={plExportCard} token={(api as any).defaults?.headers?.Authorization?.replace("Bearer ", "")} />
+          <PlExportCard card={plExportCard} token={token} />
         )}
 
         {cuotasInicialesCard && !loading && (
@@ -1713,6 +1828,7 @@ export default function AgentChatPage() {
           <GastosMasivosCard
             card={gastosMasivosCard}
             api={api}
+            token={token}
           />
         )}
 
