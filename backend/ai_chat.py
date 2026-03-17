@@ -5,7 +5,7 @@ import json
 import base64
 import csv
 import io
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from fastapi import HTTPException
 from emergentintegrations.llm.chat import LlmChat, UserMessage, FileContent
 
@@ -1082,6 +1082,112 @@ PRINCIPIO 4 — Diagnóstico ante errores repetidos:
    Puedo ayudarte con: [lista alternativas concretas]"
 
 ═══════════════════════════════════════════════════
+BUILD 21 — PROTOCOLO DE VERIFICACIÓN OBLIGATORIO (INNEGOCIABLE)
+═══════════════════════════════════════════════════
+REGLA DE ORO: El agente NUNCA reporta éxito sin haber recibido HTTP 200 de Alegra.
+Esta regla es innegociable — fue el problema más grave del proyecto.
+
+PROTOCOLO DE VERIFICACIÓN EN CADA ESCRITURA:
+1. Ejecuta la acción (POST/DELETE) en Alegra
+2. Espera la respuesta HTTP real
+3. Solo si recibe {id: ..., ...} o {status: voided} del GET de verificación → reporta ÉXITO
+4. Si hay error → reporta el error exacto en español con la acción sugerida
+5. Si la verificación falla → reporta "VERIFICACIÓN FALLIDA" y explica qué pasó
+NUNCA digas "registrado exitosamente" antes de recibir la confirmación HTTP de Alegra.
+NUNCA reportes el resultado de una BackgroundTask como "completado" — deja que el job_id hable.
+El estado real de un cleanup o batch SOLO se sabe con GET /api/gastos/cleanup-status/{job_id}.
+
+FORMATO DE REPORTE CORRECTO (con verificación):
+✅ "Asiento CE-XXXX creado en Alegra. ID confirmado: [id]. Verificado con GET /journals/[id]."
+✅ "Journal [id] eliminado. Alegra confirmó status: deleted."
+❌ NUNCA: "Los 143 journals fueron eliminados exitosamente" (sin haber verificado)
+❌ NUNCA: "El proceso se completó" (para BackgroundTasks — usa job_id en su lugar)
+
+═══════════════════════════════════════════════════
+BUILD 21 — REGLA GASTO SOCIO AMPLIADA (CRÍTICA)
+═══════════════════════════════════════════════════
+Los socios son: Andrés Sanjuan (CC 80075452) e Iván Echeverri (CC 80086601).
+
+CUANDO el mensaje involucre a Andrés Sanjuan o Iván Echeverri con un pago/gasto:
+→ SIEMPRE pregunta PRIMERO antes de registrar cualquier cosa:
+  "¿Este pago a [nombre socio] es:
+   a) CXC (dinero que le prestó la empresa y el socio debe devolver)
+   b) Anticipo de nómina (adelanto de salario a descontar en la próxima nómina)
+   c) Gasto personal del socio pagado por la empresa (= CXC también)
+   Confirma cuál es para registrarlo correctamente."
+
+Solo después de recibir la confirmación del usuario → ejecutar la acción correspondiente:
+- CXC o gasto personal → registrar_cxc_socio (cuenta 132505, ID Alegra 5329)
+- Anticipo nómina → crear_causacion con DEB [5462 Sueldos] CRED [banco]
+NUNCA causes un gasto socio como gasto operativo P&L.
+
+═══════════════════════════════════════════════════
+BUILD 21 — AUTO-RECUPERACIÓN EN OPERACIONES LOTE
+═══════════════════════════════════════════════════
+Para lotes > 10 registros:
+1. Usar BackgroundTasks SIEMPRE — sin excepción
+2. Continuar procesando aunque fallen registros individuales (NO detener el lote)
+3. Para cada fallo: log + retry 3 veces con backoff (2s → 4s → 8s)
+4. Al finalizar: reportar {procesados_ok: N, errores: M, detalle_errores: [...]}
+5. Nunca reportar el resultado hasta que el job esté COMPLETADO en MongoDB
+
+Si Alegra devuelve 429 (rate limit): esperar 30s y reintentar automáticamente.
+Si devuelve 503: esperar 60s y reintentar. Máximo 3 intentos por registro.
+
+MAPA DE ERRORES ALEGRA (con traducción y acción sugerida):
+• 400 + "debit/credit":   Asiento descuadrado → verificar débitos = créditos
+• 400 + "id/account":     ID de cuenta inválido → usar plan de cuentas RODDOS
+• 400 + "item":           Item no en catálogo → solo products del catálogo en bills
+• 400 + "dueDate":        Falta fecha vencimiento → agregar dueDate al payload
+• 400 + "paymentForm":    Falta forma de pago → agregar paymentForm: CREDIT o CASH
+• 400 + "client/provider": Tercero no existe en Alegra → crear_contacto primero
+• 403 (GET):              Endpoint no incluido en el plan → devolver lista vacía silenciosamente
+• 403 (POST):             Sin permisos de escritura → verificar permisos en Alegra → Usuarios
+• 404:                    Recurso no existe → verificar ID o verificar que no fue eliminado
+• 409:                    Duplicado → consultar historial antes de crear de nuevo
+• 429:                    Rate limit → esperar 30s + reintentar (BackgroundTask)
+• 503:                    Alegra caído → esperar 60s + reintentar (máx 3 intentos)
+
+═══════════════════════════════════════════════════
+BUILD 21 — ENDPOINT CORRECTO DE ALEGRA (CRÍTICO)
+═══════════════════════════════════════════════════
+REGLA: El endpoint para comprobantes/asientos es /journals — NO /journal-entries
+/journal-entries devuelve 403 en este plan. SIEMPRE usa /journals.
+
+Mapa de endpoints verificados en producción RODDOS:
+• Asientos contables:    POST /journals            ✅ CORRECTO
+• Eliminar asiento:      DELETE /journals/{id}     ✅ CORRECTO
+• Facturas de venta:     POST /invoices            ✅ CORRECTO
+• Facturas de compra:    POST /bills               ✅ CORRECTO (solo productos)
+• Pagos:                 POST /payments            ✅ CORRECTO
+• Contactos:             POST /contacts            ✅ CORRECTO
+• Plan de cuentas:       GET /categories           ✅ CORRECTO (no /accounts)
+• Nota crédito:          POST /credit-notes        ✅ CORRECTO
+• /journal-entries:      ⛔ DA 403 — NUNCA USAR
+
+═══════════════════════════════════════════════════
+BUILD 21 — DIAGNÓSTICO INTELIGENTE Y MEMORIA CONTEXTUAL
+═══════════════════════════════════════════════════
+Cuando el usuario diga "¿en qué íbamos?" o "¿qué quedó pendiente?" o "resume lo de ayer":
+→ Responder con los temas pendientes de {pending_topics} inyectados en el contexto.
+→ Si no hay temas pendientes: "No encontré temas abiertos de sesiones anteriores.
+  ¿Con qué operación contable arrancamos hoy?"
+
+Cuando detectes que una tarea quedó a medias (el usuario se fue sin confirmar):
+→ Al inicio de la SIGUIENTE sesión, retomar proactivamente:
+  "Hola. En la sesión anterior habíamos empezado a [descripcion]. ¿Lo continuamos?"
+
+Cuando el usuario corrija un error del agente ("eso estaba mal", "esa cuenta es incorrecta"):
+→ Guardar la corrección como patrón de aprendizaje para esa operación.
+→ Aplicar la corrección en las siguientes transacciones similares automáticamente.
+→ Confirmar: "Aprendido. Para operaciones de [tipo] usaré [corrección] en adelante."
+
+POST_ACTION_SYNC OBLIGATORIO:
+Después de CUALQUIER escritura en Alegra → llamar post_action_sync automáticamente.
+Esto actualiza MongoDB, registra eventos auditables y sincroniza el estado interno.
+Sin post_action_sync no hay trazabilidad ni consistencia entre Alegra y MongoDB.
+
+═══════════════════════════════════════════════════
 INSTRUCCIÓN PRIORITARIA DE ESTA SESIÓN:
 ═══════════════════════════════════════════════════
 {honorarios_instruccion}"""
@@ -1181,6 +1287,86 @@ async def save_action_pattern(db, user: dict, action_type: str, payload: dict) -
         }, "$inc": {"frecuencia_count": 1}},
         upsert=True,
     )
+
+
+# ── MODULE 4: Memoria Conversacional Persistente ─────────────────────────────
+# Pendientes conversacionales por usuario (TTL 72 horas)
+
+PENDING_TOPICS_TTL_HOURS = 72
+
+
+async def save_pending_topic(db, user_id: str, topic_key: str, descripcion: str,
+                              datos_contexto: dict | None = None) -> None:
+    """Guarda o actualiza un tema pendiente para el usuario (TTL 72h).
+
+    topic_key: identificador corto único ej: 'registrar_gastos_enero', 'completar_cxc_socios'
+    """
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(hours=PENDING_TOPICS_TTL_HOURS)
+    await db.agent_pending_topics.update_one(
+        {"user_id": user_id, "topic_key": topic_key, "estado": "pendiente"},
+        {"$set": {
+            "user_id": user_id,
+            "topic_key": topic_key,
+            "descripcion": descripcion,
+            "datos_contexto": datos_contexto or {},
+            "estado": "pendiente",
+            "updated_at": now.isoformat(),
+            "expires_at": expires_at,  # BSON Date — required for TTL index
+        }, "$setOnInsert": {
+            "id": str(uuid.uuid4()),
+            "created_at": now.isoformat(),
+        }},
+        upsert=True,
+    )
+
+
+async def get_pending_topics(db, user_id: str) -> list[dict]:
+    """Obtiene los temas pendientes activos del usuario (no expirados)."""
+    now = datetime.now(timezone.utc)
+    topics = await db.agent_pending_topics.find(
+        {"user_id": user_id, "estado": "pendiente", "expires_at": {"$gt": now}},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(10)
+    return topics
+
+
+async def complete_pending_topic(db, user_id: str, topic_key: str) -> None:
+    """Marca un tema pendiente como completado."""
+    await db.agent_pending_topics.update_many(
+        {"user_id": user_id, "topic_key": topic_key},
+        {"$set": {"estado": "completado", "completado_en": datetime.now(timezone.utc).isoformat()}}
+    )
+
+
+def _format_pending_topics_for_prompt(topics: list[dict]) -> str:
+    """Formatea los temas pendientes para inyectar en el contexto del agente."""
+    if not topics:
+        return ""
+    lines = [
+        "\n═══════════════════════════════════════════════════",
+        "TEMAS PENDIENTES DEL USUARIO (de sesiones anteriores — TTL 72h):",
+        "═══════════════════════════════════════════════════",
+    ]
+    for t in topics:
+        created = t.get("created_at", "")[:10]
+        expires = t.get("expires_at", "")[:10]
+        lines.append(
+            f"• [{t.get('topic_key','')}] {t.get('descripcion','')} "
+            f"(iniciado: {created}, expira: {expires})"
+        )
+        ctx = t.get("datos_contexto", {})
+        if ctx:
+            for k, v in list(ctx.items())[:3]:
+                lines.append(f"  ↳ {k}: {v}")
+    lines.append(
+        "\nINSTRUCCIÓN: Si el usuario no menciona ninguno de estos temas, "
+        "retómalos proactivamente al inicio de la respuesta: "
+        "'Antes de continuar, quedamos pendientes de: [tema]. ¿Lo retomamos?'"
+    )
+    return "\n".join(lines)
+
+
 
 
 async def gather_context(user_message: str, alegra_service, db) -> dict:
@@ -2201,6 +2387,41 @@ async def process_chat(
         .replace("{cfo_context}", cfo_ctx_str)
     )
 
+    # ── MODULE 4: Inyectar temas pendientes del usuario (BUILD 21) ────────────
+    user_id = user.get("id", "")
+    pending_topics_list = await get_pending_topics(db, user_id) if user_id else []
+    pending_topics_txt = _format_pending_topics_for_prompt(pending_topics_list)
+    if pending_topics_txt:
+        system_prompt = system_prompt.replace(
+            "{pending_topics}", pending_topics_txt
+        )
+    else:
+        system_prompt = system_prompt.replace(
+            "{pending_topics}", "Sin temas pendientes de sesiones anteriores."
+        )
+
+    # ── MODULE 1: Auto-detect gasto socio pattern and inject warning ──────────
+    _socios_kws = ["andrés", "andres", "sanjuan", "iván", "ivan", "echeverri",
+                   "socio", "gasto del socio", "pagó el socio", "pago del socio"]
+    _gasto_kws  = ["gasto", "pago", "pagó", "pago de", "pagué", "costó", "compró", "retiro"]
+    _msg_lower_m1 = user_message.lower()
+    _is_gasto_socio = (
+        any(kw in _msg_lower_m1 for kw in _socios_kws) and
+        any(kw in _msg_lower_m1 for kw in _gasto_kws)
+    )
+    if _is_gasto_socio:
+        system_prompt += (
+            "\n\nINSTRUCCIÓN URGENTE — REGLA GASTO SOCIO ACTIVA:\n"
+            "El usuario mencionó un gasto/pago relacionado con un socio (Andrés Sanjuan o Iván Echeverri).\n"
+            "ANTES de registrar CUALQUIER cosa, OBLIGATORIO preguntar:\n"
+            "'¿Este pago a [nombre socio] es:\n"
+            "  a) CXC (dinero que le prestó la empresa — el socio lo devuelve)\n"
+            "  b) Anticipo de nómina (adelanto de salario)\n"
+            "  c) Gasto personal pagado por la empresa (= CXC también)'\n"
+            "Solo DESPUÉS de la confirmación del usuario → ejecutar la acción correcta.\n"
+            "NUNCA causes un gasto socio como gasto operativo P&L."
+        )
+
 
     # ── MEJORA 4: Comandos especiales de contexto ─────────────────────────────
     msg_lower_cmd = user_message.lower().strip()
@@ -2597,6 +2818,17 @@ async def process_chat(
         else:
             lines.append("\n*Sin tarea activa en curso.*")
 
+        # MODULE 4: Mostrar temas pendientes de sesiones anteriores
+        if pending_topics_list:
+            lines.append("\n**Temas pendientes de sesiones anteriores:**")
+            for pt in pending_topics_list:
+                lines.append(
+                    f"  • [{pt.get('topic_key','')}] {pt.get('descripcion','')} "
+                    f"(expira: {pt.get('expires_at','')[:10]})"
+                )
+        else:
+            lines.append("\n*Sin temas pendientes de sesiones anteriores.*")
+
         actividad = context_data.get("actividad_hoy", "")
         if actividad:
             lines.append(f"\n**Actividad de hoy:**\n{actividad}")
@@ -2800,6 +3032,107 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
         "crear_nota_credito": ("credit-notes", "POST"),
         "crear_nota_debito": ("debit-notes", "POST"),
     }
+
+    # ── Special case: diagnosticar_contabilidad (MODULE 1 — BUILD 21) ────────
+    if action_type == "diagnosticar_contabilidad":
+        from services.accounting_engine import (
+            diagnosticar_asiento, formatear_diagnostico_para_prompt,
+            calcular_retenciones, formatear_retenciones_para_prompt,
+            clasificar_transaccion,
+        )
+        entries = payload.get("entries", [])
+        fecha   = payload.get("fecha", "")
+        tipo    = payload.get("tipo", "diagnostico")
+
+        if tipo == "retenciones":
+            ret = calcular_retenciones(
+                tipo_proveedor  = payload.get("tipo_proveedor", "PN"),
+                tipo_gasto      = payload.get("tipo_gasto", "servicios"),
+                monto_bruto     = float(payload.get("monto", 0)),
+                es_autoretenedor = payload.get("es_autoretenedor", False),
+                aplica_iva      = payload.get("aplica_iva", False),
+                aplica_reteica  = payload.get("aplica_reteica", False),
+            )
+            return {
+                "success": True,
+                "result": ret,
+                "message": formatear_retenciones_para_prompt(ret),
+            }
+
+        if tipo == "clasificacion":
+            clf = clasificar_transaccion(
+                descripcion     = payload.get("descripcion", ""),
+                proveedor       = payload.get("proveedor", ""),
+                monto           = float(payload.get("monto", 0)),
+                tipo_proveedor  = payload.get("tipo_proveedor", "UNCLEAR"),
+            )
+            return {
+                "success": True,
+                "result": clf,
+                "message": (
+                    f"Clasificación: {clf['categoria']} → {clf['subcategoria']} "
+                    f"(Cuenta Alegra ID: {clf['alegra_id']}, confianza: {clf['confianza']:.0%}). "
+                    f"Retención sugerida: {clf['tipo_retencion']}"
+                ),
+            }
+
+        # Default: diagnóstico de asiento
+        diag = diagnosticar_asiento(entries, fecha)
+        return {
+            "success": diag["valido"],
+            "result": diag,
+            "message": formatear_diagnostico_para_prompt(diag),
+        }
+
+    # ── Special case: guardar_pendiente (MODULE 4 — BUILD 21) ────────────────
+    if action_type == "guardar_pendiente":
+        user_id = user.get("id", "")
+        if not user_id:
+            return {"success": False, "message": "No hay usuario autenticado para guardar pendiente."}
+        topic_key   = payload.get("topic_key", f"tema_{uuid.uuid4().hex[:6]}")
+        descripcion = payload.get("descripcion", "Tema sin descripción")
+        datos_ctx   = payload.get("datos_contexto", {})
+        await save_pending_topic(db, user_id, topic_key, descripcion, datos_ctx)
+        return {
+            "success": True,
+            "message": f"Tema '{topic_key}' guardado como pendiente. Expira en 72 horas.",
+            "topic_key": topic_key,
+        }
+
+    # ── Special case: completar_pendiente (MODULE 4 — BUILD 21) ──────────────
+    if action_type == "completar_pendiente":
+        user_id   = user.get("id", "")
+        topic_key = payload.get("topic_key", "")
+        if user_id and topic_key:
+            await complete_pending_topic(db, user_id, topic_key)
+        return {"success": True, "message": f"Tema '{topic_key}' marcado como completado."}
+
+    # ── Special case: verificar_estado_alegra (MODULE 2 — BUILD 21) ──────────
+    if action_type == "verificar_estado_alegra":
+        resource = payload.get("resource", "")
+        rid      = payload.get("id", "")
+        if not resource:
+            return {"success": False, "message": "Falta parámetro 'resource' (ej: 'journals', 'invoices')."}
+        endpoint_v = f"{resource}/{rid}" if rid else resource
+        try:
+            ver_result = await service.request(endpoint_v, "GET")
+            if isinstance(ver_result, list) and not ver_result:
+                return {
+                    "success": False,
+                    "result": None,
+                    "message": f"El recurso {endpoint_v} NO existe en Alegra (devolvió lista vacía o 404).",
+                }
+            return {
+                "success": True,
+                "result": ver_result,
+                "message": f"Recurso {endpoint_v} verificado en Alegra. Existe y está accesible.",
+            }
+        except HTTPException as e:
+            return {
+                "success": False,
+                "result": None,
+                "message": f"Error al verificar {endpoint_v} en Alegra: {e.detail}",
+            }
 
     # ── Special case: anular_causacion ────────────────────────────────────────
     if action_type == "anular_causacion":

@@ -317,7 +317,29 @@ def start_scheduler() -> None:
         "[Scheduler] APScheduler iniciado — "
         "process_pending_events@60s | informe_cfo@día1 08:00 | "
         "WA: T1@lun08 T2@mié08 T3@jue09 T5@sab09 | "
-        "inventario@lun07 | sync_pagos@5min | sync_facturas@5min | dian@23:00 (COT)"
+        "inventario@lun07 | sync_pagos@5min | sync_facturas@5min | dian@23:00 | "
+        "BUILD21: resumen_semanal_cfo@lun08 | anomalias_diarias@23:30 (COT)"
+    )
+
+    # ── BUILD 21: Resumen semanal CFO (lunes 8:05am) ──────────────────────────
+    _scheduler.add_job(
+        _resumen_semanal_cfo,
+        trigger="cron",
+        day_of_week="mon",
+        hour=8, minute=5,
+        timezone="America/Bogota",
+        id="resumen_semanal_cfo",
+        replace_existing=True, max_instances=1, misfire_grace_time=3600,
+    )
+
+    # ── BUILD 21: Detección de anomalías contables diarias (23:30) ───────────
+    _scheduler.add_job(
+        _detectar_anomalias_diarias,
+        trigger="cron",
+        hour=23, minute=30,
+        timezone="America/Bogota",
+        id="anomalias_contables_diarias",
+        replace_existing=True, max_instances=1, misfire_grace_time=3600,
     )
 
 
@@ -393,3 +415,100 @@ async def _reconciliar_inventario_lunes() -> None:
 
     except Exception as e:
         logger.error("[Scheduler] Error reconciliación inventario: %s", e)
+
+
+# ── BUILD 21 — Resumen Semanal CFO ───────────────────────────────────────────
+
+async def _resumen_semanal_cfo() -> None:
+    """Lunes 8:05am COT — Genera resumen semanal del CFO e inyecta en cfo_alertas.
+
+    El agente lo leerá en la próxima sesión del usuario y lo presentará proactivamente.
+    """
+    from database import db
+    try:
+        from services.accounting_engine import generar_resumen_semanal
+        resumen = await generar_resumen_semanal(db)
+        now = datetime.now(timezone.utc).isoformat()
+
+        # Guardar en cfo_alertas para que el agente lo inyecte en contexto
+        await db.cfo_alertas.insert_one({
+            "tipo": "resumen_semanal",
+            "mensaje": resumen["resumen_texto"],
+            "semana": resumen.get("semana", ""),
+            "datos": resumen,
+            "created_at": now,
+            "leido": False,
+            "fuente": "scheduler_lunes_cfo",
+        })
+
+        # También en notifications para el frontend
+        await db.notifications.insert_one({
+            "type": "resumen_semanal_cfo",
+            "message": resumen["resumen_texto"],
+            "data": resumen,
+            "read": False,
+            "timestamp": now,
+        })
+
+        logger.info(
+            "[Scheduler] Resumen semanal CFO generado — recaudo=$%s déficit=$%s alertas=%d",
+            f"{resumen.get('recaudo_proyectado', 0):,.0f}",
+            f"{resumen.get('deficit_superavit', 0):,.0f}",
+            len(resumen.get("alertas", [])),
+        )
+    except Exception as e:
+        logger.error("[Scheduler] Error generando resumen semanal CFO: %s", e)
+
+
+# ── BUILD 21 — Detección de Anomalías Contables ───────────────────────────────
+
+async def _detectar_anomalias_diarias() -> None:
+    """23:30 COT — Detecta anomalías contables y financia. Genera alertas en cfo_alertas.
+
+    Las alertas son leídas por el agente en la próxima sesión del usuario.
+    """
+    from database import db
+    try:
+        from services.accounting_engine import detectar_anomalias
+        anomalias = await detectar_anomalias(db)
+        now = datetime.now(timezone.utc).isoformat()
+
+        if not anomalias:
+            logger.info("[Scheduler] Anomalías contables diarias: sin anomalías detectadas.")
+            return
+
+        for anomalia in anomalias:
+            # Evitar duplicar alertas del mismo día
+            existe = await db.cfo_alertas.find_one({
+                "tipo": anomalia["tipo"],
+                "created_at": {"$gte": datetime.now(timezone.utc).replace(hour=0, minute=0, second=0).isoformat()},
+            })
+            if existe:
+                continue
+
+            await db.cfo_alertas.insert_one({
+                "tipo": anomalia["tipo"],
+                "mensaje": anomalia["mensaje"],
+                "severidad": anomalia.get("severidad", "media"),
+                "accion_sugerida": anomalia.get("accion_sugerida", ""),
+                "created_at": now,
+                "leido": False,
+                "fuente": "scheduler_anomalias_diarias",
+            })
+
+            # Notificación frontend para anomalías altas
+            if anomalia.get("severidad") == "alta":
+                await db.notifications.insert_one({
+                    "type": f"anomalia_{anomalia['tipo']}",
+                    "message": f"⚠️ [{anomalia['severidad'].upper()}] {anomalia['mensaje']}",
+                    "data": anomalia,
+                    "read": False,
+                    "timestamp": now,
+                })
+
+        logger.info(
+            "[Scheduler] Anomalías contables: %d anomalías detectadas y guardadas.",
+            len(anomalias),
+        )
+    except Exception as e:
+        logger.error("[Scheduler] Error en detección de anomalías: %s", e)

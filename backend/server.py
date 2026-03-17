@@ -223,6 +223,24 @@ async def startup():
     await db.ingresos_registrados.create_index([("fecha", 1), ("tipo_ingreso", 1)])
     logger.info("MongoDB indexes for CXC/Ingresos ensured")
 
+    # ── BUILD 21: Memoria conversacional persistente (MODULE 4) ──────────────
+    await db.agent_pending_topics.create_index([("user_id", 1), ("estado", 1)])
+    await db.agent_pending_topics.create_index([("user_id", 1), ("topic_key", 1)])
+    # TTL index: expires_at field — documents auto-deleted after 72h + buffer
+    try:
+        await db.agent_pending_topics.create_index(
+            [("expires_at", 1)],
+            expireAfterSeconds=0,
+            name="ttl_pending_topics",
+        )
+    except Exception:
+        pass  # Index may already exist
+
+    # ── BUILD 21: CFO alertas (Module 5) ────────────────────────────────────
+    await db.cfo_alertas.create_index([("created_at", -1)])
+    await db.cfo_alertas.create_index([("tipo", 1), ("leido", 1)])
+    logger.info("MongoDB indexes for BUILD 21 (pending_topics + cfo_alertas) ensured")
+
 
 @app.on_event("shutdown")
 async def shutdown():
