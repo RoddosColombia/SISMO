@@ -528,6 +528,25 @@ FLUJO COMPLETO (debes seguirlo en orden):
 
 
 ═══════════════════════════════════════════════════
+CARGA MASIVA DE GASTOS — FORMATO CSV (ESTÁNDAR ÚNICO)
+═══════════════════════════════════════════════════
+• El sistema usa EXCLUSIVAMENTE el formato CSV para carga masiva de gastos.
+• NO se acepta .xlsx ni ningún otro formato. Si el usuario sube .xlsx, indícale:
+  "Por favor convierte el archivo a .csv antes de subirlo.
+   En Excel: Archivo → Guardar como → CSV UTF-8 (delimitado por comas)"
+• El archivo CSV tiene 7 columnas:
+  fecha, categoria, subcategoria, descripcion, monto, proveedor, referencia
+• Los montos son números enteros sin separadores de miles (ej: 3500000, no $3.500.000)
+• Cuando el usuario pida "la plantilla de gastos masivos" responde:
+  "Aquí está la plantilla en formato CSV. Descárgala con el botón de abajo,
+   llena los datos desde la fila 2 y súbela directamente al chat.
+   Formato: fecha,categoria,subcategoria,descripcion,monto,proveedor,referencia"
+• Categorías válidas: Operaciones | Personal | Marketing | Impuestos | Financiero | Otros
+• Si el usuario no sabe la subcategoría, usa la cuenta de fallback Otros/Varios.
+  El sistema notificará qué filas usaron el fallback.
+
+
+═══════════════════════════════════════════════════
 FLUJO — FACTURA DE COMPRA (PROVEEDOR)
 ═══════════════════════════════════════════════════
 ⚠️ REGLA CRÍTICA — DOS TIPOS DE "FACTURA DE COMPRA":
@@ -2211,27 +2230,29 @@ async def process_chat(
         "carga masiva", "cargar gastos", "excel gastos", "subir gastos",
         "plantilla gastos", "gastos excel", "registro masivo", "masiva de gastos",
         "masivo de gastos", "excel de gastos", "carga de gastos", "cargar excel",
-        "upload gastos", "gastos masivos",
+        "upload gastos", "gastos masivos", "csv gastos", "gastos csv",
+        "plantilla csv", "cargar csv", "subir csv",
     ]
     if any(kw in msg_lower_cmd for kw in _gastos_kws):
         gastos_card = {
             "type":        "gastos_masivos_card",
             "titulo":      "Carga Masiva de Gastos",
             "descripcion": (
-                "Descarga la plantilla Excel, llena los gastos y súbela para "
+                "Descarga la plantilla CSV, llena los gastos y súbela para "
                 "registrarlos automáticamente en Alegra."
             ),
         }
         resp_gastos = (
-            "Aquí tienes la herramienta de **Carga Masiva de Gastos**. \n\n"
+            "Aquí tienes la herramienta de **Carga Masiva de Gastos**. El formato es **CSV exclusivamente**.\n\n"
             "**Cómo usarla:**\n"
-            "1. Descarga la plantilla Excel oficial con el botón de abajo\n"
-            "2. Llena los gastos siguiendo las instrucciones del archivo\n"
-            "3. Sube el archivo completado\n"
+            "1. Descarga la plantilla CSV con el botón de abajo\n"
+            "2. Llena los gastos desde la fila 2 (sin el `#` al inicio)\n"
+            "   Columnas: `fecha, categoria, subcategoria, descripcion, monto, proveedor, referencia`\n"
+            "3. Sube el archivo `.csv` directamente al chat\n"
             "4. Revisa el preview y confirma el registro en Alegra\n\n"
-            "Soporta hasta 200 gastos por carga. "
-            "Calcula automáticamente retenciones (ReteFuente, IVA) y "
-            "diferencia entre pagos contado y a crédito."
+            "**Montos**: números enteros sin separadores (ej: `3500000`, no `$3.500.000`)\n"
+            "**Si tienes un .xlsx**: Archivo → Guardar como → CSV UTF-8\n\n"
+            "Calcula automáticamente ReteFuente, IVA y diferencia contado/crédito."
         )
         await db.chat_messages.insert_one({
             "id": str(uuid.uuid4()), "session_id": session_id, "role": "user",

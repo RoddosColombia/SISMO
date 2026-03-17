@@ -649,8 +649,10 @@ function GastosMasivosCard({ card, api }: { card: GastosMasivosCardData; api: an
   };
 
   const handleFileSelect = async (file: File) => {
-    if (!file.name.endsWith(".xlsx") && !file.name.endsWith(".xls")) {
-      setUploadError("El archivo debe ser .xlsx o .xls");
+    if (!file.name.endsWith(".csv")) {
+      setUploadError(
+        "El archivo debe ser .csv. En Excel: Archivo → Guardar como → CSV UTF-8 (delimitado por comas)"
+      );
       return;
     }
     setUploading(true);
@@ -747,7 +749,7 @@ function GastosMasivosCard({ card, api }: { card: GastosMasivosCardData; api: an
               className="w-full flex items-center justify-center gap-2 text-xs font-bold py-2.5 px-4 rounded-xl border-2 border-[#0F2A5C] text-[#0F2A5C] hover:bg-[#0F2A5C] hover:text-white transition-all"
             >
               <Download size={13} />
-              Descargar Plantilla Excel (.xlsx)
+              Descargar Plantilla CSV
             </button>
           </div>
           {/* Upload area */}
@@ -771,13 +773,13 @@ function GastosMasivosCard({ card, api }: { card: GastosMasivosCardData; api: an
               <p className="text-xs font-semibold text-slate-600">
                 {uploading ? "Procesando archivo..." : "Arrastra el archivo aquí o haz clic para seleccionar"}
               </p>
-              <p className="text-[10px] text-slate-400 mt-1">Solo .xlsx o .xls</p>
+              <p className="text-[10px] text-slate-400 mt-1">Solo .csv — convierte a CSV si tienes .xlsx</p>
             </div>
             <input
               ref={fileInputRef}
               type="file"
               hidden
-              accept=".xlsx,.xls"
+              accept=".csv"
               onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelect(f); e.target.value = ""; }}
             />
             {uploadError && (

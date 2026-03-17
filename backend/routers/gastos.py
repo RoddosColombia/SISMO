@@ -1,13 +1,14 @@
-"""gastos.py — BUILD 16: Carga Masiva de Gastos vía Excel.
+"""gastos.py — BUILD 16: Carga Masiva de Gastos vía CSV.
 
 Endpoints:
-  GET  /gastos/plantilla           — Descarga plantilla Excel (12 columnas)
-  POST /gastos/cargar              — Parse Excel → validación + preview con retenciones
+  GET  /gastos/plantilla           — Descarga plantilla CSV (7 columnas)
+  POST /gastos/cargar              — Parse CSV → validación + preview con retenciones
   POST /gastos/procesar            — Procesa filas en Alegra (journal-entries o bills)
   GET  /gastos/jobs/{job_id}       — Consulta estado de job asíncrono
   GET  /gastos/reporte-errores/{job_id} — Descarga Excel con errores
 """
 import io
+import csv as _csv_module
 import uuid
 import logging
 import unicodedata
@@ -215,6 +216,9 @@ ALIASES = {
     "notas":             ["notas", "nota", "observaciones", "notes", "referencia"],
 }
 
+# CSV template canonical 7 columns (new standard)
+CSV_COLUMNS_CANONICAL = ["fecha", "categoria", "subcategoria", "descripcion", "monto", "proveedor", "referencia"]
+
 REQUIRED_FIELDS = ["proveedor", "monto_sin_iva"]
 
 _CATEGORIAS_VALIDAS = sorted(set(e["categoria"] for e in PLAN_CUENTAS_RODDOS))
@@ -242,351 +246,216 @@ _INSTRUCT_ROWS = [
 # ── GET /gastos/plantilla ──────────────────────────────────────────────────────
 @router.get("/plantilla")
 async def descargar_plantilla_gastos(current_user=Depends(get_current_user)):
-    """Genera y descarga la plantilla Excel oficial para carga masiva de gastos RODDOS."""
-    wb = openpyxl.Workbook()
-
-    ex_fill     = PatternFill("solid", fgColor=EXAMPLE_FILL)
-    hdr_fill    = PatternFill("solid", fgColor=HEADER_COLOR)
-    hdr_font    = Font(bold=True, color="FFFFFF", size=11)
-    hdr_align   = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    thin = Side(style="thin", color="CCCCCC")
-    border = Border(left=thin, right=thin, top=thin, bottom=thin)
-
-    # ── Hoja 1: Gastos ────────────────────────────────────────────────────────
-    ws1 = wb.active
-    ws1.title = "Gastos"
-
-    # Título superior
-    ws1.merge_cells("A1:L1")
-    title_cell = ws1.cell(row=1, column=1, value="RODDOS — Plantilla Carga Masiva de Gastos")
-    title_cell.fill = PatternFill("solid", fgColor=HEADER_COLOR)
-    title_cell.font = Font(bold=True, color="FFFFFF", size=13)
-    title_cell.alignment = Alignment(horizontal="center", vertical="center")
-    ws1.row_dimensions[1].height = 28
-
-    # Sub-header
-    ws1.merge_cells("A2:L2")
-    sub_cell = ws1.cell(row=2, column=1, value="Completa desde la fila 4. La fila 3 es un ejemplo — será ignorada al cargar.")
-    sub_cell.fill = PatternFill("solid", fgColor=ACCENT_COLOR)
-    sub_cell.font = Font(bold=False, color="FFFFFF", size=10, italic=True)
-    sub_cell.alignment = Alignment(horizontal="center", vertical="center")
-    ws1.row_dimensions[2].height = 16
-
-    # Headers row 3 ... wait, let's use row 3 as headers, row 4 as example
-    for col_idx, col_name in enumerate(HEADER_COLS, start=1):
-        cell = ws1.cell(row=3, column=col_idx, value=col_name)
-        cell.fill = hdr_fill
-        cell.font = hdr_font
-        cell.alignment = hdr_align
-        cell.border = border
-    ws1.row_dimensions[3].height = 22
-
-    # Example row (row 4) — colored differently
-    example_vals = [
-        date.today().isoformat(),
-        "Inmobiliaria XYZ S.A.S.",
-        "900123456-1",
-        "Arriendo oficina enero 2026",
-        3000000,
-        "No",
-        "Operaciones",
-        "Arriendo",
-        "PJ",
-        "No",
-        "Contado",
-        f"{date.today().year}-{date.today().month:02d}",
-        "Ejemplo — no modificar esta fila",
+    """Genera y descarga la plantilla CSV oficial para carga masiva de gastos RODDOS.
+    7 columnas: fecha, categoria, subcategoria, descripcion, monto, proveedor, referencia
+    """
+    lines = [
+        "fecha,categoria,subcategoria,descripcion,monto,proveedor,referencia",
+        "# EJEMPLO (esta fila será ignorada al cargar):",
+        f"# {date.today().isoformat()},Operaciones,Arriendo,Arriendo sede enero 2026,3500000,Inmobiliaria Calle 127,FAC-001",
+        "#",
+        "# Valores válidos para Categoria: Operaciones | Personal | Marketing | Impuestos | Financiero | Otros",
+        "# Valores válidos de Subcategoria (por Categoria):",
     ]
-    for col_idx, val in enumerate(example_vals, start=1):
-        cell = ws1.cell(row=4, column=col_idx, value=val)
-        cell.fill = ex_fill
-        cell.border = border
-        cell.alignment = Alignment(
-            horizontal="center" if col_idx not in (2, 4, 12) else "left",
-            vertical="center"
-        )
-        cell.font = Font(italic=True, color="5C6BC0")
+    for entry in PLAN_CUENTAS_RODDOS:
+        lines.append(f"#   {entry['categoria']} / {entry['subcategoria']} → {entry['cuenta_nombre']} ({entry['cuenta_codigo']})")
+    lines.append("#")
+    lines.append("# Completa tus datos desde esta línea (sin el # al inicio):")
 
-    # Column widths
-    col_widths = [13, 26, 16, 30, 14, 12, 16, 16, 14, 16, 14, 13, 24]
-    for i, w in enumerate(col_widths, start=1):
-        ws1.column_dimensions[openpyxl.utils.get_column_letter(i)].width = w
-
-    # Data validations (start from row 5, the first real data row)
-    def _dv(formula: str, col_letter: str, error_msg: str, prompt: str):
-        dv = DataValidation(type="list", formula1=formula, allow_blank=True, showDropDown=False)
-        dv.error       = error_msg
-        dv.errorTitle  = "Valor inválido"
-        dv.prompt      = prompt
-        dv.promptTitle = "Opciones"
-        ws1.add_data_validation(dv)
-        dv.sqref = f"{col_letter}5:{col_letter}1000"
-
-    _dv('"Si,No"', "F", "Escribe Si o No", "¿El gasto incluye IVA del 19%?")
-    _dv('"' + ",".join(_CATEGORIAS_VALIDAS) + '"',
-        "G", "Usa una categoría del plan de cuentas", "Categoría contable — ver hoja Plan_Cuentas")
-    _dv('"' + ",".join(_SUBCATEGORIAS_VALIDAS) + '"',
-        "H", "Usa una subcategoría del plan de cuentas", "Subcategoría — ver hoja Plan_Cuentas")
-    _dv('"PN,PJ,Empresa"', "I", "Usa PN / PJ / Empresa", "Tipo de persona del proveedor")
-    _dv('"Si,No"', "J", "Escribe Si o No", "¿Es autoretenedor?")
-    _dv('"Contado,Credito_15,Credito_30,Credito_60,Credito_90"',
-        "K", "Usa una de las formas de pago listadas", "Contado = asiento | Credito_N = factura")
-
-    # Freeze pane below headers + example
-    ws1.freeze_panes = "A5"
-
-    # ── Hoja 3: Plan_Cuentas ─────────────────────────────────────────────────
-    ws3 = wb.create_sheet("Plan_Cuentas")
-    ws3.merge_cells("A1:F1")
-    pc_title = ws3.cell(row=1, column=1, value="PLAN DE CUENTAS RODDOS — Mapeo a Alegra (IDs reales)")
-    pc_title.fill = PatternFill("solid", fgColor=HEADER_COLOR)
-    pc_title.font = Font(bold=True, color="FFFFFF", size=12)
-    pc_title.alignment = Alignment(horizontal="center", vertical="center")
-    ws3.row_dimensions[1].height = 24
-
-    pc_hdrs = ["Categoria", "Subcategoria", "Cuenta Alegra", "Código PUC", "Alegra ID", "Usar en template"]
-    for ci, h in enumerate(pc_hdrs, start=1):
-        c = ws3.cell(row=2, column=ci, value=h)
-        c.fill = PatternFill("solid", fgColor="D9E1F2")
-        c.font = Font(bold=True)
-        c.border = border
-
-    for ri, entry in enumerate(PLAN_CUENTAS_RODDOS, start=3):
-        ws3.cell(row=ri, column=1, value=entry["categoria"]).font = Font(bold=True)
-        ws3.cell(row=ri, column=2, value=entry["subcategoria"])
-        ws3.cell(row=ri, column=3, value=entry["cuenta_nombre"])
-        ws3.cell(row=ri, column=4, value=entry["cuenta_codigo"])
-        ws3.cell(row=ri, column=5, value=entry["alegra_id"]).font = Font(bold=True, color="1F497D")
-        ws3.cell(row=ri, column=6, value=f"Categoria: {entry['categoria']} / Subcategoria: {entry['subcategoria']}")
-        for ci in range(1, 7):
-            ws3.cell(row=ri, column=ci).border = border
-        ws3.row_dimensions[ri].height = 15
-
-    ws3.column_dimensions["A"].width = 15
-    ws3.column_dimensions["B"].width = 22
-    ws3.column_dimensions["C"].width = 36
-    ws3.column_dimensions["D"].width = 14
-    ws3.column_dimensions["E"].width = 12
-    ws3.column_dimensions["F"].width = 44
-
-    # ── Hoja 2: Instrucciones ─────────────────────────────────────────────────
-    ws2 = wb.create_sheet("Instrucciones")
-
-    ws2.merge_cells("A1:D1")
-    t = ws2.cell(row=1, column=1, value="INSTRUCCIONES — Carga Masiva de Gastos RODDOS")
-    t.font = Font(bold=True, color=HEADER_COLOR, size=14)
-    t.alignment = Alignment(horizontal="left", vertical="center")
-    ws2.row_dimensions[1].height = 30
-
-    ws2.merge_cells("A2:D2")
-    ws2.cell(row=2, column=1,
-             value="⚠️ La fila 4 (azul claro) es un EJEMPLO. El sistema la ignora al procesar.")
-    ws2.cell(row=2, column=1).font = Font(bold=True, color="C62828", size=11)
-    ws2.row_dimensions[2].height = 18
-
-    hdr_labels = ["Campo", "Descripción y valores válidos", "Ejemplo", "Req."]
-    for ci, lbl in enumerate(hdr_labels, start=1):
-        c = ws2.cell(row=4, column=ci, value=lbl)
-        c.fill = PatternFill("solid", fgColor="D9E1F2")
-        c.font = Font(bold=True)
-        c.border = border
-        c.alignment = hdr_align
-    ws2.row_dimensions[4].height = 18
-
-    for ri, (campo, desc, ej, oblig) in enumerate(_INSTRUCT_ROWS, start=5):
-        ws2.cell(row=ri, column=1, value=campo).font = Font(bold=True)
-        ws2.cell(row=ri, column=2, value=desc)
-        ws2.cell(row=ri, column=3, value=ej).font = Font(italic=True, color="1F497D")
-        ws2.cell(row=ri, column=4, value=oblig).alignment = Alignment(horizontal="center")
-        for ci in range(1, 5):
-            ws2.cell(row=ri, column=ci).border = border
-        ws2.row_dimensions[ri].height = 16
-
-    ws2.column_dimensions["A"].width = 18
-    ws2.column_dimensions["B"].width = 58
-    ws2.column_dimensions["C"].width = 26
-    ws2.column_dimensions["D"].width = 8
-
-    # Notes
-    ns = len(_INSTRUCT_ROWS) + 7
-    notas = [
-        "NOTAS IMPORTANTES:",
-        "• No modificar los encabezados de la fila 3 en la hoja Gastos",
-        "• La fila 4 (ejemplo) es ignorada automáticamente por el sistema",
-        "• Auteco Kawasaki (NIT 860024781) ya está marcado como autoretenedor — sin ReteFuente",
-        "• Forma_Pago = Contado → crea asiento contable (journal entry) en Alegra",
-        "• Forma_Pago = Credito_30 → crea factura de compra con vencimiento a 30 días",
-        "• Guardar como .xlsx antes de subir al sistema",
-        "• Máximo recomendado: 200 filas por archivo",
-    ]
-    for i, nota in enumerate(notas):
-        c = ws2.cell(row=ns + i, column=1, value=nota)
-        c.alignment = Alignment(wrap_text=True)
-        if i == 0:
-            c.font = Font(bold=True, color=HEADER_COLOR)
-        ws2.merge_cells(f"A{ns + i}:D{ns + i}")
-        ws2.row_dimensions[ns + i].height = 16
-
-    # Serialize
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
+    csv_content = "\n".join(lines) + "\n"
 
     return StreamingResponse(
-        buf,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": 'attachment; filename="RODDOS_Plantilla_Gastos.xlsx"'},
+        io.BytesIO(csv_content.encode("utf-8-sig")),   # UTF-8 BOM para Excel
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="RODDOS_Plantilla_Gastos.csv"'},
     )
+
+
+
 
 
 # ── POST /gastos/cargar ────────────────────────────────────────────────────────
 @router.post("/cargar")
-async def cargar_gastos_excel(
+async def cargar_gastos_csv(
     file: UploadFile = File(...),
     current_user=Depends(get_current_user),
 ):
-    """Recibe Excel, parsea, valida y devuelve preview con retenciones calculadas."""
-    if not file.filename.endswith((".xlsx", ".xls")):
-        raise HTTPException(status_code=400, detail="El archivo debe ser .xlsx o .xls")
-
-    contents = await file.read()
-    try:
-        wb = openpyxl.load_workbook(io.BytesIO(contents), data_only=True)
-        ws = wb.active
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Error al leer el archivo: {e}")
-
-    # Find header row (row 1, 2 or 3)
-    header_row_num = None
-    col_map: dict[str, int] = {}
-    for rn in [1, 2, 3]:
-        raw_row = [str(c.value or "").strip() for c in ws[rn]]
-        norm_row = [_normalize(h) for h in raw_row]
-        temp_map: dict[str, int] = {}
-        # Build column map — 2-pass: exact match first, then substring
-        for field, aliases in ALIASES.items():
-            naliases = [_normalize(a) for a in aliases]
-            # Pass 1: exact match
-            for i, h in enumerate(norm_row):
-                if not h:
-                    continue
-                if h in naliases:
-                    temp_map[field] = i
-                    break
-            if field in temp_map:
-                continue
-            # Pass 2: substring match (min len 4 to avoid false positives like "iva" in "monto_sin_iva")
-            for i, h in enumerate(norm_row):
-                if not h or len(h) < 3:
-                    continue
-                if any((len(a) >= 4 and a in h) or (len(h) >= 4 and h in a) for a in naliases):
-                    temp_map.setdefault(field, i)
-                    break
-        if len(temp_map) >= 3:
-            header_row_num = rn
-            col_map = temp_map
-            break
-
-    if not col_map:
+    """Recibe CSV (formato estándar único), parsea, valida y devuelve preview con retenciones.
+    
+    Formato CSV esperado (7 columnas):
+      fecha,categoria,subcategoria,descripcion,monto,proveedor,referencia
+    
+    Las líneas que empiezan con '#' son ignoradas (comentarios).
+    Si el usuario sube .xlsx se le indica cómo convertirlo.
+    """
+    fname = file.filename or ""
+    if fname.endswith((".xlsx", ".xls", ".xlsm")):
         return {
             "ok": False,
-            "error": "No se encontraron columnas válidas. Descarga la plantilla oficial y llena tus datos.",
-            "sugerencia": "Usa el botón 'Descargar Plantilla' para obtener el formato correcto.",
+            "error": (
+                "El archivo debe ser .csv, no .xlsx. "
+                "Para convertirlo: abre el archivo en Excel → Archivo → Guardar como → "
+                "CSV UTF-8 (delimitado por comas) → Guardar."
+            ),
+            "sugerencia": "Descarga la plantilla CSV con el botón de arriba y completa tus datos directamente.",
         }
+    if not fname.endswith(".csv"):
+        return {
+            "ok": False,
+            "error": "Formato no válido. Por favor sube un archivo .csv.",
+            "sugerencia": "Descarga la plantilla CSV desde el botón 'Descargar Plantilla'.",
+        }
+
+    contents = await file.read()
+    # Try UTF-8-BOM first (common from Excel "Save as CSV UTF-8")
+    try:
+        text = contents.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = contents.decode("latin-1", errors="replace")
+
+    # Split lines and filter comments/empty
+    raw_lines = text.splitlines()
+    data_lines = [ln for ln in raw_lines if ln.strip() and not ln.strip().startswith("#")]
+
+    if not data_lines:
+        return {
+            "ok": False,
+            "error": "El archivo CSV está vacío o solo contiene comentarios.",
+            "sugerencia": "Agrega tus gastos a partir de la fila 2 del archivo.",
+        }
+
+    # Detect delimiter (comma or semicolon)
+    header_raw = data_lines[0]
+    delimiter = ";" if header_raw.count(";") > header_raw.count(",") else ","
+
+    # Parse with csv.DictReader
+    reader = _csv_module.DictReader(data_lines, delimiter=delimiter)
+    if not reader.fieldnames:
+        return {"ok": False, "error": "No se pudieron detectar columnas en el CSV."}
+
+    # Build col_map via ALIASES
+    col_map: dict[str, str] = {}
+    for internal_key, aliases in ALIASES.items():
+        norm_aliases = [_normalize(a) for a in aliases]
+        for fn in reader.fieldnames:
+            fn_norm = _normalize(str(fn))
+            if fn_norm in norm_aliases or any(a in fn_norm for a in norm_aliases if len(a) >= 4):
+                col_map.setdefault(internal_key, fn)
+                break
 
     missing = [f for f in REQUIRED_FIELDS if f not in col_map]
     if missing:
         return {
             "ok": False,
-            "error": f"Columnas requeridas no encontradas: {missing}. Descarga la plantilla oficial.",
-            "columnas_detectadas": [str(c.value or "") for c in ws[header_row_num]],
+            "error": f"Columnas requeridas no encontradas: {missing}. "
+                     f"El CSV debe tener al menos las columnas: {', '.join(CSV_COLUMNS_CANONICAL)}",
+            "columnas_detectadas": list(reader.fieldnames),
+            "sugerencia": "Descarga la plantilla CSV para ver el formato correcto.",
         }
 
-    # Load autoretenedores list
+    # Load autoretenedores
     autoretenedores_db = await db.proveedores_config.find(
         {"es_autoretenedor": True}, {"_id": 0, "nombre": 1, "nit": 1}
     ).to_list(100)
     auto_nombres = {a["nombre"].lower() for a in autoretenedores_db}
     auto_nits    = {str(a.get("nit", "")).replace("-", "") for a in autoretenedores_db if a.get("nit")}
 
-    # Parse rows — skip header row and example row
+    # Build valid combos from PLAN_CUENTAS_RODDOS for validation
+    valid_cat_sub: set[tuple] = {
+        (_normalize(e["categoria"]), _normalize(e["subcategoria"])) for e in PLAN_CUENTAS_RODDOS
+    }
+    valid_categorias: set[str] = {_normalize(e["categoria"]) for e in PLAN_CUENTAS_RODDOS}
+    FALLBACK_SUBCATEGORIA_ID   = 5493   # Otros/Varios
+
     gastos_preview = []
     row_errors: list[str] = []
-    first_data_row = True
-    example_proveedor = "auteco kawasaki"
+    account_warnings: list[str] = []  # Rows that used fallback
+    row_num = 1  # header was row 1
 
-    start_row = (header_row_num or 3) + 1
-    for row_num, row in enumerate(ws.iter_rows(min_row=start_row, values_only=True), start=start_row):
-        if all(v is None for v in row):
-            continue
+    for row in reader:
+        row_num += 1
 
-        def _get(field):
-            idx = col_map.get(field)
-            if idx is not None and idx < len(row):
-                return row[idx]
+        def _get(field: str) -> str | None:
+            col_name = col_map.get(field)
+            if col_name:
+                return row.get(col_name, "")
             return None
 
         proveedor = str(_get("proveedor") or "").strip()
         if not proveedor:
             continue
 
-        # Skip example row
-        if first_data_row and example_proveedor in proveedor.lower():
-            first_data_row = False
-            continue
-        first_data_row = False
-
         monto = _parse_number(_get("monto_sin_iva"))
         if monto <= 0:
-            row_errors.append(f"Fila {row_num}: Monto_Sin_IVA inválido para '{proveedor}' — omitida")
+            row_errors.append(f"Fila {row_num}: Monto inválido ('{_get('monto_sin_iva')}') para '{proveedor}' — omitida")
             continue
 
+        raw_categoria    = str(_get("categoria") or "").strip()
+        raw_subcategoria = str(_get("subcategoria") or "").strip()
         nit          = str(_get("nit_proveedor") or "").strip()
-        concepto     = str(_get("concepto") or "").strip() or f"Gasto {proveedor}"
-        incluye_iva  = str(_get("incluye_iva") or "").strip()
-        # Support both old tipo_gasto column and new categoria/subcategoria
-        raw_categoria    = _normalize(str(_get("categoria") or "").strip())
-        raw_subcategoria = _normalize(str(_get("subcategoria") or "").strip())
-        tipo_gasto   = raw_categoria  # used as fallback for legacy support
-        tipo_persona = str(_get("tipo_persona") or "PJ").strip().upper()
+        concepto     = str(_get("concepto") or _get("notas") or f"Gasto {proveedor}").strip()
+        incluye_iva  = str(_get("incluye_iva") or "No").strip()
+        tipo_persona = str(_get("tipo_persona") or "").strip().upper()
         es_auto_col  = _parse_bool(_get("es_autoretenedor"))
         forma_pago   = str(_get("forma_pago") or "Contado").strip()
         mes_periodo  = str(_get("mes_periodo") or "").strip()
-        notas        = str(_get("notas") or "").strip()
+        notas_val    = str(_get("notas") or "").strip()
 
-        # Normalize tipo_gasto (backward compat: 'arrendamiento' etc.)
-        tipo_map = {
-            "arriendo": "arrendamiento", "rent": "arrendamiento",
-            "servicio": "servicios", "service": "servicios",
-            "honorarios": "honorarios_pn",  # fallback
-            "salario": "nomina", "sueldo": "nomina",
-            "impuesto": "impuesto", "tax": "impuesto",
-        }
-        tipo_gasto = tipo_map.get(tipo_gasto, tipo_gasto)
-        if tipo_gasto not in CUENTAS_GASTO:
-            tipo_gasto = "otros"
-
-        # Determine tipo_persona for honorarios
-        if tipo_gasto == "honorarios_pn" and tipo_persona in ("PJ", "EMPRESA"):
-            tipo_gasto = "honorarios_pj"
-        elif tipo_gasto in ("honorarios_pj",) and tipo_persona == "PN":
-            tipo_gasto = "honorarios_pn"
-
-        # Resolve account from plan_cuentas (new) or tipo_gasto (legacy)
-        plan_entry = None
-        if raw_categoria and raw_subcategoria:
-            plan_entry = _lookup_plan_cuentas_local(raw_categoria, raw_subcategoria)
+        # ── Validate & resolve account from plan_cuentas ──────────────────────
+        cat_n = _normalize(raw_categoria)
+        sub_n = _normalize(raw_subcategoria)
+        plan_entry = _lookup_plan_cuentas_local(raw_categoria, raw_subcategoria)
 
         if plan_entry:
-            cuenta_gasto_id    = plan_entry["alegra_id"]
-            cuenta_gasto_nombre = plan_entry["cuenta_nombre"]
-            tipo_retefuente    = plan_entry.get("tipo_retefuente") or "otros"
+            cuenta_gasto_id      = plan_entry["alegra_id"]
+            cuenta_gasto_nombre  = plan_entry["cuenta_nombre"]
+            tipo_retefuente      = plan_entry.get("tipo_retefuente") or "otros"
+        elif cat_n and cat_n not in valid_categorias:
+            # Unknown categoria → fallback + warn
+            account_warnings.append(
+                f"Fila {row_num} ('{proveedor}'): Categoría '{raw_categoria}' no reconocida → se usó Otros/Varios. "
+                f"Categorías válidas: {', '.join(_CATEGORIAS_VALIDAS)}"
+            )
+            cuenta_gasto_id     = FALLBACK_SUBCATEGORIA_ID
+            cuenta_gasto_nombre = "Gastos generales (Otros/Varios)"
+            tipo_retefuente     = "otros"
+        elif cat_n and sub_n and (cat_n, sub_n) not in valid_cat_sub:
+            # Known categoria but unknown subcategoria → fallback + warn
+            account_warnings.append(
+                f"Fila {row_num} ('{proveedor}'): Subcategoría '{raw_subcategoria}' no encontrada en '{raw_categoria}' "
+                f"→ se usó Otros/Varios. Registra el gasto manualmente si necesitas otra cuenta."
+            )
+            cuenta_gasto_id     = FALLBACK_SUBCATEGORIA_ID
+            cuenta_gasto_nombre = "Gastos generales (Otros/Varios)"
+            tipo_retefuente     = "otros"
         else:
+            # No categoria specified: use legacy tipo_gasto mapping
+            tipo_map = {
+                "arriendo": "arrendamiento", "rent": "arrendamiento",
+                "servicio": "servicios", "honorarios": "honorarios_pn",
+                "salario": "nomina", "sueldo": "nomina",
+                "impuesto": "impuesto",
+            }
+            tipo_gasto_norm = _normalize(raw_categoria)
+            tipo_gasto = tipo_map.get(tipo_gasto_norm, tipo_gasto_norm)
+            if tipo_gasto not in CUENTAS_GASTO:
+                tipo_gasto = "otros"
+            if tipo_gasto == "honorarios_pn" and tipo_persona in ("PJ", "EMPRESA"):
+                tipo_gasto = "honorarios_pj"
             cuenta_gasto_id    = CUENTAS_GASTO[tipo_gasto]["id"]
             cuenta_gasto_nombre = CUENTAS_GASTO[tipo_gasto]["nombre"]
             tipo_retefuente    = tipo_gasto
 
-        # Check autoretenedor: column OR DB list
+        # Honorarios split by persona type — only when tipo_persona explicitly provided
+        if plan_entry and _normalize(raw_subcategoria) == "honorarios" and tipo_persona in ("PJ", "EMPRESA"):
+            entry_pj = _lookup_plan_cuentas_local(raw_categoria, "Honorarios_PJ")
+            entry_pj = _lookup_plan_cuentas_local(raw_categoria, "Honorarios_PJ")
+            if entry_pj:
+                cuenta_gasto_id     = entry_pj["alegra_id"]
+                cuenta_gasto_nombre = entry_pj["cuenta_nombre"]
+                tipo_retefuente     = entry_pj.get("tipo_retefuente") or "honorarios_pj"
+
+        # Autoretenedor check
         nit_clean = nit.replace("-", "").replace(" ", "")
         es_autoretenedor = es_auto_col or (
             proveedor.lower() in auto_nombres or nit_clean in auto_nits
@@ -594,12 +463,16 @@ async def cargar_gastos_excel(
 
         # Fecha
         fecha_raw = _get("fecha")
-        if isinstance(fecha_raw, datetime):
-            fecha = fecha_raw.date().isoformat()
-        elif fecha_raw:
-            fecha = str(fecha_raw)[:10]
+        if fecha_raw:
+            fecha = str(fecha_raw).strip()[:10]
+            if not fecha or len(fecha) < 8:
+                fecha = date.today().isoformat()
         else:
             fecha = date.today().isoformat()
+
+        # Mes periodo default from fecha
+        if not mes_periodo and fecha:
+            mes_periodo = fecha[:7]
 
         row_dict = {
             "id":               str(uuid.uuid4()),
@@ -609,52 +482,56 @@ async def cargar_gastos_excel(
             "nit_proveedor":    nit,
             "concepto":         concepto,
             "monto_sin_iva":    monto,
-            "incluye_iva":      str(incluye_iva).strip(),
-            "categoria":        raw_categoria or tipo_gasto,
-            "subcategoria":     raw_subcategoria or "",
-            "tipo_gasto":       tipo_gasto,
+            "incluye_iva":      incluye_iva,
+            "categoria":        raw_categoria or "Otros",
+            "subcategoria":     raw_subcategoria or "Varios",
+            "tipo_gasto":       tipo_retefuente,
             "tipo_retefuente":  tipo_retefuente,
-            "tipo_persona":     tipo_persona,
+            "tipo_persona":     tipo_persona or "PJ",
             "es_autoretenedor": es_autoretenedor,
             "forma_pago":       forma_pago,
             "mes_periodo":      mes_periodo,
-            "notas":            notas,
+            "cuenta_gasto_id":  cuenta_gasto_id,
+            "cuenta_gasto_nombre": cuenta_gasto_nombre,
+            "notas":            notas_val,
         }
 
-        reten = _calcular_retenciones(row_dict, es_autoretenedor)
-        row_dict.update(reten)
-        row_dict["cuenta_gasto_id"]     = cuenta_gasto_id
-        row_dict["cuenta_gasto_nombre"] = cuenta_gasto_nombre
-
+        retenciones = _calcular_retenciones(row_dict, es_autoretenedor)
+        row_dict.update(retenciones)
         gastos_preview.append(row_dict)
 
     if not gastos_preview:
-        msg = "El archivo no tiene filas con datos válidos."
-        if row_errors:
-            msg += f" Errores encontrados: {row_errors[0]}"
-        return {"ok": False, "error": msg}
+        return {
+            "ok": False,
+            "error": "No se encontraron gastos válidos en el archivo.",
+            "errores_filas": row_errors,
+        }
 
-    total_monto    = sum(g["monto_sin_iva"] for g in gastos_preview)
-    total_iva      = sum(g["iva_monto"] for g in gastos_preview)
-    total_retefuen = sum(g["retefuente_monto"] for g in gastos_preview)
-    total_neto     = sum(g["neto_pagar"] for g in gastos_preview)
-    contado_count  = sum(1 for g in gastos_preview if g["forma_pago"].lower() == "contado")
-    credito_count  = len(gastos_preview) - contado_count
+    # Build summary
+    total_monto     = sum(g["monto_sin_iva"] for g in gastos_preview)
+    total_iva       = sum(g["iva_monto"] for g in gastos_preview)
+    total_retefuente = sum(g["retefuente_monto"] for g in gastos_preview)
+    total_neto      = sum(g["neto_pagar"] for g in gastos_preview)
+    contado_count   = sum(1 for g in gastos_preview if g["forma_pago"].lower() == "contado")
+
+    advertencias = row_errors + account_warnings
 
     return {
-        "ok":           True,
-        "gastos":       gastos_preview,
-        "advertencias": row_errors,
+        "ok":          True,
+        "gastos":      gastos_preview,
+        "total_filas": len(gastos_preview),
         "resumen": {
-            "total_filas":      len(gastos_preview),
-            "total_monto_base": total_monto,
-            "total_iva":        total_iva,
-            "total_retefuente": total_retefuen,
-            "total_neto_pagar": total_neto,
-            "contado":          contado_count,
-            "credito":          credito_count,
+            "total_filas":         len(gastos_preview),
+            "total_monto_base":    total_monto,
+            "total_iva":           total_iva,
+            "total_retefuente":    total_retefuente,
+            "total_neto_pagar":    total_neto,
+            "contado":             contado_count,
+            "credito":             len(gastos_preview) - contado_count,
         },
+        "advertencias": advertencias,
     }
+
 
 
 # ── Lógica de procesamiento individual ────────────────────────────────────────
