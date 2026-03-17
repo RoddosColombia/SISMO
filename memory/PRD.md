@@ -320,6 +320,34 @@ NUNCA crear /api/cartera/* — la ruta correcta es /api/radar/*
 - POST /api/gastos/cleanup-execute — job background: elimina journals por IDs. Retorna job_id inmediatamente (NO síncrono)
 - GET /api/gastos/cleanup-status/{job_id} — consulta estado del job de cleanup (preview o execute)
 - GET /api/gastos/journals-creados — recupera IDs de journals creados por eventos en roddos_events
+- GET /api/ingresos/plan — tipos de ingreso válidos con IDs de Alegra
+- GET /api/ingresos/plantilla — CSV plantilla de ingresos (7 cols)
+- POST /api/ingresos/preview — valida CSV sin escribir en Alegra
+- POST /api/ingresos/procesar — BackgroundTask: crea journals de ingresos en Alegra
+- POST /api/ingresos/registrar-manual — registra ingreso individual con anti-duplicado
+- GET /api/ingresos/status/{job_id} — estado del job de procesamiento
+- GET /api/ingresos/historial — ingresos registrados con filtros de fecha
+- POST /api/cxc/socios/registrar — CXC socio individual con journal en Alegra
+- POST /api/cxc/socios/registrar-lote — lote de CXC socios en background
+- POST /api/cxc/socios/abonar — abono a CXC socio (actualiza saldo en MongoDB + journal en Alegra)
+- GET /api/cxc/socios/saldo/{socio} — saldo pendiente del socio
+- GET /api/cxc/socios/resumen — resumen por socio y gran total
+- GET /api/cxc/status/{job_id} — estado del lote de CXC
+- POST /api/cxc/clientes/registrar — CXC cliente con journal en Alegra
+- GET /api/cxc/clientes/saldo/{nit} — saldo cliente
+- GET /api/cxc/clientes/vencidas — CXC vencidas
+- POST /api/cxc/clientes/abonar — abono a CXC cliente
+
+## BUILD 20 — INGRESOS Y CXC (Marzo 2026)
+- Módulo Ingresos: 4 tipos (Intereses_Bancarios=5455, Venta_Motos_Recuperadas=5441, Otros_Ingresos_No_Op=5436, Devoluciones_Ajustes=5457)
+- Módulo CXC Socios: Andres Sanjuan (CC 80075452) + Ivan Echeverri (CC 80086601), cuenta 132505 (alegra_id=5329)
+- Módulo CXC Clientes: cuenta 13050501 (alegra_id=5326)
+- plan_ingresos_roddos colección MongoDB poblada en startup
+- Datos enero 2026 cargados: 2 ingresos ($3.7M, journals #36,#37) + 47 CXC socios ($4.4M, journals #38-#84)
+- Abono de prueba journal #85: Andrés Sanjuan $500k
+- Saldos finales: Andrés $2,023,333 | Iván $1,890,470 | Total $3,913,803
+- Agent system prompt: regla CXC socios (nunca como gasto), acciones ACTION_MAP
+- 15/15 backend tests pasados (iteration_53.json)
 
 ## CLEANUP ALEGRA — ESTADO (Marzo 2026)
 - 143 journals con cuenta 5495 (Gastos de Representación) en enero 2026 → ELIMINADOS ✅
