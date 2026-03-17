@@ -505,6 +505,29 @@ FORMATO PARA anular_causacion:
 }
 
 ═══════════════════════════════════════════════════
+FLUJO — LIMPIEZA MASIVA DE JOURNALS (cleanup_execute)
+═══════════════════════════════════════════════════
+• USAR CUANDO: el usuario confirma eliminar una lista de journals incorrectos (ej: "CONFIRMAR ELIMINACIÓN")
+• La operación corre en background y retorna un job_id inmediatamente (no espera los deletes)
+• Después de iniciar, informa al usuario que consulte el estado con GET /api/gastos/cleanup-status/{job_id}
+
+FORMATO PARA cleanup_execute:
+{
+  "accion_contable": "cleanup_execute",
+  "payload": {
+    "alegra_ids": ["[id1]", "[id2]", "[id3]"]
+  },
+  "justificacion": "Eliminar [N] journals con cuenta incorrecta 5495"
+}
+
+FLUJO COMPLETO (debes seguirlo en orden):
+1. Usuario pide limpiar journals incorrectos → mostrar el preview con los IDs obtenidos de cleanup-status
+2. Pedir confirmación explícita: "¿Confirmas eliminar estos [N] journals? Escribe CONFIRMAR ELIMINACIÓN"
+3. Usuario escribe "CONFIRMAR ELIMINACIÓN" → ejecutar cleanup_execute con los alegra_ids del preview
+4. Recibir job_id → informar al usuario el job_id y que puede consultar /api/gastos/cleanup-status/{job_id}
+
+
+═══════════════════════════════════════════════════
 FLUJO — FACTURA DE COMPRA (PROVEEDOR)
 ═══════════════════════════════════════════════════
 ⚠️ REGLA CRÍTICA — DOS TIPOS DE "FACTURA DE COMPRA":
@@ -2697,6 +2720,59 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
             "result": alegra_result,
             "id": str(journal_id),
             "message": f"Asiento contable {journal_id} eliminado de Alegra.",
+        }
+
+    # ── Special case: cleanup_execute ─────────────────────────────────────────
+    if action_type == "cleanup_execute":
+        import asyncio as _asyncio
+        from datetime import datetime as _dt, timezone as _tz
+        alegra_ids = payload.get("alegra_ids", [])
+        if not alegra_ids:
+            raise ValueError("Falta lista alegra_ids para la limpieza masiva de journals.")
+        if len(alegra_ids) > 200:
+            raise ValueError("Máximo 200 journals por operación de limpieza.")
+
+        job_id = str(__import__("uuid").uuid4())
+        await db.gastos_cleanup_jobs.insert_one({
+            "job_id":   job_id,
+            "tipo":     "execute",
+            "estado":   "en_progreso",
+            "total":    len(alegra_ids),
+            "inicio":   _dt.now(_tz.utc).isoformat(),
+        })
+
+        async def _do_cleanup(jid: str, ids: list):
+            from alegra_service import AlegraService as _AS
+            svc = _AS(db)
+            eliminados, errores = [], []
+            for i, jrl_id in enumerate(ids):
+                try:
+                    await svc.request(f"journals/{jrl_id}", "DELETE")
+                    eliminados.append(jrl_id)
+                except Exception as e:
+                    errores.append({"id": jrl_id, "error": str(e)})
+                if (i + 1) % 10 == 0:
+                    await _asyncio.sleep(0.5)
+            await db.gastos_cleanup_jobs.update_one(
+                {"job_id": jid},
+                {"$set": {
+                    "estado":    "completado",
+                    "eliminados": len(eliminados),
+                    "errores":   len(errores),
+                    "ids_eliminados": eliminados,
+                    "fin":       _dt.now(_tz.utc).isoformat(),
+                }},
+            )
+
+        _asyncio.create_task(_do_cleanup(job_id, list(alegra_ids)))
+        return {
+            "success":          True,
+            "job_id":           job_id,
+            "total_a_eliminar": len(alegra_ids),
+            "message": (
+                f"Eliminación iniciada para {len(alegra_ids)} journals en background. "
+                f"Consulta el progreso con GET /api/gastos/cleanup-status/{job_id}"
+            ),
         }
 
     # ── Special case: crear_comprobante_ingreso / crear_comprobante_egreso ────
