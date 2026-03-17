@@ -413,3 +413,22 @@ System prompt actualizado con:
 
 ## PENDIENTE URGENTE
 - Re-subir RODDOS_Gastos_2026.csv con plan_cuentas_roddos correcto (143 gastos enero 2026)
+
+## HOTFIX + MEJORA (Marzo 2026) ✅
+
+### BUG 1 — Registro de pagos bloqueado LB-2026-0016
+- Causa raíz: `KeyError: 'cliente_id'` en `register_pago` — campo no existe en loanbooks viejos
+- Fix: `loan.get('cliente_id', '')` y todos los campos opcionales en el registro de pago
+- Mejora: mensajes de error descriptivos en español (estado incorrecto, cuota ya pagada)
+- Verificado: Efectivo ✅ Transferencia ✅ Nequi ✅ · cuota ya pagada → error descriptivo ✅
+
+### BUG 2 — Botones Excel/PDF no descargaban
+- Causa raíz: PDF usaba `window.open(url)` sin auth token → 401 silencioso
+- Fix: Creado `utils/descargar.ts` con `descargarArchivo(url, nombre, token, onError)` helper reutilizable
+- Aplicado en: AgentChatPage (PlExportCard, GastosMasivosCard) y CFO (P&L Excel/PDF)
+- Verificado: Excel ✅ PDF ✅ · Error sin auth → mensaje descriptivo ✅
+
+### MEJORA — Badge temas pendientes en chat
+- Backend: GET/POST/DELETE /api/chat/pendientes endpoints
+- Frontend: Badge en header del agente con dropdown, Retomar/Descartar/Descartar todos
+- Build 21 MODULE 4 completamente funcional ✅
