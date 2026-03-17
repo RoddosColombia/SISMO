@@ -328,5 +328,14 @@ NUNCA crear /api/cartera/* — la ruta correcta es /api/radar/*
 - Estado actual Alegra: 34 journals legítimos (créditos 2025, honorarios, arriendos, papelería)
 - PENDIENTE: Re-subir RODDOS_Gastos_2026.csv con plan_cuentas_roddos correcto
 
+## ESTANDARIZACIÓN CSV — COMPLETADO (Marzo 2026)
+- Formato único para gastos masivos: CSV (7 columnas: fecha, categoria, subcategoria, descripcion, monto, proveedor, referencia)
+- GET /api/gastos/plantilla → retorna .csv con comentarios instructivos
+- POST /api/gastos/cargar → acepta solo .csv, rechaza .xlsx con instrucciones de conversión
+- Validación de categoria/subcategoria contra plan_cuentas_roddos con fallback a 5493 (Otros/Varios)
+- Frontend: input accept=".csv", botón "Descargar Plantilla CSV", hint "Solo .csv"
+- Agent system prompt: CSV es el formato exclusivo, respuesta específica para "dame la plantilla"
+- 10/10 tests pasaron (iteration_52.json)
+
 ## NUEVA COLECCIÓN
 **gastos_cleanup_jobs** — estado de jobs de cleanup (preview y execute): {job_id, tipo, estado, total, procesados, eliminados, errores, ids_recibidos, ids_eliminados, detalle_errores, inicio, fin}
