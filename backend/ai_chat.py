@@ -545,6 +545,70 @@ CARGA MASIVA DE GASTOS — FORMATO CSV (ESTÁNDAR ÚNICO)
 • Si el usuario no sabe la subcategoría, usa la cuenta de fallback Otros/Varios.
   El sistema notificará qué filas usaron el fallback.
 
+═══════════════════════════════════════════════════
+TIPOS DE INGRESO DE RODDOS (NO OPERACIONALES)
+═══════════════════════════════════════════════════
+• Ventas de motos → ya en Alegra vía facturas. NO causar de nuevo.
+• Cuotas de cartera → ya en Loanbook. NO causar de nuevo.
+• Intereses_Bancarios     → causar vía /api/ingresos/registrar-manual (alegra_id: 5455)
+• Venta_Motos_Recuperadas → causar vía /api/ingresos/registrar-manual (alegra_id: 5441)
+• Otros_Ingresos_No_Op    → causar vía /api/ingresos/registrar-manual (alegra_id: 5436)
+• Devoluciones_Ajustes    → causar vía /api/ingresos/registrar-manual (alegra_id: 5457)
+
+BANCOS DISPONIBLES: Bancolombia (2029=5314, 2540=5315), BBVA (0210=5318, 0212=5319),
+Banco de Bogota (5321), Davivienda (5322).
+
+Para registrar ingreso individual desde el chat usar acción:
+{
+  "accion_contable": "registrar_ingreso_manual",
+  "payload": {"fecha": "YYYY-MM-DD", "tipo_ingreso": "Venta_Motos_Recuperadas",
+               "descripcion": "...", "monto": 3000000, "tercero": "...", "banco": "Bancolombia"},
+  "justificacion": "..."
+}
+
+Para carga masiva de ingresos (CSV), usar la plantilla de /api/ingresos/plantilla.
+
+═══════════════════════════════════════════════════
+CUENTAS POR COBRAR SOCIOS — REGLA CRÍTICA
+═══════════════════════════════════════════════════
+• Los socios de RODDOS son: Andres Sanjuan (CC 80075452) e Ivan Echeverri (CC 80086601)
+• Los retiros y gastos personales pagados por la empresa SON Cuentas por Cobrar (CXC) al socio
+• NUNCA los causes como gasto operativo en el P&L — SIEMPRE como CXC
+• Cuenta CXC socios: 132505 (alegra_id=5329)
+• Cuando el usuario diga "gasto de socio", "retiro de socio", "gasto de Andrés",
+  "gasto de Iván" → usar acción registrar_cxc_socio, NUNCA crear_causacion como gasto
+• Cuando el usuario pregunte "¿cuánto me debe Andrés/Iván?" → usar consultar_cxc_socios
+
+ACCIONES PARA CXC SOCIOS:
+registrar_cxc_socio:
+  {"accion_contable": "registrar_cxc_socio", "payload": {"fecha": "YYYY-MM-DD",
+   "socio": "Andres Sanjuan", "descripcion": "...", "monto": 85000,
+   "pagado_a": "...", "banco_origen": "Bancolombia"}, "justificacion": "..."}
+
+abonar_cxc_socio:
+  {"accion_contable": "abonar_cxc_socio", "payload": {"socio": "Andres Sanjuan",
+   "monto": 500000, "fecha": "YYYY-MM-DD", "banco_destino": "Bancolombia",
+   "descripcion": "Abono deuda"}, "justificacion": "..."}
+
+consultar_cxc_socios:
+  {"accion_contable": "consultar_cxc_socios", "payload": {"socio": "Andres Sanjuan"},
+   "justificacion": "Consultar saldo"} (omitir "socio" para resumen total)
+
+═══════════════════════════════════════════════════
+CUENTAS POR COBRAR CLIENTES
+═══════════════════════════════════════════════════
+• Para CXC que NO son loanbooks de motos (los loanbooks ya están en su módulo)
+• Cuenta CXC clientes: 13050501 (alegra_id=5326)
+
+registrar_cxc_cliente:
+  {"accion_contable": "registrar_cxc_cliente", "payload": {"fecha": "YYYY-MM-DD",
+   "cliente": "...", "nit_cliente": "...", "descripcion": "...", "monto": 0,
+   "vencimiento": "YYYY-MM-DD", "referencia": "..."}, "justificacion": "..."}
+
+consultar_ingresos:
+  {"accion_contable": "consultar_ingresos", "payload": {"fecha_desde": "2026-01-01",
+   "fecha_hasta": "2026-01-31"}, "justificacion": "Historial ingresos enero 2026"}
+
 
 ═══════════════════════════════════════════════════
 FLUJO — FACTURA DE COMPRA (PROVEEDOR)
@@ -1204,6 +1268,13 @@ async def gather_context(user_message: str, alegra_service, db) -> dict:
              "alegra_id": e["alegra_id"], "cuenta_codigo": e["cuenta_codigo"],
              "cuenta_nombre": e["cuenta_nombre"]}
             for e in PLAN_CUENTAS_RODDOS
+        ]
+        # Include plan_ingresos + CXC socios context
+        from routers.ingresos import PLAN_INGRESOS_RODDOS
+        context["plan_ingresos_roddos"] = PLAN_INGRESOS_RODDOS
+        context["socios_cxc"] = [
+            {"nombre": "Andres Sanjuan",  "cedula": "80075452", "cxc_alegra_id": 5329},
+            {"nombre": "Ivan Echeverri",  "cedula": "80086601", "cxc_alegra_id": 5329},
         ]
 
     # ── Inject catalog items for compra/bill scenarios ──────────────────────
@@ -2823,9 +2894,110 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
             "aviso": "El número de journals efectivamente eliminados se confirmará al completar el job (puede tardar 1-3 minutos).",
         }
 
+    # ── Special case: registrar_ingreso_manual ────────────────────────────────
+    if action_type == "registrar_ingreso_manual":
+        from routers.ingresos import IngresManualReq
+        req = IngresManualReq(
+            fecha         = payload.get("fecha", ""),
+            tipo_ingreso  = payload.get("tipo_ingreso", ""),
+            descripcion   = payload.get("descripcion", ""),
+            monto         = float(payload.get("monto", 0)),
+            tercero       = payload.get("tercero", ""),
+            banco         = payload.get("banco", "Bancolombia"),
+            referencia    = payload.get("referencia", ""),
+        )
+        from routers.ingresos import registrar_ingreso_manual
+        result = await registrar_ingreso_manual(req, current_user=user)
+        if not result.get("ok"):
+            raise ValueError(result.get("error", "Error al registrar ingreso"))
+        return {
+            "success":  True,
+            "result":   result,
+            "id":       result.get("alegra_id", ""),
+            "message":  result.get("mensaje", "Ingreso registrado en Alegra"),
+        }
+
+    # ── Special case: registrar_cxc_socio ────────────────────────────────────
+    if action_type == "registrar_cxc_socio":
+        from routers.cxc import CxcSocioReq, registrar_cxc_socio as _reg_cxc
+        req = CxcSocioReq(
+            fecha         = payload.get("fecha", ""),
+            socio         = payload.get("socio", ""),
+            descripcion   = payload.get("descripcion", ""),
+            monto         = float(payload.get("monto", 0)),
+            pagado_a      = payload.get("pagado_a", ""),
+            banco_origen  = payload.get("banco_origen", "Bancolombia"),
+        )
+        result = await _reg_cxc(req, current_user=user)
+        if not result.get("ok"):
+            raise ValueError(result.get("error", "Error al registrar CXC"))
+        return {
+            "success": True, "result": result,
+            "id": result.get("alegra_id", ""),
+            "message": result.get("mensaje", "CXC socio registrada"),
+        }
+
+    # ── Special case: abonar_cxc_socio ───────────────────────────────────────
+    if action_type == "abonar_cxc_socio":
+        from routers.cxc import AbonoSocioReq, abonar_cxc_socio as _abo_cxc
+        req = AbonoSocioReq(
+            socio          = payload.get("socio", ""),
+            monto          = float(payload.get("monto", 0)),
+            fecha          = payload.get("fecha", ""),
+            banco_destino  = payload.get("banco_destino", "Bancolombia"),
+            descripcion    = payload.get("descripcion", ""),
+            cxc_id         = payload.get("cxc_id", ""),
+        )
+        result = await _abo_cxc(req, current_user=user)
+        return {
+            "success": True, "result": result,
+            "id": result.get("alegra_id", ""),
+            "message": result.get("mensaje", "Abono registrado"),
+        }
+
+    # ── Special case: consultar_cxc_socios ───────────────────────────────────
+    if action_type == "consultar_cxc_socios":
+        socio = payload.get("socio", "")
+        if socio:
+            from routers.cxc import get_saldo_socio
+            result = await get_saldo_socio(socio, current_user=user)
+        else:
+            from routers.cxc import resumen_cxc_socios
+            result = await resumen_cxc_socios(current_user=user)
+        return {"success": True, "result": result, "message": "Saldo CXC socios consultado"}
+
+    # ── Special case: consultar_ingresos ─────────────────────────────────────
+    if action_type == "consultar_ingresos":
+        from routers.ingresos import get_historial_ingresos
+        result = await get_historial_ingresos(
+            fecha_desde = payload.get("fecha_desde", ""),
+            fecha_hasta = payload.get("fecha_hasta", ""),
+            tipo        = payload.get("tipo", ""),
+            current_user = user,
+        )
+        return {"success": True, "result": result, "message": "Historial de ingresos consultado"}
+
+    # ── Special case: registrar_cxc_cliente ──────────────────────────────────
+    if action_type == "registrar_cxc_cliente":
+        from routers.cxc import CxcClienteReq, registrar_cxc_cliente as _reg_cxc_cli
+        req = CxcClienteReq(
+            fecha        = payload.get("fecha", ""),
+            cliente      = payload.get("cliente", ""),
+            nit_cliente  = payload.get("nit_cliente", ""),
+            descripcion  = payload.get("descripcion", ""),
+            monto        = float(payload.get("monto", 0)),
+            vencimiento  = payload.get("vencimiento", ""),
+            referencia   = payload.get("referencia", ""),
+        )
+        result = await _reg_cxc_cli(req, current_user=user)
+        return {
+            "success": True, "result": result,
+            "id": result.get("alegra_id", ""),
+            "message": result.get("mensaje", "CXC cliente registrada"),
+        }
+
     # ── Special case: crear_comprobante_ingreso / crear_comprobante_egreso ────
-    if action_type in ("crear_comprobante_ingreso", "crear_comprobante_egreso"):
-        # Map to journals endpoint (Alegra uses journal-entries for comprobantes)
+    if action_type in ("crear_comprobante_ingreso", "crear_comprobante_egreso"):        # Map to journals endpoint (Alegra uses journal-entries for comprobantes)
         comprobante_result = await service.request("journals", "POST", payload)
         from post_action_sync import post_action_sync
         sync_result = await post_action_sync(action_type, comprobante_result, payload, db, user)

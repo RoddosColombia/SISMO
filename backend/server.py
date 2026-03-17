@@ -20,6 +20,8 @@ from routers import cfo_estrategico as cfo_est_router
 from routers import cfo_chat as cfo_chat_router
 from routers import mercately as mercately_router, crm as crm_router
 from routers import dian as dian_router
+from routers import ingresos as ingresos_router
+from routers import cxc as cxc_router
 from routers import proveedores_config as proveedores_router
 from routers import scheduler as scheduler_router
 from routers import learning as learning_router
@@ -202,6 +204,25 @@ async def startup():
     start_scheduler()
     start_loanbook_scheduler()
 
+    # ── Inicializar plan_ingresos_roddos ──────────────────────────────────────
+    from routers.ingresos import PLAN_INGRESOS_RODDOS
+    now_str = datetime.now(timezone.utc).isoformat()
+    for entry in PLAN_INGRESOS_RODDOS:
+        await db.plan_ingresos_roddos.update_one(
+            {"tipo_ingreso": entry["tipo_ingreso"]},
+            {"$set": {**entry, "actualizado_en": now_str}},
+            upsert=True,
+        )
+    logger.info("plan_ingresos_roddos sincronizado: %d tipos", len(PLAN_INGRESOS_RODDOS))
+
+    # ── Índices CXC ───────────────────────────────────────────────────────────
+    await db.cxc_socios.create_index([("socio", 1), ("estado", 1)])
+    await db.cxc_socios.create_index([("fecha", 1)])
+    await db.cxc_clientes.create_index([("nit_cliente", 1)])
+    await db.cxc_clientes.create_index([("vencimiento", 1)])
+    await db.ingresos_registrados.create_index([("fecha", 1), ("tipo_ingreso", 1)])
+    logger.info("MongoDB indexes for CXC/Ingresos ensured")
+
 
 @app.on_event("shutdown")
 async def shutdown():
@@ -266,6 +287,8 @@ app.include_router(proveedores_router.router, prefix=PREFIX)
 app.include_router(gastos_router.router,     prefix=PREFIX)
 app.include_router(ventas_router.router,     prefix=PREFIX)
 app.include_router(dian_router.router,       prefix=PREFIX)
+app.include_router(ingresos_router.router,   prefix=PREFIX)
+app.include_router(cxc_router.router,        prefix=PREFIX)
 
 
 # ─── Smoke Test (PASO 5 — verificación post-deploy) ───────────────────────────
