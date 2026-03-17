@@ -19,6 +19,7 @@ from routers import repuestos, loanbook, telegram, radar as radar_router, cfo as
 from routers import cfo_estrategico as cfo_est_router
 from routers import cfo_chat as cfo_chat_router
 from routers import mercately as mercately_router, crm as crm_router
+from routers import dian as dian_router
 from routers import proveedores_config as proveedores_router
 from routers import scheduler as scheduler_router
 from routers import learning as learning_router
@@ -244,6 +245,7 @@ app.include_router(cfo_chat_router.router,  prefix=PREFIX)
 app.include_router(proveedores_router.router, prefix=PREFIX)
 app.include_router(gastos_router.router,     prefix=PREFIX)
 app.include_router(ventas_router.router,     prefix=PREFIX)
+app.include_router(dian_router.router,       prefix=PREFIX)
 
 
 # ─── Smoke Test (PASO 5 — verificación post-deploy) ───────────────────────────

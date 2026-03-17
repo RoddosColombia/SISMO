@@ -212,6 +212,7 @@ export default function Settings() {
           {user?.role === "admin" && <TabsTrigger value="audit" data-testid="tab-audit">Auditoría</TabsTrigger>}
           <TabsTrigger value="webhooks" data-testid="tab-webhooks">Webhooks</TabsTrigger>
           {user?.role === "admin" && <TabsTrigger value="mercately" data-testid="tab-mercately">Mercately (WhatsApp)</TabsTrigger>}
+          <TabsTrigger value="dian" data-testid="tab-dian">DIAN</TabsTrigger>
           <TabsTrigger value="cfo" data-testid="tab-cfo">Agente CFO</TabsTrigger>
           <TabsTrigger value="scheduler" data-testid="tab-scheduler">Alertas Scheduler</TabsTrigger>
         </TabsList>
@@ -1856,3 +1857,161 @@ function SchedulerTab({ api }: { api: any }) {
   );
 }
 
+
+
+// ═══════════════════════════════════════════════════════════════
+// DIAN Tab — Integración facturas electrónicas
+// ═══════════════════════════════════════════════════════════════
+function DianTab({ api }: { api: any }) {
+  const [status, setStatus] = React.useState<any>(null);
+  const [historial, setHistorial] = React.useState<any[]>([]);
+  const [syncing, setSyncing] = React.useState(false);
+  const [probando, setProbando] = React.useState(false);
+
+  const loadStatus = React.useCallback(async () => {
+    try {
+      const s = await api.get("/dian/status");
+      setStatus(s);
+      const h = await api.get("/dian/historial");
+      setHistorial(Array.isArray(h) ? h.slice(0, 10) : []);
+    } catch {}
+  }, [api]);
+
+  React.useEffect(() => { loadStatus(); }, [loadStatus]);
+
+  async function handleSync() {
+    setSyncing(true);
+    try {
+      const res = await api.post("/dian/sync", {});
+      toast.success(`DIAN sync: ${res.procesadas} causadas, ${res.omitidas} omitidas`);
+      await loadStatus();
+    } catch { toast.error("Error en DIAN sync"); }
+    finally { setSyncing(false); }
+  }
+
+  async function handleProbarConexion() {
+    setProbando(true);
+    try {
+      const res = await api.post("/dian/probar-conexion", {});
+      if (res.ok) toast.success(res.mensaje);
+      else toast.error(res.mensaje);
+    } catch { toast.error("Error al probar conexión"); }
+    finally { setProbando(false); }
+  }
+
+  return (
+    <div className="space-y-5" data-testid="dian-tab">
+      {/* Banner modo simulación */}
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
+        <AlertTriangle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
+        <div className="flex-1">
+          <p className="text-sm font-semibold text-amber-800">
+            Modo simulación activo — datos realistas de proveedores RODDOS
+          </p>
+          <p className="text-xs text-amber-700 mt-0.5">
+            Conecta tus credenciales DIAN o un proveedor intermediario
+            (Alanube, Facturalatam) para activar datos reales de la DIAN.
+          </p>
+          <button
+            className="mt-2 text-xs font-semibold text-amber-700 border border-amber-400 px-3 py-1 rounded-lg hover:bg-amber-100 transition"
+            data-testid="dian-configurar-credenciales-btn"
+            onClick={() => toast.info("Para conectar: configura DIAN_TOKEN, DIAN_AMBIENTE y DIAN_BASE_URL en las variables de entorno")}
+          >
+            Configurar credenciales reales
+          </button>
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-white border border-slate-200 rounded-xl p-4">
+          <p className="text-xs text-slate-500 mb-1">Estado</p>
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-amber-400" />
+            <p className="text-sm font-semibold text-slate-700">Simulación activa</p>
+          </div>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-xl p-4">
+          <p className="text-xs text-slate-500 mb-1">Facturas causadas</p>
+          <p className="text-xl font-bold text-[#0F2A5C]" data-testid="dian-total-causadas">
+            {status?.total_causadas ?? "—"}
+          </p>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-xl p-4">
+          <p className="text-xs text-slate-500 mb-1">Próximo sync automático</p>
+          <p className="text-sm font-semibold text-slate-700">
+            Hoy a las <span className="text-[#0F2A5C]">11:00 PM</span>
+          </p>
+        </div>
+      </div>
+
+      {status?.ultimo_sync && (
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
+          <p className="text-xs font-semibold text-slate-500 mb-1">Último sync</p>
+          <p className="text-sm text-slate-700">
+            {status.ultimo_sync.timestamp?.slice(0, 16).replace("T", " ")} —{" "}
+            <span className="text-green-600 font-medium">{status.ultimo_sync.procesadas} causadas</span>
+            {", "}
+            <span className="text-slate-500">{status.ultimo_sync.omitidas} omitidas</span>
+            {(status.ultimo_sync.errores ?? 0) > 0 && (
+              <span className="text-red-500 ml-1">, {status.ultimo_sync.errores} errores</span>
+            )}
+          </p>
+        </div>
+      )}
+
+      <div className="flex gap-3 flex-wrap">
+        <button
+          data-testid="dian-sync-ahora-btn"
+          onClick={handleSync}
+          disabled={syncing}
+          className="flex items-center gap-2 bg-[#0F2A5C] text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-[#0F2A5C]/90 transition disabled:opacity-60"
+        >
+          {syncing ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+          Ejecutar sync ahora
+        </button>
+        <button
+          data-testid="dian-probar-conexion-btn"
+          onClick={handleProbarConexion}
+          disabled={probando}
+          className="flex items-center gap-2 border border-[#0F2A5C]/30 text-[#0F2A5C] text-sm font-semibold px-4 py-2 rounded-lg hover:bg-[#0F2A5C]/5 transition"
+        >
+          {probando ? <Loader2 size={13} className="animate-spin" /> : null}
+          Probar conexión
+        </button>
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-xl p-4">
+        <h3 className="text-sm font-bold text-[#0F2A5C] mb-3">Historial de syncs (últimos 30 días)</h3>
+        {historial.length === 0 ? (
+          <p className="text-xs text-slate-400 py-4 text-center">Sin syncs registrados aún.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-slate-400 border-b border-slate-100">
+                  <th className="py-2 pr-3">Fecha</th>
+                  <th className="py-2 pr-3">Consultadas</th>
+                  <th className="py-2 pr-3">Causadas</th>
+                  <th className="py-2 pr-3">Omitidas</th>
+                  <th className="py-2">Errores</th>
+                </tr>
+              </thead>
+              <tbody>
+                {historial.map((h, i) => (
+                  <tr key={i} className="border-b border-slate-50 hover:bg-slate-50">
+                    <td className="py-1.5 pr-3 text-slate-500 whitespace-nowrap">{h.timestamp?.slice(0,10) || h.fecha || "—"}</td>
+                    <td className="py-1.5 pr-3 text-slate-700">{h.consultadas ?? 0}</td>
+                    <td className="py-1.5 pr-3"><span className="text-green-600 font-semibold">{h.procesadas ?? 0}</span></td>
+                    <td className="py-1.5 pr-3 text-slate-500">{h.omitidas ?? 0}</td>
+                    <td className="py-1.5">{(h.errores ?? 0) > 0 ? <span className="text-red-500 font-semibold">{h.errores}</span> : <span className="text-slate-300">0</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

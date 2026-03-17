@@ -302,12 +302,22 @@ def start_scheduler() -> None:
         replace_existing=True, max_instances=1, misfire_grace_time=3600,
     )
 
+    # ── DIAN sync diario 11pm Bogotá ───────────────────────────────────────────
+    _scheduler.add_job(
+        _sync_dian_diario,
+        trigger="cron",
+        hour=23, minute=0,
+        timezone="America/Bogota",
+        id="dian_sync_diario",
+        replace_existing=True, max_instances=1, misfire_grace_time=3600,
+    )
+
     _scheduler.start()
     logger.info(
         "[Scheduler] APScheduler iniciado — "
         "process_pending_events@60s | informe_cfo@día1 08:00 | "
         "WA: T1@lun08 T2@mié08 T3@jue09 T5@sab09 | "
-        "inventario@lun07 | sync_pagos@5min | sync_facturas@5min (COT)"
+        "inventario@lun07 | sync_pagos@5min | sync_facturas@5min | dian@23:00 (COT)"
     )
 
 
@@ -316,6 +326,25 @@ def stop_scheduler() -> None:
     if _scheduler.running:
         _scheduler.shutdown(wait=False)
         logger.info("[Scheduler] APScheduler detenido")
+
+
+async def _sync_dian_diario() -> None:
+    """23:00 COT — Sincroniza facturas DIAN del día anterior + hoy (ventana 48h)."""
+    from database import db as _db
+    from services.dian_service import sync_facturas_dian
+    try:
+        hoy = datetime.now(timezone.utc).date()
+        ayer = (hoy - timedelta(days=1))
+        resumen = await sync_facturas_dian(ayer.isoformat(), hoy.isoformat(), _db)
+        logger.info(
+            "[Scheduler] DIAN sync: consultadas=%d causadas=%d omitidas=%d errores=%d",
+            resumen.get("consultadas", 0),
+            resumen.get("procesadas", 0),
+            resumen.get("omitidas", 0),
+            resumen.get("errores", 0),
+        )
+    except Exception as e:
+        logger.error("[Scheduler] DIAN sync error: %s", e)
 
 
 async def _reconciliar_inventario_lunes() -> None:

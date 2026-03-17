@@ -18,6 +18,7 @@ const MODULES = [
   { path: "/inventario-auteco",label: "Motos",               icon: Bike,             group: null  },
   { path: "/loanbook",         label: "Loanbook",            icon: BookOpen,         group: null  },
   { path: "/radar",             label: "RADAR",               icon: Target,           group: null  },
+  { path: "/perfil",            label: "Mi perfil",           icon: User,             group: null  },
   { path: "/configuracion",    label: "Configuración",       icon: Settings,         group: null  },
 ];
 
