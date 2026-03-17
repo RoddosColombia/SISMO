@@ -2,6 +2,9 @@ import os
 import re
 import uuid
 import json
+import base64
+import csv
+import io
 from datetime import datetime, timezone
 from fastapi import HTTPException
 from emergentintegrations.llm.chat import LlmChat, UserMessage, FileContent
@@ -24,6 +27,74 @@ def _safe_str(val, default: str = "") -> str:
     if val is None:
         return default
     return str(val)
+
+
+# ── Tabular file (CSV/Excel) → text helper ───────────────────────────────────
+_TABULAR_TYPES = {
+    "text/csv", "application/csv",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel",
+}
+_GASTOS_COLS = {"fecha", "monto", "descripcion", "categoria", "proveedor"}
+
+def _is_tabular_file(file_name: str, file_type: str) -> bool:
+    name = (file_name or "").lower()
+    return (
+        file_type in _TABULAR_TYPES
+        or name.endswith(".csv")
+        or name.endswith(".xlsx")
+        or name.endswith(".xls")
+    )
+
+def _tabular_to_text(file_content_b64: str, file_name: str, file_type: str) -> tuple[str, list, list]:
+    """Decode base64 CSV/Excel and return (text_table, headers, rows)."""
+    raw = base64.b64decode(file_content_b64)
+    name = (file_name or "").lower()
+    headers = []
+    rows = []
+
+    try:
+        if name.endswith(".xlsx") or name.endswith(".xls"):
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True)
+            ws = wb.active
+            data = [[str(c.value) if c.value is not None else "" for c in row] for row in ws.iter_rows()]
+        else:
+            # CSV — try UTF-8 then latin-1
+            try:
+                text = raw.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                text = raw.decode("latin-1")
+            # Remove null bytes
+            text = text.replace("\x00", "")
+            dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t|")
+            data = list(csv.reader(io.StringIO(text), dialect))
+
+        if not data:
+            return "Archivo vacío.", [], []
+
+        headers = [h.strip().lower() for h in data[0]]
+        rows = data[1:]  # raw row lists
+
+        # Build text table (max 60 rows to avoid token overflow)
+        display_rows = rows[:60]
+        lines = [" | ".join(data[0])]  # header with original casing
+        lines.append("-" * min(80, len(lines[0])))
+        for r in display_rows:
+            lines.append(" | ".join(r))
+        if len(rows) > 60:
+            lines.append(f"... ({len(rows) - 60} filas adicionales no mostradas)")
+
+        return "\n".join(lines), headers, rows
+
+    except Exception as e:
+        return f"Error al leer el archivo: {str(e)}", [], []
+
+
+def _is_gastos_csv(headers: list) -> bool:
+    """Detect if CSV columns match the gastos template format."""
+    h_set = set(h.strip().lower() for h in headers)
+    return len(_GASTOS_COLS & h_set) >= 3  # at least 3 of the 5 key columns match
 
 
 # ── Helpers de detección de tipo de proveedor ────────────────────────────────
@@ -1689,12 +1760,82 @@ async def process_document_chat(
     }
 
 
+async def process_tabular_chat(
+    session_id: str, user_message: str,
+    file_content: str, file_name: str, file_type: str,
+    db, user: dict
+) -> dict:
+    """Handle CSV/Excel attachments by converting to text and routing to the agent."""
+    text_table, headers, rows = _tabular_to_text(file_content, file_name, file_type)
+    n_rows = len(rows)
+    is_gastos = _is_gastos_csv(headers)
+
+    # Save user message
+    display_msg = user_message or f"Adjunté el archivo: {file_name}"
+    await db.chat_messages.insert_one({
+        "id": str(uuid.uuid4()),
+        "session_id": session_id,
+        "role": "user",
+        "content": f"{display_msg}\n[Archivo adjunto: {file_name} — {n_rows} filas]",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "user_id": user.get("id"),
+    })
+
+    # ── Gastos CSV/Excel: return preview card ──────────────────────────────
+    if is_gastos:
+        gastos_preview_msg = (
+            f"Detecté un archivo de **carga masiva de gastos** (`{file_name}`) "
+            f"con **{n_rows} fila(s)**.\n\n"
+            f"**Primeras filas:**\n```\n{text_table[:1200]}\n```\n\n"
+            "Usa la tarjeta de **Carga Masiva** para subir este archivo, validar las "
+            "retenciones y registrar todos los gastos en Alegra de una vez."
+        )
+        gastos_card = {
+            "type": "gastos_masivos_card",
+            "titulo": "Carga Masiva de Gastos",
+            "descripcion": (
+                f"Archivo `{file_name}` listo — {n_rows} gastos detectados. "
+                "Sube el archivo en la tarjeta para validar y registrar."
+            ),
+        }
+        await db.chat_messages.insert_one({
+            "id": str(uuid.uuid4()),
+            "session_id": session_id,
+            "role": "assistant",
+            "content": gastos_preview_msg,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "user_id": user.get("id"),
+        })
+        return {
+            "message": gastos_preview_msg,
+            "pending_action": None,
+            "session_id": session_id,
+            "gastos_masivos_card": gastos_card,
+        }
+
+    # ── Generic CSV/Excel: inject as text context and call regular agent ────
+    injected_message = (
+        f"{user_message or 'Analiza este archivo'}\n\n"
+        f"[ARCHIVO ADJUNTO: {file_name} — {n_rows} filas]\n"
+        f"Contenido del archivo:\n```\n{text_table[:3000]}\n```"
+    )
+    # Delegate to regular process_chat but with text content (no file)
+    return await process_chat(session_id, injected_message, db, user)
+
+
 async def process_chat(
     session_id: str, user_message: str, db, user: dict,
     file_content: str = None, file_name: str = None, file_type: str = None,
 ) -> dict:
     # Route to document analysis if a file was attached
     if file_content:
+        # CSV/Excel → text injection (not vision API)
+        if _is_tabular_file(file_name or "", file_type or ""):
+            return await process_tabular_chat(
+                session_id, user_message, file_content,
+                file_name or "archivo", file_type or "text/csv",
+                db, user
+            )
         return await process_document_chat(
             session_id, user_message, file_content,
             file_name or "documento", file_type or "image/jpeg",

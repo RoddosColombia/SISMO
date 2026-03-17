@@ -1372,9 +1372,18 @@ export default function AgentChatPage() {
     });
 
   const handleFileAttach = useCallback(async (file: File): Promise<void> => {
-    const allowed = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp", "application/pdf"];
+    const allowed = [
+      "image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp",
+      "application/pdf",
+      "text/csv", "application/csv",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "application/vnd.ms-excel",
+    ];
+    const extAllowed = [".csv", ".xlsx", ".xls"];
+    const nameLC = file.name.toLowerCase();
+    const isAllowed = allowed.includes(file.type) || extAllowed.some(e => nameLC.endsWith(e));
     if (file.size > 20 * 1024 * 1024) { toast.error("El archivo no puede superar 20MB"); return; }
-    if (!allowed.includes(file.type)) { toast.error("Solo imágenes (JPG, PNG, WebP) y PDF"); return; }
+    if (!isAllowed) { toast.error("Tipos permitidos: imágenes, PDF, CSV y Excel (.xlsx/.xls)"); return; }
     try {
       const base64 = await fileToBase64(file);
       const preview = file.type.startsWith("image/") ? URL.createObjectURL(file) : null;
@@ -1785,7 +1794,7 @@ export default function AgentChatPage() {
             <Paperclip size={17} />
           </button>
           <input ref={fileInputRef} type="file" hidden multiple
-            accept="image/jpeg,image/jpg,image/png,image/gif,image/webp,application/pdf"
+            accept="image/jpeg,image/jpg,image/png,image/gif,image/webp,application/pdf,text/csv,application/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,.csv,.xlsx,.xls"
             onChange={(e) => {
               const files = Array.from(e.target.files || []);
               if (files.length === 1) {
