@@ -2726,43 +2726,68 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
     if action_type == "cleanup_execute":
         import asyncio as _asyncio
         from datetime import datetime as _dt, timezone as _tz
+        import uuid as _uuid
         alegra_ids = payload.get("alegra_ids", [])
         if not alegra_ids:
             raise ValueError("Falta lista alegra_ids para la limpieza masiva de journals.")
         if len(alegra_ids) > 200:
             raise ValueError("Máximo 200 journals por operación de limpieza.")
 
-        job_id = str(__import__("uuid").uuid4())
+        job_id = str(_uuid.uuid4())
         await db.gastos_cleanup_jobs.insert_one({
             "job_id":   job_id,
             "tipo":     "execute",
             "estado":   "en_progreso",
             "total":    len(alegra_ids),
+            "ids_recibidos": list(alegra_ids),
             "inicio":   _dt.now(_tz.utc).isoformat(),
         })
 
         async def _do_cleanup(jid: str, ids: list):
             from alegra_service import AlegraService as _AS
             svc = _AS(db)
-            eliminados, errores = [], []
+            eliminados_ok, eliminados_err = [], []
             for i, jrl_id in enumerate(ids):
-                try:
-                    await svc.request(f"journals/{jrl_id}", "DELETE")
-                    eliminados.append(jrl_id)
-                except Exception as e:
-                    errores.append({"id": jrl_id, "error": str(e)})
+                intentos = 0
+                while intentos < 3:
+                    try:
+                        await svc.request(f"journals/{jrl_id}", "DELETE")
+                        eliminados_ok.append(str(jrl_id))
+                        break
+                    except Exception as e:
+                        intentos += 1
+                        err_msg = str(e)
+                        if intentos >= 3:
+                            eliminados_err.append({"id": str(jrl_id), "error": err_msg})
+                        else:
+                            await _asyncio.sleep(3 * intentos)
                 if (i + 1) % 10 == 0:
-                    await _asyncio.sleep(0.5)
+                    await _asyncio.sleep(1.0)
+
+            # Guardar resultado REAL en MongoDB (nunca silencioso)
+            fin = _dt.now(_tz.utc).isoformat()
             await db.gastos_cleanup_jobs.update_one(
                 {"job_id": jid},
                 {"$set": {
-                    "estado":    "completado",
-                    "eliminados": len(eliminados),
-                    "errores":   len(errores),
-                    "ids_eliminados": eliminados,
-                    "fin":       _dt.now(_tz.utc).isoformat(),
+                    "estado":           "completado",
+                    "eliminados":       len(eliminados_ok),
+                    "errores":          len(eliminados_err),
+                    "ids_eliminados":   eliminados_ok,
+                    "detalle_errores":  eliminados_err,
+                    "fin":              fin,
                 }},
             )
+            # Evento auditable en roddos_events
+            await db.roddos_events.insert_one({
+                "event_type":       "cleanup.journals.ejecutado",
+                "job_id":           jid,
+                "total_solicitado": len(ids),
+                "eliminados":       len(eliminados_ok),
+                "errores":          len(eliminados_err),
+                "ids_eliminados":   eliminados_ok,
+                "detalle_errores":  eliminados_err,
+                "fecha":            fin,
+            })
 
         _asyncio.create_task(_do_cleanup(job_id, list(alegra_ids)))
         return {
@@ -2770,9 +2795,11 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
             "job_id":           job_id,
             "total_a_eliminar": len(alegra_ids),
             "message": (
-                f"Eliminación iniciada para {len(alegra_ids)} journals en background. "
-                f"Consulta el progreso con GET /api/gastos/cleanup-status/{job_id}"
+                f"Eliminación iniciada en background para {len(alegra_ids)} journals. "
+                f"El resultado real de Alegra se guarda en MongoDB. "
+                f"Consulta el estado exacto con GET /api/gastos/cleanup-status/{job_id}"
             ),
+            "aviso": "El número de journals efectivamente eliminados se confirmará al completar el job (puede tardar 1-3 minutos).",
         }
 
     # ── Special case: crear_comprobante_ingreso / crear_comprobante_egreso ────

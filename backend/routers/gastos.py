@@ -806,17 +806,22 @@ async def _run_job(job_id: str, gastos: list[dict], user_email: str):
         _jobs[job_id]["exitosos"]   = len(exitosos)
         _jobs[job_id]["errores"]    = len(errores)
 
-    # Save to DB
+    # Save to DB — incluye alegra_ids de los exitosos para poder hacer cleanup después
     now = datetime.now(timezone.utc).isoformat()
+    exitosos_ids = [
+        {"alegra_id": g.get("alegra_id",""), "tipo": g.get("tipo",""), "fecha": g.get("fecha",""), "proveedor": g.get("proveedor",""), "monto": g.get("monto",0)}
+        for g in exitosos if g.get("alegra_id")
+    ]
     await db.roddos_events.insert_one({
-        "id":          job_id,
-        "event_type":  "gasto.masivo.registrado",
-        "procesados":  len(exitosos) + len(errores),
-        "exitosos":    len(exitosos),
-        "errores":     len(errores),
-        "filas_error": errores,
-        "creado_por":  user_email,
-        "fecha":       now,
+        "id":           job_id,
+        "event_type":   "gasto.masivo.registrado",
+        "procesados":   len(exitosos) + len(errores),
+        "exitosos":     len(exitosos),
+        "errores":      len(errores),
+        "alegra_ids":   exitosos_ids,   # IDs reales de Alegra para cleanup futuro
+        "filas_error":  errores,
+        "creado_por":   user_email,
+        "fecha":        now,
     })
 
     _jobs[job_id].update({
@@ -945,7 +950,35 @@ async def descargar_reporte_errores(job_id: str, current_user=Depends(get_curren
 
 
 
-# ── GET /gastos/plan-cuentas ──────────────────────────────────────────────────
+# ── GET /gastos/journals-creados ─────────────────────────────────────────────
+@router.get("/journals-creados")
+async def get_journals_creados(
+    fecha_desde: str = "",
+    fecha_hasta: str = "",
+    current_user=Depends(get_current_user),
+):
+    """Retorna los IDs de Alegra de journals creados por carga masiva, desde MongoDB.
+    Útil para cleanup sin tener que llamar a Alegra (evita rate limiting)."""
+    query = {"event_type": "gasto.masivo.registrado", "alegra_ids": {"$exists": True, "$ne": []}}
+    if fecha_desde or fecha_hasta:
+        query["fecha"] = {}
+        if fecha_desde:
+            query["fecha"]["$gte"] = fecha_desde
+        if fecha_hasta:
+            query["fecha"]["$lte"] = fecha_hasta + "Z"
+
+    events = await db.roddos_events.find(query, {"_id": 0, "alegra_ids": 1, "fecha": 1, "procesados": 1}).to_list(50)
+    all_ids = []
+    for evt in events:
+        all_ids.extend(evt.get("alegra_ids", []))
+
+    return {
+        "total": len(all_ids),
+        "eventos": len(events),
+        "alegra_ids": all_ids,
+    }
+
+
 @router.get("/plan-cuentas")
 async def get_plan_cuentas(current_user=Depends(get_current_user)):
     """Devuelve el plan de cuentas RODDOS con IDs reales de Alegra."""
@@ -968,7 +1001,8 @@ class CleanupPreviewReq(BaseModel):
 # ── POST /gastos/cleanup-preview ─────────────────────────────────────────────
 # Background task version — stores results in MongoDB to avoid proxy timeout
 async def _run_cleanup_preview(job_id: str, cuenta_id: int, fecha_desde: str, fecha_hasta: str):
-    """Pagina Alegra journals en background y filtra los de cuenta incorrecta."""
+    """Pagina Alegra journals en background y filtra los de cuenta incorrecta.
+    Usa delays amplios (5s) para evitar rate limiting de Alegra."""
     import asyncio
     alegra = AlegraService(db)
     journals_to_delete = []
@@ -979,17 +1013,22 @@ async def _run_cleanup_preview(job_id: str, cuenta_id: int, fecha_desde: str, fe
     for page_num in range(30):  # max 300 journals
         retries = 0
         batch = None
-        while retries < 3:
+        while retries < 4:
             try:
                 batch = await alegra.request("journals", params={"limit": batch_size, "start": start})
                 break  # success
             except Exception as e:
                 retries += 1
-                wait = 2 ** retries  # exponential backoff: 2s, 4s, 8s
-                logger.warning("cleanup_preview batch start=%s retry=%s error=%s — waiting %ss", start, retries, e, wait)
+                wait = min(5 * retries, 20)  # 5s, 10s, 15s, 20s
+                logger.warning("cleanup_preview page=%s retry=%s/%s error=%s — waiting %ss", page_num, retries, 4, e, wait)
+                if retries >= 4:
+                    batch = None
+                    break
                 await asyncio.sleep(wait)
+
         if batch is None or not isinstance(batch, list) or not batch:
             break
+
         total_revisados += len(batch)
         for j in batch:
             j_date = j.get("date", "")
@@ -1004,18 +1043,41 @@ async def _run_cleanup_preview(job_id: str, cuenta_id: int, fecha_desde: str, fe
                     if float(e.get("debit", 0)) > 0 and str(e.get("id")) == str(cuenta_id)
                 )
                 journals_to_delete.append({
-                    "alegra_id": str(j.get("id")),
-                    "date": j_date,
-                    "observations": j.get("observations", j.get("description", "")),
-                    "total_debito": total_debito,
+                    "alegra_id":        str(j.get("id")),
+                    "date":             j_date,
+                    "observations":     j.get("observations", j.get("description", "")),
+                    "total_debito":     total_debito,
                     "cuenta_incorrecta": next(
                         (e.get("name") for e in j.get("entries", []) if str(e.get("id")) == str(cuenta_id)), "?"
                     ),
                 })
+
+        # Update progress in MongoDB after each batch
+        await db.gastos_cleanup_jobs.update_one(
+            {"job_id": job_id},
+            {"$set": {
+                "total_revisados": total_revisados,
+                "journals_encontrados_hasta_ahora": len(journals_to_delete),
+            }},
+        )
+
         start += len(batch)
         if len(batch) < batch_size:
             break
-        await asyncio.sleep(0.5)  # rate limit protection
+        await asyncio.sleep(5)  # 5s delay between batches — critical for Alegra rate limit
+
+    await db.gastos_cleanup_jobs.update_one(
+        {"job_id": job_id},
+        {"$set": {
+            "estado":                          "completado",
+            "total_revisados":                 total_revisados,
+            "journals_con_cuenta_incorrecta":  len(journals_to_delete),
+            "preview":                         journals_to_delete,
+            "alegra_ids":                      [j["alegra_id"] for j in journals_to_delete],
+            "fin":                             datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    logger.info("cleanup_preview completado: %d revisados, %d con cuenta %d", total_revisados, len(journals_to_delete), cuenta_id)
 
     await db.gastos_cleanup_jobs.update_one(
         {"job_id": job_id},
