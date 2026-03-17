@@ -316,3 +316,17 @@ NUNCA crear /api/cartera/* — la ruta correcta es /api/radar/*
 - GET /api/auth/sesiones — sesiones activas del usuario
 - GET /api/auth/preferencias — preferencias de notificación
 - PUT /api/auth/preferencias — actualiza preferencias de notificación
+- POST /api/gastos/cleanup-preview — job background: busca journals con cuenta incorrecta por fecha
+- POST /api/gastos/cleanup-execute — job background: elimina journals por IDs. Retorna job_id inmediatamente (NO síncrono)
+- GET /api/gastos/cleanup-status/{job_id} — consulta estado del job de cleanup (preview o execute)
+- GET /api/gastos/journals-creados — recupera IDs de journals creados por eventos en roddos_events
+
+## CLEANUP ALEGRA — ESTADO (Marzo 2026)
+- 143 journals con cuenta 5495 (Gastos de Representación) en enero 2026 → ELIMINADOS ✅
+- Método: BackgroundTasks async con delays anti-rate-limit (1.5s c/10 DELETEs)
+- Evidencia: iteration_51.json — DELETE HTTP 200 confirmado
+- Estado actual Alegra: 34 journals legítimos (créditos 2025, honorarios, arriendos, papelería)
+- PENDIENTE: Re-subir RODDOS_Gastos_2026.csv con plan_cuentas_roddos correcto
+
+## NUEVA COLECCIÓN
+**gastos_cleanup_jobs** — estado de jobs de cleanup (preview y execute): {job_id, tipo, estado, total, procesados, eliminados, errores, ids_recibidos, ids_eliminados, detalle_errores, inicio, fin}

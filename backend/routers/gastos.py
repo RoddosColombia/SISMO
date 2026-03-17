@@ -1126,48 +1126,102 @@ class CleanupExecuteReq(BaseModel):
     alegra_ids: List[str]
 
 
+async def _run_cleanup_execute(job_id: str, alegra_ids: list, user_email: str):
+    """Background task: elimina journals de Alegra con delays anti-rate-limit."""
+    import asyncio
+    alegra = AlegraService(db)
+    eliminados: list[str] = []
+    errores_delete: list[dict] = []
+
+    for i, journal_id in enumerate(alegra_ids):
+        intentos = 0
+        while intentos < 3:
+            try:
+                await alegra.request(f"journals/{journal_id}", method="DELETE")
+                eliminados.append(str(journal_id))
+                break
+            except Exception as e:
+                intentos += 1
+                err_msg = str(e)
+                if intentos >= 3:
+                    errores_delete.append({"id": str(journal_id), "error": err_msg})
+                    logger.warning("cleanup_execute: no se pudo eliminar journal %s: %s", journal_id, err_msg)
+                else:
+                    await asyncio.sleep(3 * intentos)
+
+        # Delay every 10 items to avoid Alegra rate limiting
+        if (i + 1) % 10 == 0:
+            await asyncio.sleep(1.5)
+            # Update progress
+            await db.gastos_cleanup_jobs.update_one(
+                {"job_id": job_id},
+                {"$set": {"eliminados": len(eliminados), "errores": len(errores_delete), "procesados": i + 1}},
+            )
+
+    fin = datetime.now(timezone.utc).isoformat()
+
+    # Update final state in MongoDB
+    await db.gastos_cleanup_jobs.update_one(
+        {"job_id": job_id},
+        {"$set": {
+            "estado":           "completado",
+            "eliminados":       len(eliminados),
+            "errores":          len(errores_delete),
+            "ids_eliminados":   eliminados,
+            "detalle_errores":  errores_delete,
+            "procesados":       len(alegra_ids),
+            "fin":              fin,
+        }},
+    )
+
+    # Auditable event
+    await db.roddos_events.insert_one({
+        "event_type":       "gasto.cleanup.journals",
+        "job_id":           job_id,
+        "eliminados":       len(eliminados),
+        "errores":          len(errores_delete),
+        "ids_eliminados":   eliminados,
+        "detalle_errores":  errores_delete,
+        "ejecutado_por":    user_email,
+        "fecha":            fin,
+    })
+    logger.info("cleanup_execute completado: %d eliminados, %d errores", len(eliminados), len(errores_delete))
+
+
 @router.post("/cleanup-execute")
 async def cleanup_journals_execute(
     req: CleanupExecuteReq,
+    background_tasks: BackgroundTasks,
     current_user=Depends(get_current_user),
 ):
-    """Elimina journals de Alegra en lotes de 10 con delay de 300ms.
-    Requiere lista explícita de IDs (obtenida del preview) para seguridad."""
+    """Inicia eliminación de journals en background. Retorna job_id inmediatamente.
+    Consultar estado en GET /gastos/cleanup-status/{job_id}."""
     if not req.alegra_ids:
         raise HTTPException(status_code=400, detail="No se proporcionaron IDs para eliminar")
 
     if len(req.alegra_ids) > 200:
         raise HTTPException(status_code=400, detail="Máximo 200 journals por solicitud de limpieza")
 
-    alegra = AlegraService(db)
-    eliminados = []
-    errores_delete = []
-
-    for i, journal_id in enumerate(req.alegra_ids):
-        try:
-            await alegra.request(f"journals/{journal_id}", method="DELETE")
-            eliminados.append(journal_id)
-        except Exception as e:
-            errores_delete.append({"id": journal_id, "error": str(e)})
-        
-        # Delay every 10 items to avoid rate limiting
-        if (i + 1) % 10 == 0:
-            import asyncio
-            await asyncio.sleep(0.5)
-
-    # Log the cleanup
-    await db.roddos_events.insert_one({
-        "event_type":  "gasto.cleanup.journals",
-        "eliminados":  len(eliminados),
-        "errores":     len(errores_delete),
-        "ids_eliminados": eliminados,
-        "ejecutado_por": current_user.get("email", "?"),
-        "fecha": datetime.now(timezone.utc).isoformat(),
+    job_id = str(uuid.uuid4())
+    await db.gastos_cleanup_jobs.insert_one({
+        "job_id":        job_id,
+        "tipo":          "execute",
+        "estado":        "en_progreso",
+        "total":         len(req.alegra_ids),
+        "procesados":    0,
+        "eliminados":    0,
+        "errores":       0,
+        "ids_recibidos": list(req.alegra_ids),
+        "inicio":        datetime.now(timezone.utc).isoformat(),
     })
 
+    background_tasks.add_task(
+        _run_cleanup_execute, job_id, list(req.alegra_ids), current_user.get("email", "")
+    )
+
     return {
-        "eliminados": len(eliminados),
-        "errores": len(errores_delete),
-        "detalle_errores": errores_delete,
-        "mensaje": f"Se eliminaron {len(eliminados)} journal entries de Alegra.",
+        "job_id":           job_id,
+        "estado":           "en_progreso",
+        "total_a_eliminar": len(req.alegra_ids),
+        "mensaje":          f"Eliminación iniciada para {len(req.alegra_ids)} journals. Consulta el progreso en GET /api/gastos/cleanup-status/{job_id}",
     }
