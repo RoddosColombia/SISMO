@@ -279,6 +279,105 @@ TIPOS DE ACCIÓN DISPONIBLES:
 • crear_nota_debito        → POST /debit-notes   (cargo adicional sobre factura)
 • crear_comprobante_ingreso → POST /journals tipo ingreso de caja
 • crear_comprobante_egreso  → POST /journals tipo egreso de caja
+• diagnosticar_contabilidad → [BUILD 21] Motor lógica contable local (no llama Alegra)
+• verificar_estado_alegra   → [BUILD 21] GET a Alegra para verificar que un recurso existe
+• guardar_pendiente         → [BUILD 21] Guarda tema pendiente en memoria persistente (72h)
+• completar_pendiente       → [BUILD 21] Marca tema pendiente como completado
+
+═══════════════════════════════════════════════════
+BUILD 21 — CÓMO USAR LAS NUEVAS ACCIONES
+═══════════════════════════════════════════════════
+
+diagnosticar_contabilidad (tipo: "asiento"):
+→ USAR CUANDO: el usuario pide verificar si un asiento está balanceado antes de enviarlo
+<action>
+{
+  "type": "diagnosticar_contabilidad",
+  "title": "Diagnóstico de asiento contable",
+  "summary": [{"label": "Verificación", "value": "Balance débito/crédito y IDs válidos"}],
+  "payload": {
+    "tipo": "asiento",
+    "fecha": "YYYY-MM-DD",
+    "entries": [
+      {"id": 5480, "debit": 3000000, "credit": 0},
+      {"id": 5386, "debit": 0, "credit": 105000},
+      {"id": 5376, "debit": 0, "credit": 2895000}
+    ]
+  }
+}
+</action>
+
+diagnosticar_contabilidad (tipo: "retenciones"):
+→ USAR CUANDO: el usuario pide calcular retenciones de una transacción específica
+<action>
+{
+  "type": "diagnosticar_contabilidad",
+  "title": "Cálculo de retenciones",
+  "summary": [{"label": "Transacción", "value": "Honorarios PN $1.500.000"}],
+  "payload": {
+    "tipo": "retenciones",
+    "tipo_proveedor": "PN",
+    "tipo_gasto": "honorarios",
+    "monto": 1500000,
+    "aplica_reteica": true
+  }
+}
+</action>
+
+diagnosticar_contabilidad (tipo: "clasificacion"):
+→ USAR CUANDO: el usuario tiene una descripción de gasto y no sabe en qué cuenta categorizarlo
+<action>
+{
+  "type": "diagnosticar_contabilidad",
+  "title": "Clasificación de transacción",
+  "summary": [{"label": "Descripción", "value": "[descripcion del gasto]"}],
+  "payload": {
+    "tipo": "clasificacion",
+    "descripcion": "[descripcion del gasto]",
+    "proveedor": "[nombre proveedor]",
+    "monto": 500000,
+    "tipo_proveedor": "PJ"
+  }
+}
+</action>
+
+guardar_pendiente (MODULE 4 — memoria persistente 72h):
+→ USAR CUANDO: la conversación quedó interrumpida a la mitad de un proceso importante
+→ Guarda el contexto para retomarlo en la siguiente sesión
+<action>
+{
+  "type": "guardar_pendiente",
+  "title": "Guardar tema pendiente",
+  "payload": {
+    "topic_key": "registro_gastos_enero_2026",
+    "descripcion": "Faltaron 15 gastos de enero 2026 por registrar en Alegra",
+    "datos_contexto": {
+      "cantidad_pendiente": 15,
+      "periodo": "2026-01",
+      "ultima_fila_procesada": 32
+    }
+  }
+}
+</action>
+
+completar_pendiente:
+→ USAR CUANDO: el tema pendiente fue resuelto exitosamente
+<action>
+{
+  "type": "completar_pendiente",
+  "payload": {"topic_key": "registro_gastos_enero_2026"}
+}
+</action>
+
+verificar_estado_alegra (MODULE 2 — NUNCA reportar éxito sin esto):
+→ USAR DESPUÉS de cualquier creación/eliminación para confirmar el resultado
+<action>
+{
+  "type": "verificar_estado_alegra",
+  "title": "Verificar asiento en Alegra",
+  "payload": {"resource": "journals", "id": "12345"}
+}
+</action>
 
 FORMATO EXACTO PARA CREAR_CONTACTO (Alegra Colombia):
 {

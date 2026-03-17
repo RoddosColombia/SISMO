@@ -365,5 +365,51 @@ NUNCA crear /api/cartera/* — la ruta correcta es /api/radar/*
 - Agent system prompt: CSV es el formato exclusivo, respuesta específica para "dame la plantilla"
 - 10/10 tests pasaron (iteration_52.json)
 
-## NUEVA COLECCIÓN
-**gastos_cleanup_jobs** — estado de jobs de cleanup (preview y execute): {job_id, tipo, estado, total, procesados, eliminados, errores, ids_recibidos, ids_eliminados, detalle_errores, inicio, fin}
+## BUILD 21 — AGENTE CONTABLE CONVERSACIONAL (Marzo 2026) ✅ PARCIAL (Módulos 1-5)
+
+### Módulo 1 — Lógica Contable Profunda ✅
+- `services/accounting_engine.py` nuevo: motor de lógica contable RODDOS
+  - `clasificar_transaccion()`: 19 reglas, clasifica por descripción/proveedor → cuenta Alegra + tipo retención
+  - `calcular_retenciones()`: ReteFuente (10% PN / 11% PJ honorarios, 3.5% arriendos, 4% servicios), ReteICA (11.04‰ Bogotá), ReteIVA (15% IVA)
+  - `diagnosticar_asiento()`: valida balance, IDs válidos, montos, fechas
+  - `detectar_anomalias()`: CXC vencidas, mora elevada DPD>15, gastos sin categoría, inventario descuadrado
+  - `generar_resumen_semanal()`: recaudo proyectado, gastos fijos, superávit/déficit
+- 35 tests unitarios → 35/35 pasados
+
+### Módulo 2 — Conocimiento Profundo Alegra ✅
+- `alegra_service.py` mejorado con `_translate_error_to_spanish()` para todos los errores HTTP (401, 400, 403, 404, 409, 422, 429, 503)
+- `request_with_verify()`: POST + GET de verificación — NUNCA reportar éxito sin HTTP 200
+- `retry_request()`: reintentos con backoff exponencial para 429/503 (máx 3 intentos)
+- `check_duplicate_journal()`: detección de duplicados antes de crear
+
+### Módulo 3 — Resolución de Problemas Autónoma ✅
+- `_process_row()` en gastos.py mejorado con auto-recuperación (3 reintentos, backoff 2s/4s, solo para 429/503)
+- Nueva acción `verificar_estado_alegra` en execute_chat_action
+- Nueva acción `diagnosticar_contabilidad` (tipo: asiento/retenciones/clasificacion)
+
+### Módulo 4 — Memoria Conversacional Persistente ✅
+- `save_pending_topic()`, `get_pending_topics()`, `complete_pending_topic()` en ai_chat.py
+- Colección `agent_pending_topics` con TTL index 72 horas
+- Inyección automática de temas pendientes en system prompt cada sesión
+- Nuevas acciones: `guardar_pendiente`, `completar_pendiente`
+
+### Módulo 5 — CFO Proactivo ✅
+- `_resumen_semanal_cfo()`: lunes 8:05am → genera resumen semanal en `cfo_alertas` + `notifications`
+- `_detectar_anomalias_diarias()`: 23:30 → detecta y guarda anomalías críticas
+- Scheduler actualizado con ambos jobs
+
+### Módulo 6 — System Prompt Final ✅ PARCIAL
+System prompt actualizado con:
+- Protocolo de verificación obligatorio (INNEGOCIABLE — nunca reportar éxito sin HTTP 200)
+- Regla gasto socio ampliada (SIEMPRE preguntar antes de causar para Andrés/Iván)
+- Endpoint /journals correcto (NO /journal-entries que da 403)
+- Mapa de errores Alegra en español con acciones sugeridas
+- Auto-recuperación en lotes (BackgroundTasks + retry)
+- Documentación de nuevas acciones BUILD 21 con ejemplos completos
+
+### Tests BUILD 21
+- 35/35 unitarios pasados (accounting_engine + alegra_service_enhanced)
+- 50/50 integration tests pasados (iteration_54.json)
+
+## PENDIENTE URGENTE
+- Re-subir RODDOS_Gastos_2026.csv con plan_cuentas_roddos correcto (143 gastos enero 2026)

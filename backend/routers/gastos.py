@@ -572,7 +572,10 @@ async def _find_or_create_contact(alegra: AlegraService, proveedor: str, nit: st
 
 
 async def _process_row(alegra: AlegraService, gasto: dict) -> dict:
-    """Procesa una fila: crea journal-entry o bill en Alegra. Retorna {'ok', 'id', 'error'}."""
+    """Procesa una fila: crea journal-entry o bill en Alegra. Retorna {'ok', 'id', 'error'}.
+
+    MODULE 3 BUILD 21: Auto-recuperación — reintenta 3 veces en 429/503 antes de marcar como error.
+    """
     forma_pago = gasto.get("forma_pago", "Contado")
     is_contado = forma_pago.lower() == "contado"
 
@@ -593,64 +596,76 @@ async def _process_row(alegra: AlegraService, gasto: dict) -> dict:
         + (f" · {gasto['notas']}" if gasto.get('notas') else "")
     ).strip()
 
-    try:
-        if is_contado:
-            # Journal entry (causación contable)
-            entries = []
-            entries.append({"id": cuenta_gasto_id, "debit": round(gasto["monto_sin_iva"]), "credit": 0})
-            if iva_monto > 0 and iva_cuenta_id:
-                entries.append({"id": iva_cuenta_id, "debit": round(iva_monto), "credit": 0})
-            if retefuente_monto > 0 and retefuente_cuenta:
-                entries.append({"id": retefuente_cuenta, "debit": 0, "credit": round(retefuente_monto)})
-            entries.append({"id": CUENTA_PROVEEDORES, "debit": 0, "credit": round(neto_pagar)})
+    last_error = None
+    for intento in range(3):  # MODULE 3: hasta 3 intentos con backoff
+        try:
+            if is_contado:
+                # Journal entry (causación contable)
+                entries = []
+                entries.append({"id": cuenta_gasto_id, "debit": round(gasto["monto_sin_iva"]), "credit": 0})
+                if iva_monto > 0 and iva_cuenta_id:
+                    entries.append({"id": iva_cuenta_id, "debit": round(iva_monto), "credit": 0})
+                if retefuente_monto > 0 and retefuente_cuenta:
+                    entries.append({"id": retefuente_cuenta, "debit": 0, "credit": round(retefuente_monto)})
+                entries.append({"id": CUENTA_PROVEEDORES, "debit": 0, "credit": round(neto_pagar)})
 
-            payload = {
-                "date":         gasto["fecha"],
-                "observations": obs,
-                "entries":      entries,
-            }
-            result = await alegra.request("journals", "POST", payload)
-            doc_id = str(result.get("id", "")) if isinstance(result, dict) else ""
-            return {"ok": True, "id": doc_id, "tipo": "journal-entry", "numero": result.get("number", "")}
+                payload = {
+                    "date":         gasto["fecha"],
+                    "observations": obs,
+                    "entries":      entries,
+                }
+                result = await alegra.request("journals", "POST", payload)
+                doc_id = str(result.get("id", "")) if isinstance(result, dict) else ""
+                return {"ok": True, "id": doc_id, "tipo": "journal-entry", "numero": result.get("number", "")}
 
-        else:
-            # Bill (factura de compra a crédito)
-            days = 30
-            try:
-                days = int(forma_pago.split("_")[1])
-            except Exception:
-                pass
-            fecha_base = date.fromisoformat(gasto["fecha"]) if gasto.get("fecha") else date.today()
-            due_date   = (fecha_base + timedelta(days=days)).isoformat()
+            else:
+                # Bill (factura de compra a crédito)
+                days = 30
+                try:
+                    days = int(forma_pago.split("_")[1])
+                except Exception:
+                    pass
+                fecha_base = date.fromisoformat(gasto["fecha"]) if gasto.get("fecha") else date.today()
+                due_date   = (fecha_base + timedelta(days=days)).isoformat()
 
-            # Find/create contact
-            contact_id = await _find_or_create_contact(
-                alegra, gasto["proveedor"], gasto.get("nit_proveedor", ""), gasto.get("tipo_persona", "PJ")
-            )
+                # Find/create contact
+                contact_id = await _find_or_create_contact(
+                    alegra, gasto["proveedor"], gasto.get("nit_proveedor", ""), gasto.get("tipo_persona", "PJ")
+                )
 
-            bill_payload = {
-                "date":        gasto["fecha"],
-                "dueDate":     due_date,
-                "observations": obs,
-                "purchases": {
-                    "items": [
-                        {
-                            "description": gasto["concepto"],
-                            "price":       round(bruto_total),
-                            "quantity":    1,
-                        }
-                    ]
-                },
-            }
-            if contact_id:
-                bill_payload["contact"] = {"id": contact_id}
+                bill_payload = {
+                    "date":        gasto["fecha"],
+                    "dueDate":     due_date,
+                    "observations": obs,
+                    "purchases": {
+                        "items": [
+                            {
+                                "description": gasto["concepto"],
+                                "price":       round(bruto_total),
+                                "quantity":    1,
+                            }
+                        ]
+                    },
+                }
+                if contact_id:
+                    bill_payload["contact"] = {"id": contact_id}
 
-            result = await alegra.request("bills", "POST", bill_payload)
-            doc_id = str(result.get("id", "")) if isinstance(result, dict) else ""
-            return {"ok": True, "id": doc_id, "tipo": "bill", "vencimiento": due_date, "numero": result.get("number", "")}
+                result = await alegra.request("bills", "POST", bill_payload)
+                doc_id = str(result.get("id", "")) if isinstance(result, dict) else ""
+                return {"ok": True, "id": doc_id, "tipo": "bill", "vencimiento": due_date, "numero": result.get("number", "")}
 
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+        except Exception as e:
+            last_error = e
+            err_str = str(e)
+            # MODULE 3: reintentar solo si es error de rate limit o servidor (no error de validación)
+            if intento < 2 and any(code in err_str for code in ["429", "503", "502", "Límite"]):
+                import asyncio
+                wait_secs = 2.0 * (2 ** intento)  # 2s, 4s
+                await asyncio.sleep(wait_secs)
+                continue
+            break  # No reintentar errores 400/403/404 (son de validación, no transitorios)
+
+    return {"ok": False, "error": str(last_error)}
 
 
 async def _run_job(job_id: str, gastos: list[dict], user_email: str):
