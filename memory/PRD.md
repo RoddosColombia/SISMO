@@ -231,13 +231,39 @@ Ver `/app/memory/ARCHITECTURE.md` para el documento técnico completo.
 - GAP 2: Inventario + Alegra Sync ✅
 - GAP 3: CFO Asíncrono ✅
 
+## BUILD 19 — COMPLETADO (Marzo 2026)
+
+### DIAN Integration — Modo Simulación
+- **Servicio `dian_service.py`**: Simula consulta de facturas electrónicas de DIAN con 4 proveedores reales de RODDOS (Auteco, BBVA, Bancolombia, Hainsas). Genera facturas deterministas el día 1 de cada mes.
+- **Anti-duplicación 3 capas**: colección `dian_facturas_procesadas` + bus de eventos + verificación Alegra
+- **Cálculo de retenciones**: ReteFuente + ReteICA según tipo_gasto y es_autoretenedor
+- **Causación automática en Alegra**: Crea bills vía API si credenciales están configuradas
+- **Cron diario**: `dian_sync_diario` a las 23:00 COT (America/Bogota)
+- **API REST**: GET /api/dian/status, POST /api/dian/sync, GET /api/dian/historial, GET /api/dian/facturas, POST /api/dian/probar-conexion
+- **UI Settings → Tab DIAN**: Banner ⚠️ simulación, stats (total causadas), botón sync, historial tabla, probar conexión
+- **Colección nueva**: `dian_facturas_procesadas`
+
+### Módulo Perfil de Usuario (`/perfil`)
+- **Página `/perfil`** con navegación lateral en 4 secciones
+- **Datos del perfil**: editar nombre y cargo → PUT /api/auth/perfil
+- **Cambio de contraseña**: validación actual + complejidad (8 chars, mayúscula, número) + re-login forzado → PUT /api/auth/cambiar-password
+- **Sesiones activas**: GET /api/auth/sesiones
+- **Preferencias de notificación**: 3 toggles → GET/PUT /api/auth/preferencias
+- **Link "Mi Perfil"** en sidebar (Layout.js) + ruta `/perfil` en App.tsx
+
+### Testing BUILD 19
+- Smoke test: PASS ✅
+- DIAN tab + banner simulación: PASS ✅
+- DIAN sync anti-duplicado: PASS ✅ (4 causadas 1ra vez, 4 omitidas 2da vez)
+- DIAN historial: PASS ✅ (7 registros)
+- /perfil página completa: PASS ✅
+- Cambio de contraseña + re-login: PASS ✅
+- Backend 11/11 endpoints: 100% ✅
+
 ### Backlog Técnico
 - Detección automática UVT para retenciones (actualmente hardcoded)
-- Integración DIAN para semáforo impuestos (actualmente hardcoded VERDE)
+- DIAN producción: conectar a Alanube/Facturalatam con credenciales reales
 - Nómina y Prestaciones NIIF Colombia
-
-### P1 — BUILD 10: Estado de Resultados automático desde Alegra
-- Generación automática del P&L mensual completo
 
 ### P2 — Panel de Aprendizaje ML
 - Dashboard visual de patrones ML (contactabilidad, templates, señales deterioro)
@@ -254,12 +280,13 @@ roddos_events · agent_memory · cfo_informes · cfo_alertas · cfo_jobs
 mercately_sessions · mercately_config · presupuesto · alegra_credentials
 users · audit_logs · gestiones_cartera · learning_outcomes · learning_patterns
 **proveedores_config** · iva_config · cfo_instrucciones · cfo_compromisos · cfo_chat_historia
+**dian_facturas_procesadas** (BUILD 19)
 
 ## ENDPOINTS (no inventar variantes)
 Ver `/app/memory/ARCHITECTURE.md` sección 3.6 para lista completa.
 NUNCA crear /api/cartera/* — la ruta correcta es /api/radar/*
 
-## NUEVOS ENDPOINTS (GAPs Marzo 2026 + BUILD 16 + BUILD 17)
+## NUEVOS ENDPOINTS (GAPs Marzo 2026 + BUILD 16 + BUILD 17 + BUILD 19)
 - GET /api/inventario/stats — estadísticas inventario motos (+ ultima_actualizacion)
 - GET /api/inventario/auditoria — auditoría completa con inconsistencias
 - DELETE /api/inventario/motos/{id} — elimina con verificación loanbook + log evento
@@ -271,3 +298,13 @@ NUNCA crear /api/cartera/* — la ruta correcta es /api/radar/*
 - POST /api/gastos/procesar — procesar rows en Alegra (journal-entries o bills), retorna job_id
 - GET /api/gastos/jobs/{job_id} — polling estado job carga masiva
 - GET /api/gastos/reporte-errores/{job_id} — Excel con filas fallidas
+- GET /api/dian/status — estado integración DIAN + último sync
+- POST /api/dian/sync — sync manual (usa inicio de mes actual como fecha_desde)
+- GET /api/dian/historial — historial últimos 30 días
+- GET /api/dian/facturas — lista facturas causadas (paginado)
+- POST /api/dian/probar-conexion — prueba conexión (en simulación siempre OK)
+- PUT /api/auth/perfil — actualiza nombre y cargo del usuario
+- PUT /api/auth/cambiar-password — cambia contraseña con validación + token_version++
+- GET /api/auth/sesiones — sesiones activas del usuario
+- GET /api/auth/preferencias — preferencias de notificación
+- PUT /api/auth/preferencias — actualiza preferencias de notificación
