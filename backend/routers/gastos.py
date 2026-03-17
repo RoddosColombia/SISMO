@@ -39,8 +39,61 @@ CUENTAS_GASTO = {
     "compras":       {"id": 5497, "nombre": "Útiles y papelería / Compras misc"},
     "nomina":        {"id": 5462, "nombre": "Sueldos y salarios (510506)"},
     "impuesto":      {"id": 5478, "nombre": "Industria y Comercio (511505)"},
-    "otros":         {"id": 5495, "nombre": "Gastos de representación (519520)"},
+    "otros":         {"id": 5493, "nombre": "Gastos generales (5195)"},  # FIXED: was 5495 Gastos de representación
 }
+
+# Plan de cuentas RODDOS — mapeado a IDs reales de Alegra
+# Usado para categoria+subcategoria del nuevo template
+PLAN_CUENTAS_RODDOS = [
+    # PERSONAL
+    {"categoria": "Personal", "subcategoria": "Salarios",          "alegra_id": 5462, "cuenta_codigo": "510506", "cuenta_nombre": "Sueldos y salarios", "tipo_retefuente": "nomina"},
+    {"categoria": "Personal", "subcategoria": "Honorarios",        "alegra_id": 5475, "cuenta_codigo": "511025", "cuenta_nombre": "Honorarios (asesoría)", "tipo_retefuente": "honorarios_pn"},
+    {"categoria": "Personal", "subcategoria": "Honorarios_PJ",     "alegra_id": 5476, "cuenta_codigo": "511030", "cuenta_nombre": "Honorarios PJ", "tipo_retefuente": "honorarios_pj"},
+    {"categoria": "Personal", "subcategoria": "Seguridad_Social",  "alegra_id": 5472, "cuenta_codigo": "510570", "cuenta_nombre": "Aportes seguridad social", "tipo_retefuente": "nomina"},
+    {"categoria": "Personal", "subcategoria": "Dotacion",          "alegra_id": 5470, "cuenta_codigo": "510551", "cuenta_nombre": "Dotación a trabajadores", "tipo_retefuente": "nomina"},
+    {"categoria": "Personal", "subcategoria": "Vacaciones",        "alegra_id": 5469, "cuenta_codigo": "510539", "cuenta_nombre": "Vacaciones", "tipo_retefuente": "nomina"},
+    {"categoria": "Personal", "subcategoria": "Prima",             "alegra_id": 5468, "cuenta_codigo": "510536", "cuenta_nombre": "Prima de servicios", "tipo_retefuente": "nomina"},
+    {"categoria": "Personal", "subcategoria": "Cesantias",         "alegra_id": 5466, "cuenta_codigo": "510530", "cuenta_nombre": "Cesantías", "tipo_retefuente": "nomina"},
+    # OPERACIONES
+    {"categoria": "Operaciones", "subcategoria": "Arriendo",          "alegra_id": 5480, "cuenta_codigo": "512010", "cuenta_nombre": "Arrendamientos", "tipo_retefuente": "arrendamiento"},
+    {"categoria": "Operaciones", "subcategoria": "Servicios_Publicos", "alegra_id": 5485, "cuenta_codigo": "513525", "cuenta_nombre": "Alcantarillado/Acueducto/Servicios públicos", "tipo_retefuente": "servicios"},
+    {"categoria": "Operaciones", "subcategoria": "Telefonia",          "alegra_id": 5487, "cuenta_codigo": "513535", "cuenta_nombre": "Teléfono/Internet/Comunicaciones", "tipo_retefuente": "servicios"},
+    {"categoria": "Operaciones", "subcategoria": "Mantenimiento",      "alegra_id": 5483, "cuenta_codigo": "513515", "cuenta_nombre": "Asistencia técnica/Mantenimiento", "tipo_retefuente": "servicios"},
+    {"categoria": "Operaciones", "subcategoria": "Transporte",         "alegra_id": 5499, "cuenta_codigo": "519545", "cuenta_nombre": "Taxis y buses/Transporte", "tipo_retefuente": "otros"},
+    {"categoria": "Operaciones", "subcategoria": "Papeleria",          "alegra_id": 5497, "cuenta_codigo": "519530", "cuenta_nombre": "Útiles, papelería y fotocopia", "tipo_retefuente": "compras"},
+    {"categoria": "Operaciones", "subcategoria": "Aseo",               "alegra_id": 5482, "cuenta_codigo": "513505", "cuenta_nombre": "Aseo y vigilancia", "tipo_retefuente": "servicios"},
+    {"categoria": "Operaciones", "subcategoria": "Combustible",        "alegra_id": 5498, "cuenta_codigo": "519535", "cuenta_nombre": "Combustibles y lubricantes", "tipo_retefuente": "compras"},
+    # MARKETING
+    {"categoria": "Marketing", "subcategoria": "Publicidad",  "alegra_id": 5495, "cuenta_codigo": "519520", "cuenta_nombre": "Gastos de representación/Publicidad", "tipo_retefuente": "otros"},
+    {"categoria": "Marketing", "subcategoria": "Eventos",     "alegra_id": 5495, "cuenta_codigo": "519520", "cuenta_nombre": "Gastos de representación/Eventos", "tipo_retefuente": "otros"},
+    # IMPUESTOS
+    {"categoria": "Impuestos", "subcategoria": "ICA",        "alegra_id": 5478, "cuenta_codigo": "511505", "cuenta_nombre": "Industria y Comercio (ICA)", "tipo_retefuente": "impuesto"},
+    {"categoria": "Impuestos", "subcategoria": "Predial",    "alegra_id": 5478, "cuenta_codigo": "511505", "cuenta_nombre": "Industria y Comercio (predial)", "tipo_retefuente": "impuesto"},
+    # FINANCIERO
+    {"categoria": "Financiero", "subcategoria": "Intereses",           "alegra_id": 5533, "cuenta_codigo": "615020", "cuenta_nombre": "Intereses (créditos directos)", "tipo_retefuente": "otros"},
+    {"categoria": "Financiero", "subcategoria": "Comisiones_Bancarias", "alegra_id": 5508, "cuenta_codigo": "530515", "cuenta_nombre": "Comisiones bancarias", "tipo_retefuente": "otros"},
+    {"categoria": "Financiero", "subcategoria": "Gastos_Bancarios",    "alegra_id": 5507, "cuenta_codigo": "530505", "cuenta_nombre": "Gastos bancarios", "tipo_retefuente": "otros"},
+    {"categoria": "Financiero", "subcategoria": "Seguros",             "alegra_id": 5493, "cuenta_codigo": "5195",   "cuenta_nombre": "Gastos generales (seguros)", "tipo_retefuente": "otros"},
+    {"categoria": "Financiero", "subcategoria": "GMF",                 "alegra_id": 5509, "cuenta_codigo": "531520", "cuenta_nombre": "Gravamen al movimiento financiero", "tipo_retefuente": "otros"},
+    # OTROS
+    {"categoria": "Otros", "subcategoria": "Varios",         "alegra_id": 5493, "cuenta_codigo": "5195",   "cuenta_nombre": "Gastos generales", "tipo_retefuente": "otros"},
+    {"categoria": "Otros", "subcategoria": "Representacion", "alegra_id": 5495, "cuenta_codigo": "519520", "cuenta_nombre": "Gastos de representación", "tipo_retefuente": "otros"},
+    {"categoria": "Otros", "subcategoria": "Depreciacion",   "alegra_id": 5501, "cuenta_codigo": "5160",   "cuenta_nombre": "Depreciación", "tipo_retefuente": None},
+]
+
+
+def _lookup_plan_cuentas_local(categoria: str, subcategoria: str):
+    """Lookup account from local PLAN_CUENTAS_RODDOS (no DB needed)."""
+    cat_n = _normalize(categoria)
+    sub_n = _normalize(subcategoria)
+    for entry in PLAN_CUENTAS_RODDOS:
+        if _normalize(entry["categoria"]) == cat_n and _normalize(entry["subcategoria"]) == sub_n:
+            return entry
+    # partial subcategoria match
+    for entry in PLAN_CUENTAS_RODDOS:
+        if _normalize(entry["categoria"]) == cat_n and sub_n in _normalize(entry["subcategoria"]):
+            return entry
+    return None
 
 # ReteFuente: cuenta_id (Alegra) + tasa + label
 RETEFUENTE_CONFIG = {
@@ -93,8 +146,10 @@ def _parse_bool(raw) -> bool:
 
 
 def _calcular_retenciones(row: dict, es_autoretenedor: bool) -> dict:
-    """Calcula retenciones para una fila de gasto."""
-    tipo_gasto = row.get("tipo_gasto", "otros")
+    """Calcula retenciones para una fila de gasto.
+    Usa tipo_retefuente si está presente (del plan_cuentas), o tipo_gasto legacy."""
+    # tipo_retefuente comes from plan_cuentas lookup; tipo_gasto is the old column
+    tipo_gasto = row.get("tipo_retefuente") or row.get("tipo_gasto", "otros")
     monto_base = row.get("monto_sin_iva", 0.0)
 
     retefuente_monto = 0.0
@@ -140,43 +195,47 @@ def _calcular_retenciones(row: dict, es_autoretenedor: bool) -> dict:
 
 HEADER_COLS = [
     "Fecha", "Proveedor", "NIT_Proveedor", "Concepto",
-    "Monto_Sin_IVA", "Incluye_IVA", "Tipo_Gasto", "Tipo_Persona",
-    "Es_Autoretenedor", "Forma_Pago", "Mes_Periodo", "Notas",
+    "Monto_Sin_IVA", "Incluye_IVA", "Categoria", "Subcategoria",
+    "Tipo_Persona", "Es_Autoretenedor", "Forma_Pago", "Mes_Periodo", "Notas",
 ]
 
 ALIASES = {
     "fecha":             ["fecha", "date", "fec"],
     "proveedor":         ["proveedor", "proveedor_nombre", "empresa", "supplier"],
     "nit_proveedor":     ["nit_proveedor", "nit", "cedula", "identification", "cc"],
-    "concepto":          ["concepto", "descripcion", "descripcion", "detalle"],
+    "concepto":          ["concepto", "descripcion", "descripcion", "detalle", "description"],
     "monto_sin_iva":     ["monto_sin_iva", "monto", "subtotal", "valor_base", "valor"],
     "incluye_iva":       ["incluye_iva", "incluye iva", "con_iva", "tiene_iva"],
-    "tipo_gasto":        ["tipo_gasto", "tipo", "categoria", "categoría"],
+    "categoria":         ["categoria", "categoría", "category", "tipo_gasto", "tipo"],
+    "subcategoria":      ["subcategoria", "subcategoría", "subcategory", "sub_categoria"],
     "tipo_persona":      ["tipo_persona", "tipo_proveedor"],
     "es_autoretenedor":  ["es_autoretenedor", "autoretenedor", "auto_retenedor"],
     "forma_pago":        ["forma_pago", "forma de pago", "pago"],
     "mes_periodo":       ["mes_periodo", "periodo", "mes", "period"],
-    "notas":             ["notas", "nota", "observaciones", "notes"],
+    "notas":             ["notas", "nota", "observaciones", "notes", "referencia"],
 }
 
 REQUIRED_FIELDS = ["proveedor", "monto_sin_iva"]
 
+_CATEGORIAS_VALIDAS = sorted(set(e["categoria"] for e in PLAN_CUENTAS_RODDOS))
+_SUBCATEGORIAS_VALIDAS = sorted(set(e["subcategoria"] for e in PLAN_CUENTAS_RODDOS))
+
 _INSTRUCT_ROWS = [
     ("Fecha",            "Fecha del gasto YYYY-MM-DD",                    "2026-01-15",       "✅"),
     ("Proveedor",        "Nombre del proveedor o empresa",                "Inmobiliaria XYZ", "✅"),
-    ("NIT_Proveedor",    "NIT o cédula del proveedor",                    "900123456-1",      "✅"),
+    ("NIT_Proveedor",    "NIT o cédula del proveedor",                    "900123456-1",      "Opcional"),
     ("Concepto",         "Descripción del gasto",                         "Arriendo oficina enero 2026","✅"),
     ("Monto_Sin_IVA",    "Valor base del gasto, sin IVA, sin puntos",     "3000000",          "✅"),
-    ("Incluye_IVA",      "¿El gasto tiene IVA? Si / No",                  "No",               "✅"),
-    ("Tipo_Gasto",       "arrendamiento | servicios | honorarios_pn | honorarios_pj | compras | nomina | impuesto | otros",
-                         "arrendamiento",   "✅"),
+    ("Incluye_IVA",      "¿El gasto tiene IVA? Si / No",                  "No",               "Opcional"),
+    ("Categoria",        " | ".join(_CATEGORIAS_VALIDAS),                 "Operaciones",      "✅"),
+    ("Subcategoria",     "Ver hoja Plan_Cuentas para valores válidos",    "Arriendo",         "✅"),
     ("Tipo_Persona",     "PN (persona natural) | PJ (persona jurídica) | Empresa",
                          "PJ",              "Opcional"),
-    ("Es_Autoretenedor", "Si / No — los autoretenedores no tienen ReteFuente","No",           "✅"),
+    ("Es_Autoretenedor", "Si / No — los autoretenedores no tienen ReteFuente","No",           "Opcional"),
     ("Forma_Pago",       "Contado | Credito_15 | Credito_30 | Credito_60 | Credito_90",
                          "Contado",         "✅"),
     ("Mes_Periodo",      "Mes contable YYYY-MM",                          "2026-01",          "Opcional"),
-    ("Notas",            "Observaciones adicionales",                     "Contrato #123",    "Opcional"),
+    ("Notas",            "Observaciones o referencia del documento",      "Contrato #123",    "Opcional"),
 ]
 
 
@@ -225,15 +284,16 @@ async def descargar_plantilla_gastos(current_user=Depends(get_current_user)):
     # Example row (row 4) — colored differently
     example_vals = [
         date.today().isoformat(),
-        "Auteco Kawasaki S.A.S.",
-        "860024781",
-        "Inventario motos enero 2026",
-        45000000,
+        "Inmobiliaria XYZ S.A.S.",
+        "900123456-1",
+        "Arriendo oficina enero 2026",
+        3000000,
         "No",
-        "compras",
+        "Operaciones",
+        "Arriendo",
         "PJ",
-        "Si",
-        "Credito_30",
+        "No",
+        "Contado",
         f"{date.today().year}-{date.today().month:02d}",
         "Ejemplo — no modificar esta fila",
     ]
@@ -248,7 +308,7 @@ async def descargar_plantilla_gastos(current_user=Depends(get_current_user)):
         cell.font = Font(italic=True, color="5C6BC0")
 
     # Column widths
-    col_widths = [13, 26, 16, 30, 14, 12, 17, 14, 16, 14, 13, 22]
+    col_widths = [13, 26, 16, 30, 14, 12, 16, 16, 14, 16, 14, 13, 24]
     for i, w in enumerate(col_widths, start=1):
         ws1.column_dimensions[openpyxl.utils.get_column_letter(i)].width = w
 
@@ -262,19 +322,52 @@ async def descargar_plantilla_gastos(current_user=Depends(get_current_user)):
         ws1.add_data_validation(dv)
         dv.sqref = f"{col_letter}5:{col_letter}1000"
 
-    _dv('"Si,No"',
-        "F", "Escribe Si o No", "¿El gasto incluye IVA del 19%?")
-    _dv('"arrendamiento,servicios,honorarios_pn,honorarios_pj,compras,nomina,impuesto,otros"',
-        "G", "Usa uno de los tipos listados", "Tipo de gasto contable")
-    _dv('"PN,PJ,Empresa"',
-        "H", "Usa PN / PJ / Empresa", "Tipo de persona del proveedor")
-    _dv('"Si,No"',
-        "I", "Escribe Si o No", "¿Es autoretenedor? Auteco y similares = Si")
+    _dv('"Si,No"', "F", "Escribe Si o No", "¿El gasto incluye IVA del 19%?")
+    _dv('"' + ",".join(_CATEGORIAS_VALIDAS) + '"',
+        "G", "Usa una categoría del plan de cuentas", "Categoría contable — ver hoja Plan_Cuentas")
+    _dv('"' + ",".join(_SUBCATEGORIAS_VALIDAS) + '"',
+        "H", "Usa una subcategoría del plan de cuentas", "Subcategoría — ver hoja Plan_Cuentas")
+    _dv('"PN,PJ,Empresa"', "I", "Usa PN / PJ / Empresa", "Tipo de persona del proveedor")
+    _dv('"Si,No"', "J", "Escribe Si o No", "¿Es autoretenedor?")
     _dv('"Contado,Credito_15,Credito_30,Credito_60,Credito_90"',
-        "J", "Usa una de las formas de pago listadas", "Contado = asiento contable | Credito_N = factura con vencimiento")
+        "K", "Usa una de las formas de pago listadas", "Contado = asiento | Credito_N = factura")
 
     # Freeze pane below headers + example
     ws1.freeze_panes = "A5"
+
+    # ── Hoja 3: Plan_Cuentas ─────────────────────────────────────────────────
+    ws3 = wb.create_sheet("Plan_Cuentas")
+    ws3.merge_cells("A1:F1")
+    pc_title = ws3.cell(row=1, column=1, value="PLAN DE CUENTAS RODDOS — Mapeo a Alegra (IDs reales)")
+    pc_title.fill = PatternFill("solid", fgColor=HEADER_COLOR)
+    pc_title.font = Font(bold=True, color="FFFFFF", size=12)
+    pc_title.alignment = Alignment(horizontal="center", vertical="center")
+    ws3.row_dimensions[1].height = 24
+
+    pc_hdrs = ["Categoria", "Subcategoria", "Cuenta Alegra", "Código PUC", "Alegra ID", "Usar en template"]
+    for ci, h in enumerate(pc_hdrs, start=1):
+        c = ws3.cell(row=2, column=ci, value=h)
+        c.fill = PatternFill("solid", fgColor="D9E1F2")
+        c.font = Font(bold=True)
+        c.border = border
+
+    for ri, entry in enumerate(PLAN_CUENTAS_RODDOS, start=3):
+        ws3.cell(row=ri, column=1, value=entry["categoria"]).font = Font(bold=True)
+        ws3.cell(row=ri, column=2, value=entry["subcategoria"])
+        ws3.cell(row=ri, column=3, value=entry["cuenta_nombre"])
+        ws3.cell(row=ri, column=4, value=entry["cuenta_codigo"])
+        ws3.cell(row=ri, column=5, value=entry["alegra_id"]).font = Font(bold=True, color="1F497D")
+        ws3.cell(row=ri, column=6, value=f"Categoria: {entry['categoria']} / Subcategoria: {entry['subcategoria']}")
+        for ci in range(1, 7):
+            ws3.cell(row=ri, column=ci).border = border
+        ws3.row_dimensions[ri].height = 15
+
+    ws3.column_dimensions["A"].width = 15
+    ws3.column_dimensions["B"].width = 22
+    ws3.column_dimensions["C"].width = 36
+    ws3.column_dimensions["D"].width = 14
+    ws3.column_dimensions["E"].width = 12
+    ws3.column_dimensions["F"].width = 44
 
     # ── Hoja 2: Instrucciones ─────────────────────────────────────────────────
     ws2 = wb.create_sheet("Instrucciones")
@@ -451,14 +544,17 @@ async def cargar_gastos_excel(
         nit          = str(_get("nit_proveedor") or "").strip()
         concepto     = str(_get("concepto") or "").strip() or f"Gasto {proveedor}"
         incluye_iva  = str(_get("incluye_iva") or "").strip()
-        tipo_gasto   = _normalize(str(_get("tipo_gasto") or "otros").strip())
+        # Support both old tipo_gasto column and new categoria/subcategoria
+        raw_categoria    = _normalize(str(_get("categoria") or "").strip())
+        raw_subcategoria = _normalize(str(_get("subcategoria") or "").strip())
+        tipo_gasto   = raw_categoria  # used as fallback for legacy support
         tipo_persona = str(_get("tipo_persona") or "PJ").strip().upper()
         es_auto_col  = _parse_bool(_get("es_autoretenedor"))
         forma_pago   = str(_get("forma_pago") or "Contado").strip()
         mes_periodo  = str(_get("mes_periodo") or "").strip()
         notas        = str(_get("notas") or "").strip()
 
-        # Normalize tipo_gasto
+        # Normalize tipo_gasto (backward compat: 'arrendamiento' etc.)
         tipo_map = {
             "arriendo": "arrendamiento", "rent": "arrendamiento",
             "servicio": "servicios", "service": "servicios",
@@ -475,6 +571,20 @@ async def cargar_gastos_excel(
             tipo_gasto = "honorarios_pj"
         elif tipo_gasto in ("honorarios_pj",) and tipo_persona == "PN":
             tipo_gasto = "honorarios_pn"
+
+        # Resolve account from plan_cuentas (new) or tipo_gasto (legacy)
+        plan_entry = None
+        if raw_categoria and raw_subcategoria:
+            plan_entry = _lookup_plan_cuentas_local(raw_categoria, raw_subcategoria)
+
+        if plan_entry:
+            cuenta_gasto_id    = plan_entry["alegra_id"]
+            cuenta_gasto_nombre = plan_entry["cuenta_nombre"]
+            tipo_retefuente    = plan_entry.get("tipo_retefuente") or "otros"
+        else:
+            cuenta_gasto_id    = CUENTAS_GASTO[tipo_gasto]["id"]
+            cuenta_gasto_nombre = CUENTAS_GASTO[tipo_gasto]["nombre"]
+            tipo_retefuente    = tipo_gasto
 
         # Check autoretenedor: column OR DB list
         nit_clean = nit.replace("-", "").replace(" ", "")
@@ -500,7 +610,10 @@ async def cargar_gastos_excel(
             "concepto":         concepto,
             "monto_sin_iva":    monto,
             "incluye_iva":      str(incluye_iva).strip(),
+            "categoria":        raw_categoria or tipo_gasto,
+            "subcategoria":     raw_subcategoria or "",
             "tipo_gasto":       tipo_gasto,
+            "tipo_retefuente":  tipo_retefuente,
             "tipo_persona":     tipo_persona,
             "es_autoretenedor": es_autoretenedor,
             "forma_pago":       forma_pago,
@@ -510,8 +623,8 @@ async def cargar_gastos_excel(
 
         reten = _calcular_retenciones(row_dict, es_autoretenedor)
         row_dict.update(reten)
-        row_dict["cuenta_gasto_id"]     = CUENTAS_GASTO[tipo_gasto]["id"]
-        row_dict["cuenta_gasto_nombre"] = CUENTAS_GASTO[tipo_gasto]["nombre"]
+        row_dict["cuenta_gasto_id"]     = cuenta_gasto_id
+        row_dict["cuenta_gasto_nombre"] = cuenta_gasto_nombre
 
         gastos_preview.append(row_dict)
 
@@ -829,3 +942,170 @@ async def descargar_reporte_errores(job_id: str, current_user=Depends(get_curren
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="RODDOS_Gastos_Errores_{job_id[:8]}.xlsx"'},
     )
+
+
+
+# ── GET /gastos/plan-cuentas ──────────────────────────────────────────────────
+@router.get("/plan-cuentas")
+async def get_plan_cuentas(current_user=Depends(get_current_user)):
+    """Devuelve el plan de cuentas RODDOS con IDs reales de Alegra."""
+    return {
+        "total": len(PLAN_CUENTAS_RODDOS),
+        "plan": [
+            {k: v for k, v in entry.items() if k != "tipo_retefuente"}
+            for entry in PLAN_CUENTAS_RODDOS
+        ],
+    }
+
+
+# ── GET /gastos/cleanup-preview ───────────────────────────────────────────────
+class CleanupPreviewReq(BaseModel):
+    cuenta_id: int = 5495
+    fecha_desde: str = ""
+    fecha_hasta: str = ""
+
+
+# ── POST /gastos/cleanup-preview ─────────────────────────────────────────────
+# Background task version — stores results in MongoDB to avoid proxy timeout
+async def _run_cleanup_preview(job_id: str, cuenta_id: int, fecha_desde: str, fecha_hasta: str):
+    """Pagina Alegra journals en background y filtra los de cuenta incorrecta."""
+    import asyncio
+    alegra = AlegraService(db)
+    journals_to_delete = []
+    start = 0
+    batch_size = 10
+    total_revisados = 0
+
+    for page_num in range(30):  # max 300 journals
+        retries = 0
+        batch = None
+        while retries < 3:
+            try:
+                batch = await alegra.request("journals", params={"limit": batch_size, "start": start})
+                break  # success
+            except Exception as e:
+                retries += 1
+                wait = 2 ** retries  # exponential backoff: 2s, 4s, 8s
+                logger.warning("cleanup_preview batch start=%s retry=%s error=%s — waiting %ss", start, retries, e, wait)
+                await asyncio.sleep(wait)
+        if batch is None or not isinstance(batch, list) or not batch:
+            break
+        total_revisados += len(batch)
+        for j in batch:
+            j_date = j.get("date", "")
+            if fecha_desde and j_date < fecha_desde:
+                continue
+            if fecha_hasta and j_date > fecha_hasta:
+                continue
+            account_ids = [str(e.get("id", "")) for e in j.get("entries", [])]
+            if str(cuenta_id) in account_ids:
+                total_debito = sum(
+                    float(e.get("debit", 0)) for e in j.get("entries", [])
+                    if float(e.get("debit", 0)) > 0 and str(e.get("id")) == str(cuenta_id)
+                )
+                journals_to_delete.append({
+                    "alegra_id": str(j.get("id")),
+                    "date": j_date,
+                    "observations": j.get("observations", j.get("description", "")),
+                    "total_debito": total_debito,
+                    "cuenta_incorrecta": next(
+                        (e.get("name") for e in j.get("entries", []) if str(e.get("id")) == str(cuenta_id)), "?"
+                    ),
+                })
+        start += len(batch)
+        if len(batch) < batch_size:
+            break
+        await asyncio.sleep(0.5)  # rate limit protection
+
+    await db.gastos_cleanup_jobs.update_one(
+        {"job_id": job_id},
+        {"$set": {
+            "estado": "completado",
+            "total_revisados": total_revisados,
+            "journals_con_cuenta_incorrecta": len(journals_to_delete),
+            "preview": journals_to_delete,
+            "fin": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+
+
+@router.post("/cleanup-preview")
+async def cleanup_journals_preview(
+    req: CleanupPreviewReq,
+    background_tasks: BackgroundTasks,
+    current_user=Depends(get_current_user),
+):
+    """Inicia búsqueda en background de journals con cuenta incorrecta.
+    Usa GET /gastos/cleanup-status/{job_id} para obtener resultados."""
+    job_id = str(uuid.uuid4())
+    await db.gastos_cleanup_jobs.insert_one({
+        "job_id": job_id,
+        "estado": "en_progreso",
+        "cuenta_id": req.cuenta_id,
+        "fecha_desde": req.fecha_desde,
+        "fecha_hasta": req.fecha_hasta,
+        "inicio": datetime.now(timezone.utc).isoformat(),
+    })
+    background_tasks.add_task(_run_cleanup_preview, job_id, req.cuenta_id, req.fecha_desde, req.fecha_hasta)
+    return {"job_id": job_id, "estado": "en_progreso"}
+
+
+@router.get("/cleanup-status/{job_id}")
+async def cleanup_status(job_id: str, current_user=Depends(get_current_user)):
+    """Estado y resultados del cleanup-preview job."""
+    job = await db.gastos_cleanup_jobs.find_one({"job_id": job_id}, {"_id": 0})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job no encontrado")
+    return job
+
+
+# ── POST /gastos/cleanup-execute ─────────────────────────────────────────────
+class CleanupExecuteReq(BaseModel):
+    alegra_ids: List[str]
+
+
+@router.post("/cleanup-execute")
+async def cleanup_journals_execute(
+    req: CleanupExecuteReq,
+    current_user=Depends(get_current_user),
+):
+    """Elimina journals de Alegra en lotes de 10 con delay de 300ms.
+    Requiere lista explícita de IDs (obtenida del preview) para seguridad."""
+    if not req.alegra_ids:
+        raise HTTPException(status_code=400, detail="No se proporcionaron IDs para eliminar")
+
+    if len(req.alegra_ids) > 200:
+        raise HTTPException(status_code=400, detail="Máximo 200 journals por solicitud de limpieza")
+
+    alegra = AlegraService(db)
+    eliminados = []
+    errores_delete = []
+
+    for i, journal_id in enumerate(req.alegra_ids):
+        try:
+            await alegra.request(f"journals/{journal_id}", method="DELETE")
+            eliminados.append(journal_id)
+        except Exception as e:
+            errores_delete.append({"id": journal_id, "error": str(e)})
+        
+        # Delay every 10 items to avoid rate limiting
+        if (i + 1) % 10 == 0:
+            import asyncio
+            await asyncio.sleep(0.5)
+
+    # Log the cleanup
+    await db.roddos_events.insert_one({
+        "event_type":  "gasto.cleanup.journals",
+        "eliminados":  len(eliminados),
+        "errores":     len(errores_delete),
+        "ids_eliminados": eliminados,
+        "ejecutado_por": current_user.get("email", "?"),
+        "fecha": datetime.now(timezone.utc).isoformat(),
+    })
+
+    return {
+        "eliminados": len(eliminados),
+        "errores": len(errores_delete),
+        "detalle_errores": errores_delete,
+        "mensaje": f"Se eliminaron {len(eliminados)} journal entries de Alegra.",
+    }

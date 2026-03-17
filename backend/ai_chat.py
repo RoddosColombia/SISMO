@@ -269,6 +269,7 @@ TIPOS DE ACCIÓN DISPONIBLES:
 • registrar_factura_compra → POST /bills
 • anular_factura_compra    → DELETE /bills/{id}
 • crear_causacion          → POST /journals
+• anular_causacion         → DELETE /journals/{id}  ← NUEVO: elimina asiento contable
 • registrar_pago           → POST /payments
 • crear_contacto           → POST /contacts
 • registrar_entrega        → ACCIÓN INTERNA (activa plan de cuotas)
@@ -276,8 +277,8 @@ TIPOS DE ACCIÓN DISPONIBLES:
 • consultar_facturas       → información de facturas existentes
 • crear_nota_credito       → POST /credit-notes  (nota crédito sobre factura de venta)
 • crear_nota_debito        → POST /debit-notes   (cargo adicional sobre factura)
-• crear_comprobante_ingreso → POST /journal-entries tipo ingreso de caja
-• crear_comprobante_egreso  → POST /journal-entries tipo egreso de caja
+• crear_comprobante_ingreso → POST /journals tipo ingreso de caja
+• crear_comprobante_egreso  → POST /journals tipo egreso de caja
 
 FORMATO EXACTO PARA CREAR_CONTACTO (Alegra Colombia):
 {
@@ -485,6 +486,23 @@ El sistema calculará automáticamente:
 • Primera cuota = primer miércoles >= (fecha_entrega + 7 días)
 • Todas las cuotas siguientes serán miércoles consecutivos
 • RODDOS: TODOS los cobros vencen el miércoles sin excepción
+
+═══════════════════════════════════════════════════
+FLUJO — ANULAR ASIENTO CONTABLE (anular_causacion)
+═══════════════════════════════════════════════════
+• Endpoint real: DELETE /journals/{journal_id}
+• USAR CUANDO: el usuario pide eliminar/anular un asiento contable ya registrado en Alegra
+• REQUIERE: journal_id (ID numérico del asiento en Alegra)
+• Si el usuario no tiene el ID: indicarle que lo consulte en Alegra → Contabilidad → Comprobantes
+
+FORMATO PARA anular_causacion:
+{
+  "accion_contable": "anular_causacion",
+  "payload": {
+    "journal_id": "[id_numerico_journal]"
+  },
+  "justificacion": "Eliminar asiento [numero] por [razón]"
+}
 
 ═══════════════════════════════════════════════════
 FLUJO — FACTURA DE COMPRA (PROVEEDOR)
@@ -725,6 +743,41 @@ USA SIEMPRE el id de esa lista. NUNCA inventes un ID ni uses el código PUC como
 Si no ves la cuenta exacta en la lista, escoge la más cercana por nombre o cuenta padre.
 El campo "name" es informativo para el usuario — el sistema lo elimina antes de enviar a Alegra.
 NUNCA uses {"account": {"id": ...}} — ese formato da error 400.
+
+PLAN DE CUENTAS RODDOS (IDs REALES DE ALEGRA — USAR SIEMPRE):
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║ Categoria        │ Subcategoria       │ Alegra ID │ Código  │ Nombre Cuenta  ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+║ Personal         │ Salarios           │   5462    │ 510506  │ Sueldos        ║
+║ Personal         │ Honorarios         │   5475    │ 511025  │ Honorarios PN  ║
+║ Personal         │ Honorarios_PJ      │   5476    │ 511030  │ Honorarios PJ  ║
+║ Personal         │ Seguridad_Social   │   5472    │ 510570  │ Aportes SS     ║
+║ Personal         │ Dotacion           │   5470    │ 510551  │ Dotación       ║
+║ Personal         │ Vacaciones         │   5469    │ 510539  │ Vacaciones     ║
+║ Personal         │ Prima              │   5468    │ 510536  │ Prima          ║
+║ Personal         │ Cesantias          │   5466    │ 510530  │ Cesantías      ║
+║ Operaciones      │ Arriendo           │   5480    │ 512010  │ Arrendamientos ║
+║ Operaciones      │ Servicios_Publicos │   5485    │ 513525  │ Acueducto      ║
+║ Operaciones      │ Telefonia          │   5487    │ 513535  │ Teléfono/Web   ║
+║ Operaciones      │ Mantenimiento      │   5483    │ 513515  │ Asist. técnica ║
+║ Operaciones      │ Transporte         │   5499    │ 519545  │ Taxis y buses  ║
+║ Operaciones      │ Papeleria          │   5497    │ 519530  │ Útiles papelería║
+║ Operaciones      │ Aseo               │   5482    │ 513505  │ Aseo vigil.    ║
+║ Operaciones      │ Combustible        │   5498    │ 519535  │ Combustibles   ║
+║ Marketing        │ Publicidad         │   5495    │ 519520  │ Gs. represent. ║
+║ Marketing        │ Eventos            │   5495    │ 519520  │ Gs. represent. ║
+║ Impuestos        │ ICA                │   5478    │ 511505  │ Ind. Comercio  ║
+║ Impuestos        │ Predial            │   5478    │ 511505  │ Ind. Comercio  ║
+║ Financiero       │ Intereses          │   5533    │ 615020  │ Intereses      ║
+║ Financiero       │ Comisiones_Bancarias│  5508    │ 530515  │ Comisiones     ║
+║ Financiero       │ Gastos_Bancarios   │   5507    │ 530505  │ Gs. bancarios  ║
+║ Financiero       │ Seguros            │   5493    │ 5195    │ Gs. generales  ║
+║ Financiero       │ GMF                │   5509    │ 531520  │ GMF            ║
+║ Otros            │ Varios             │   5493    │ 5195    │ Gs. generales  ║
+║ Otros            │ Representacion     │   5495    │ 519520  │ Gs. represent. ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+FALLBACK: Si no encuentras la cuenta exacta → usar ID=5493 (Gastos generales, NUNCA ID=5495 por defecto)
+CUENTA PROVEEDORES: ID=5376 (Cuentas por pagar a proveedores)
 
 RETENCIONES Colombia (calcular antes de mostrar el asiento):
 • ReteFuente Arrendamiento inmuebles:   3.5% del valor bruto
@@ -1095,7 +1148,6 @@ async def gather_context(user_message: str, alegra_service, db) -> dict:
         try:
             accts = await alegra_service.get_accounts_from_categories()
             leaf_accts = alegra_service.get_leaf_accounts(accts)
-            # Send condensed list: id, code, name (no type/nature to save tokens)
             context["cuentas_contables"] = [
                 {"id": a["id"], "code": a.get("code", ""), "name": a["name"]}
                 for a in leaf_accts
@@ -1103,6 +1155,14 @@ async def gather_context(user_message: str, alegra_service, db) -> dict:
             ]
         except Exception:
             pass
+        # Always include RODDOS plan de cuentas (static, no API needed)
+        from routers.gastos import PLAN_CUENTAS_RODDOS
+        context["plan_cuentas_roddos"] = [
+            {"categoria": e["categoria"], "subcategoria": e["subcategoria"],
+             "alegra_id": e["alegra_id"], "cuenta_codigo": e["cuenta_codigo"],
+             "cuenta_nombre": e["cuenta_nombre"]}
+            for e in PLAN_CUENTAS_RODDOS
+        ]
 
     # ── Inject catalog items for compra/bill scenarios ──────────────────────
     compra_kws = ["compra", "factura compra", "factura de compra", "bill", "proveedor",
@@ -2625,6 +2685,19 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
         "crear_nota_credito": ("credit-notes", "POST"),
         "crear_nota_debito": ("debit-notes", "POST"),
     }
+
+    # ── Special case: anular_causacion ────────────────────────────────────────
+    if action_type == "anular_causacion":
+        journal_id = payload.get("journal_id", "") or internal_metadata.get("journal_id", "")
+        if not journal_id:
+            raise ValueError("Falta journal_id para anular el asiento contable.")
+        alegra_result = await service.request(f"journals/{journal_id}", "DELETE")
+        return {
+            "success": True,
+            "result": alegra_result,
+            "id": str(journal_id),
+            "message": f"Asiento contable {journal_id} eliminado de Alegra.",
+        }
 
     # ── Special case: crear_comprobante_ingreso / crear_comprobante_egreso ────
     if action_type in ("crear_comprobante_ingreso", "crear_comprobante_egreso"):

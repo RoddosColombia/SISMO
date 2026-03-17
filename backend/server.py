@@ -179,6 +179,26 @@ async def startup():
         logger.info("IVA config migrated from bimestral to cuatrimestral")
 
     await run_migration_v24(db)
+
+    # ── Inicializar plan_cuentas_roddos ───────────────────────────────────────
+    plan_count = await db.plan_cuentas_roddos.count_documents({})
+    if plan_count == 0:
+        from routers.gastos import PLAN_CUENTAS_RODDOS
+        now = datetime.now(timezone.utc).isoformat()
+        docs = [{**e, "activo": True, "creado_en": now} for e in PLAN_CUENTAS_RODDOS]
+        await db.plan_cuentas_roddos.insert_many(docs)
+        await db.plan_cuentas_roddos.create_index([("categoria", 1), ("subcategoria", 1)])
+        logger.info("plan_cuentas_roddos initialized with %d entries", len(docs))
+    else:
+        # Update existing entries with current data (idempotent upsert)
+        from routers.gastos import PLAN_CUENTAS_RODDOS
+        for entry in PLAN_CUENTAS_RODDOS:
+            await db.plan_cuentas_roddos.update_one(
+                {"categoria": entry["categoria"], "subcategoria": entry["subcategoria"]},
+                {"$set": {**entry, "activo": True}},
+                upsert=True,
+            )
+
     start_scheduler()
     start_loanbook_scheduler()
 
