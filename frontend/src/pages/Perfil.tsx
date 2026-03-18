@@ -189,6 +189,7 @@ function SeccionSesiones({ api }: { api: any }) {
   const [sesiones, setSesiones] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     api.get("/auth/sesiones").then((d: any) => {
       setSesiones(Array.isArray(d) ? d : d.data || []);
@@ -238,6 +239,7 @@ function SeccionPreferencias({ api }: { api: any }) {
   });
   const [saving, setSaving] = useState(false);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     api.get("/auth/preferencias").then((d: any) => setPrefs(d)).catch(() => {});
   }, []);
