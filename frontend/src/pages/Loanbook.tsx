@@ -6,7 +6,7 @@ import { es } from "date-fns/locale";
 import {
   BookOpen, Plus, Search, ChevronRight, Calendar,
   CheckCircle, Clock, AlertTriangle, XCircle, Truck, DollarSign,
-  Edit3, X, TrendingUp, Users, RefreshCw, Star, Bell, ClipboardList,
+  Edit3, X, TrendingUp, Users, RefreshCw, Star, Bell, ClipboardList, FileDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import { FiltroFecha, DateRange, loadRange } from "../components/FiltroFecha";
@@ -837,6 +837,36 @@ export default function Loanbook() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  // HOTFIX 21.1 FIX #3: Excel export for loanbook data
+  const handleExportarExcel = async () => {
+    try {
+      const res = await fetch(`${API}/api/reports/excel`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ reportType: "loanbooks", filters: {} }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err?.detail || `Error ${res.status} al descargar Excel`);
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "RODDOS_Loanbooks.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      toast.error(`Error de red: ${e?.message || "desconocido"}`);
+    }
+  };
+
   const refreshLoan = async (loanId: string) => {
     try {
       const res = await axios.get(`${API}/api/loanbook/${loanId}`, { headers: { Authorization: `Bearer ${token}` } });
@@ -861,6 +891,10 @@ export default function Loanbook() {
         <div className="flex gap-2">
           <button onClick={fetchData} className="p-2 border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-500" data-testid="refresh-btn">
             <RefreshCw size={16} />
+          </button>
+          <button onClick={handleExportarExcel} data-testid="export-excel-loanbook-btn"
+            className="flex items-center gap-1.5 text-xs border border-emerald-500 text-emerald-700 px-3 py-2 rounded-lg font-semibold hover:bg-emerald-50 transition">
+            <FileDown size={14} /> Excel
           </button>
           <button onClick={() => setShowCreate(true)} data-testid="new-plan-btn"
             className="flex items-center gap-2 px-4 py-2 bg-[#00A9E0] text-white rounded-lg text-sm font-medium hover:bg-[#0090c0]">

@@ -504,10 +504,18 @@ async def register_pago(loan_id: str, req: PagoRequest, current_user=Depends(get
             detail=f"La cuota {req.cuota_numero} ya fue registrada (pagada el {cuota.get('fecha_pago','?')}).",
         )
 
-    # Create payment in Alegra
+    # Create payment in Alegra — HOTFIX 21.1: request_with_verify() obligatorio
+    # Validate factura_alegra_id before sending
+    if not loan.get("factura_alegra_id"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"El crédito {loan.get('codigo')} no tiene factura Alegra asociada. No es posible registrar el pago.",
+        )
+
     service = AlegraService(db)
     alegra_payment_id = None
     comprobante_num = f"COMP-{loan['codigo']}-C{str(req.cuota_numero).zfill(3)}"
+
     try:
         payment_payload = {
             "date": date.today().isoformat(),
@@ -515,11 +523,31 @@ async def register_pago(loan_id: str, req: PagoRequest, current_user=Depends(get
             "paymentMethod": req.metodo_pago,
             "observations": f"{loan['codigo']} — Cuota {req.cuota_numero}/{loan['num_cuotas']} — {req.metodo_pago}",
         }
-        alegra_res = await service.request("payments", "POST", payment_payload)
-        alegra_payment_id = alegra_res.get("id")
+
+        alegra_res = await service.request_with_verify("payments", "POST", payment_payload)
+
+        if not alegra_res.get("_verificado"):
+            raise HTTPException(
+                status_code=500,
+                detail="VERIFICACIÓN FALLIDA: Alegra respondió pero no se pudo confirmar el registro. No se actualizará el loanbook hasta verificar manualmente."
+            )
+
+        alegra_payment_id = alegra_res.get("id") or alegra_res.get("_verificacion_id")
+
+        if not alegra_payment_id:
+            raise HTTPException(
+                status_code=500,
+                detail="Alegra registró el pago pero no retornó un ID. Verifica manualmente en Alegra antes de continuar."
+            )
+
+    except HTTPException:
+        raise
+
     except Exception as e:
-        # Don't block if Alegra fails — record locally
-        pass
+        raise HTTPException(
+            status_code=503,
+            detail=f"No se pudo conectar con Alegra: {str(e)}. Verifica tu conexión e intenta nuevamente."
+        )
 
     # Update cuota
     cuota["estado"] = "pagada"
@@ -555,6 +583,10 @@ async def register_pago(loan_id: str, req: PagoRequest, current_user=Depends(get
     await db.loanbook.update_one({"id": loan_id}, {"$set": stats})
     loan.update(stats)
     loan.pop("_id", None)
+
+    # HOTFIX 21.1 FIX #2: Invalidate CFO cache so dashboard recomputes fresh data
+    from routers.cfo import invalidar_cache_cfo
+    await invalidar_cache_cfo()
 
     await log_action(current_user, f"/loanbook/{loan_id}/pago", "POST", {
         "cuota": req.cuota_numero, "valor": req.valor_pagado, "comprobante": comprobante_num
