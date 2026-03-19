@@ -608,3 +608,79 @@ async def update_costo_moto(
 
     moto = await db.inventario_motos.find_one({"id": moto_id}, {"_id": 0})
     return {"ok": True, "moto": moto}
+
+
+@router.post("/sincronizar-estados")
+async def sincronizar_estados_inventario(current_user=Depends(get_current_user)):
+    """Sincroniza automáticamente el estado de las motos cruzando con loanbooks.
+    
+    Reglas:
+    - Moto con loanbook activo/mora → Entregada
+    - Moto con loanbook pendiente_entrega → Vendida  
+    - Moto sin loanbook activo → Disponible (si no tiene factura de venta)
+    
+    Este endpoint elimina la necesidad de correcciones manuales.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    cambios = []
+    errores = []
+
+    # 1. Obtener todos los loanbooks activos con su chasis
+    loanbooks = await db.loanbook.find(
+        {"estado": {"$in": ["activo", "mora", "pendiente_entrega"]}, "moto_chasis": {"$exists": True, "$ne": None}},
+        {"_id": 0, "codigo": 1, "cliente_nombre": 1, "moto_chasis": 1, "estado": 1}
+    ).to_list(1000)
+
+    for lb in loanbooks:
+        chasis = lb.get("moto_chasis")
+        if not chasis:
+            continue
+
+        # Estado correcto según el loanbook
+        estado_correcto = "Entregada" if lb["estado"] in ("activo", "mora") else "Vendida"
+
+        # Buscar la moto por vin o chasis
+        moto = await db.inventario_motos.find_one(
+            {"$or": [{"vin": chasis}, {"chasis": chasis}]},
+            {"_id": 0, "id": 1, "vin": 1, "chasis": 1, "estado": 1}
+        )
+
+        if not moto:
+            errores.append({"loanbook": lb["codigo"], "chasis": chasis, "error": "Moto no encontrada en inventario"})
+            continue
+
+        estado_actual = moto.get("estado", "")
+        if estado_actual != estado_correcto:
+            campo_id = "vin" if moto.get("vin") else "chasis"
+            await db.inventario_motos.update_one(
+                {campo_id: chasis},
+                {"$set": {
+                    "estado": estado_correcto,
+                    "loanbook_codigo": lb["codigo"],
+                    "updated_at": now
+                }}
+            )
+            cambios.append({
+                "chasis": chasis,
+                "cliente": lb["cliente_nombre"],
+                "estado_antes": estado_actual,
+                "estado_ahora": estado_correcto,
+                "loanbook": lb["codigo"]
+            })
+
+    # 2. Registrar evento en bus
+    await db.roddos_events.insert_one({
+        "event_type": "inventario.estados.sincronizados",
+        "source": "sincronizar_estados",
+        "timestamp": now,
+        "datos": {"cambios": len(cambios), "errores": len(errores)}
+    })
+
+    return {
+        "ok": True,
+        "cambios_aplicados": len(cambios),
+        "errores": len(errores),
+        "detalle_cambios": cambios,
+        "detalle_errores": errores,
+        "mensaje": f"Sincronización completa: {len(cambios)} estados corregidos"
+    }

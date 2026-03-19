@@ -1,8 +1,27 @@
+"""
+Fix inventario: corrige estados de motos en MongoDB.
+Usa el campo 'vin' que es como lo guarda cargar_inventario_motos_lote.
+Ejecutar: python fix_inventario.py (desde /project/src en Render Shell)
+"""
 import os
 from pymongo import MongoClient
 
 c = MongoClient(os.environ['MONGO_URL'])
 db = c[os.environ['DB_NAME']]
+
+# Verificar qué campo usa el inventario
+sample = db.inventario_motos.find_one({})
+if sample:
+    campos = list(sample.keys())
+    print('Campos del documento:', campos)
+    tiene_vin = 'vin' in campos
+    tiene_chasis = 'chasis' in campos
+    campo = 'vin' if tiene_vin else 'chasis'
+    print(f'Campo a usar: {campo}')
+else:
+    print('Coleccion vacia')
+    c.close()
+    exit()
 
 DISP = [
     '9FL25AF32VDB95022','9FL25AF32VDB95036','9FL25AF33VDB95059','9FL25AF38VDB95025',
@@ -19,13 +38,13 @@ ENTR = [
 ]
 VEND = ['9FL25AF33VDB95997','9FL25AF30VDB96167']
 
-d = db.inventario_motos.update_many({'vin': {'$in': DISP}}, {'$set': {'estado': 'Disponible'}})
-e = db.inventario_motos.update_many({'vin': {'$in': ENTR}}, {'$set': {'estado': 'Entregada'}})
-v = db.inventario_motos.update_many({'vin': {'$in': VEND}}, {'$set': {'estado': 'Vendida'}})
+d = db.inventario_motos.update_many({campo: {'$in': DISP}}, {'$set': {'estado': 'Disponible'}})
+e = db.inventario_motos.update_many({campo: {'$in': ENTR}}, {'$set': {'estado': 'Entregada'}})
+v = db.inventario_motos.update_many({campo: {'$in': VEND}}, {'$set': {'estado': 'Vendida'}})
 
-print('Disponibles actualizadas:', d.modified_count)
-print('Entregadas actualizadas:', e.modified_count)
-print('Vendidas actualizadas:', v.modified_count)
+print(f'Disponibles actualizadas: {d.modified_count}')
+print(f'Entregadas actualizadas:  {e.modified_count}')
+print(f'Vendidas actualizadas:    {v.modified_count}')
 print()
 print('ESTADO FINAL:')
 print('  Disponibles:', db.inventario_motos.count_documents({'estado': 'Disponible'}))
