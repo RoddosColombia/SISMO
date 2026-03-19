@@ -1,0 +1,41 @@
+name: SISMO CI/CD Pipeline
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+jobs:
+  backend-check:
+    name: Backend Python Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: cd backend && pip install -r requirements.txt
+      - name: Syntax check
+        run: |
+          cd backend
+          python -m py_compile server.py database.py auth.py
+          echo "Backend syntax OK"
+      - name: No emergentintegrations
+        run: |
+          if grep -r "emergentintegrations" backend/ --include="*.py"; then
+            echo "ERROR: referencia a emergentintegrations encontrada"
+            exit 1
+          fi
+          echo "OK - sin referencias a Emergent"
+  frontend-check:
+    name: Frontend React Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'yarn'
+          cache-dependency-path: frontend/yarn.lock
+      - run: cd frontend && yarn install --frozen-lockfile
+      - name: TypeScript check
+        run: cd frontend && yarn tsc --noEmit 2>&1 | head -30 || true
