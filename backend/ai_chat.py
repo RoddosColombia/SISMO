@@ -3492,6 +3492,111 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
             "sync": sync_result,
         }
 
+    # ── Special case: registrar_loanbook ─────────────────────────────────────
+    if action_type == "registrar_loanbook":
+        from utils.loanbook_constants import (
+            calcular_cuota_valor as _calc_cuota,
+            resumen_cuota as _resumen_cuota,
+            MODOS_VALIDOS as _MODOS_VALIDOS,
+        )
+        # Validar modo_pago
+        modo_pago = payload.get("modo_pago", "semanal")
+        if modo_pago not in _MODOS_VALIDOS:
+            return {
+                "success": False,
+                "message": f"modo_pago inválido: '{modo_pago}'. Debe ser uno de: {sorted(_MODOS_VALIDOS)}",
+            }
+        cuota_base = int(payload.get("cuota_base") or payload.get("valor_cuota") or 0)
+        if cuota_base <= 0:
+            return {"success": False, "message": "cuota_base o valor_cuota requerido y > 0."}
+
+        cuota_valor = _calc_cuota(cuota_base, modo_pago)
+        resumen = _resumen_cuota(cuota_base, modo_pago)
+
+        # Si solo es preview (dry_run=True), retornar el resumen sin crear
+        if payload.get("dry_run"):
+            return {
+                "success": True,
+                "preview": True,
+                "cuota_base": cuota_base,
+                "cuota_valor": cuota_valor,
+                "modo_pago": modo_pago,
+                "resumen": resumen,
+                "message": f"Resumen de cuota calculada: {resumen}",
+            }
+
+        # Crear el loanbook directamente en MongoDB
+        from routers.loanbook import PLAN_CUOTAS, _get_next_codigo, _first_wednesday
+        from services.crm_service import normalizar_telefono as _norm_tel
+        import math as _math
+        from datetime import date as _date
+
+        plan = payload.get("plan", "P52S")
+        if plan not in PLAN_CUOTAS:
+            return {"success": False, "message": f"Plan inválido: '{plan}'. Opciones: {list(PLAN_CUOTAS.keys())}"}
+
+        codigo = await _get_next_codigo()
+        num_cuotas = PLAN_CUOTAS[plan]
+        precio_venta = float(payload.get("precio_venta", 0))
+        cuota_inicial = float(payload.get("cuota_inicial", 0))
+        valor_financiado = precio_venta - cuota_inicial
+
+        cuota_0 = {
+            "numero": 0, "tipo": "inicial",
+            "fecha_vencimiento": payload.get("fecha_factura", _date.today().isoformat()),
+            "valor": cuota_inicial, "estado": "pendiente",
+            "fecha_pago": None, "valor_pagado": 0.0,
+            "alegra_payment_id": None, "comprobante": None, "notas": "",
+        }
+
+        doc = {
+            "id": str(uuid.uuid4()),
+            "codigo": codigo,
+            "factura_alegra_id": payload.get("factura_alegra_id"),
+            "factura_numero": payload.get("factura_numero"),
+            "moto_id": payload.get("moto_id"),
+            "moto_descripcion": payload.get("moto_descripcion", ""),
+            "cliente_id": payload.get("cliente_id"),
+            "cliente_nombre": payload.get("cliente_nombre", ""),
+            "cliente_nit": payload.get("cliente_nit", ""),
+            "cliente_telefono": _norm_tel(payload.get("cliente_telefono", "")),
+            "plan": plan,
+            "fecha_factura": payload.get("fecha_factura", _date.today().isoformat()),
+            "fecha_entrega": None,
+            "fecha_primer_pago": None,
+            "precio_venta": precio_venta,
+            "cuota_inicial": cuota_inicial,
+            "valor_financiado": valor_financiado,
+            "num_cuotas": num_cuotas,
+            "modo_pago": modo_pago,
+            "cuota_base": cuota_base,
+            "valor_cuota": cuota_valor,
+            "cuota_valor": cuota_valor,
+            "cuotas": [cuota_0],
+            "estado": "pendiente_entrega",
+            "num_cuotas_pagadas": 0,
+            "num_cuotas_vencidas": 0,
+            "total_cobrado": 0.0,
+            "saldo_pendiente": valor_financiado,
+            "ai_suggested": True,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "created_by": user.get("email", "agente"),
+        }
+        await db.loanbook.insert_one(doc)
+        doc.pop("_id", None)
+        return {
+            "success": True,
+            "result": doc,
+            "codigo": codigo,
+            "cuota_valor": cuota_valor,
+            "resumen": resumen,
+            "message": (
+                f"Loanbook {codigo} creado — cliente: {doc['cliente_nombre']} | "
+                f"Plan: {plan} | {resumen}"
+            ),
+        }
+
     # ── Special case: cargar_inventario_motos_lote ───────────────────────────
     if action_type == "cargar_inventario_motos_lote":
         from datetime import date as _date

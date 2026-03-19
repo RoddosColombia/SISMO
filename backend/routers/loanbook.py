@@ -11,6 +11,10 @@ from database import db
 from dependencies import get_current_user, require_admin, log_action
 from event_bus import emit_event
 from services.crm_service import normalizar_telefono
+from utils.loanbook_constants import (
+    calcular_cuota_valor, dias_entre_cuotas, resumen_cuota,
+    MULTIPLICADORES_PAGO, MODOS_VALIDOS,
+)
 
 router = APIRouter(prefix="/loanbook", tags=["loanbook"])
 
@@ -32,7 +36,9 @@ class LoanCreate(BaseModel):
     fecha_factura: str
     precio_venta: float
     cuota_inicial: float
-    valor_cuota: float  # weekly installment value (manual entry)
+    valor_cuota: float        # cuota semanal base (manual entry)
+    modo_pago: str = "semanal"  # semanal | quincenal | mensual
+    cuota_base: Optional[float] = None  # override de base si difiere de valor_cuota
 
 class EntregaRequest(BaseModel):
     fecha_entrega: str  # ISO date string
@@ -42,6 +48,7 @@ class EntregaRequest(BaseModel):
     valor_cuota: Optional[float] = None
     cliente_nit: Optional[str] = None
     precio_venta: Optional[float] = None
+    modo_pago: Optional[str] = None  # semanal | quincenal | mensual
 
 class PagoRequest(BaseModel):
     cuota_numero: int
@@ -214,6 +221,12 @@ async def create_loan(req: LoanCreate, current_user=Depends(get_current_user)):
     valor_financiado = req.precio_venta - req.cuota_inicial
     codigo = await _get_next_codigo()
 
+    # ── modo_pago y cálculo de cuota ──────────────────────────────────────────
+    modo_pago = req.modo_pago if req.modo_pago in MODOS_VALIDOS else "semanal"
+    cuota_base = int(req.cuota_base) if req.cuota_base else int(req.valor_cuota)
+    cuota_valor_calculado = calcular_cuota_valor(cuota_base, modo_pago)
+    # ─────────────────────────────────────────────────────────────────────────
+
     # Initial cuota (cuota 0)
     cuotas = [{
         "numero": 0,
@@ -253,7 +266,10 @@ async def create_loan(req: LoanCreate, current_user=Depends(get_current_user)):
         "cuota_inicial": req.cuota_inicial,
         "valor_financiado": valor_financiado,
         "num_cuotas": num_cuotas,
-        "valor_cuota": req.valor_cuota,
+        "modo_pago": modo_pago,
+        "cuota_base": cuota_base,
+        "valor_cuota": cuota_valor_calculado,
+        "cuota_valor": cuota_valor_calculado,   # alias de compatibilidad
         "cuotas": cuotas,
         "estado": "activo" if req.plan == "Contado" else "pendiente_entrega",
         "num_cuotas_pagadas": 0,
@@ -358,9 +374,19 @@ async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depen
     fecha_entrega = date.fromisoformat(req.fecha_entrega)
     fecha_primer_pago = _first_wednesday(fecha_entrega)
     num_cuotas  = loan.get("num_cuotas", 0)
+
+    # ── modo_pago: request overrides stored value ─────────────────────────────
+    modo_pago = req.modo_pago or loan.get("modo_pago", "semanal")
+    if modo_pago not in MODOS_VALIDOS:
+        modo_pago = "semanal"
+    intervalo_dias = dias_entre_cuotas(modo_pago)
+
+    # cuota_base: siempre el valor semanal puro; recalcular cuota_valor con ceil
+    cuota_base_stored = loan.get("cuota_base") or loan.get("valor_cuota") or loan.get("cuota_valor") or 0
     # Support both field names: valor_cuota (created via form) and cuota_valor (legacy/auto-created)
-    valor_cuota_final = loan.get("valor_cuota") or loan.get("cuota_valor") or 0
-    valor_financiado = loan.get("valor_financiado") or (valor_cuota_final * num_cuotas)
+    valor_cuota_final = calcular_cuota_valor(int(cuota_base_stored), modo_pago)
+    valor_financiado = loan.get("valor_financiado") or (cuota_base_stored * num_cuotas)
+    # ─────────────────────────────────────────────────────────────────────────
 
     # Build cuotas schedule
     cuota_inicial_val = loan.get("cuota_inicial", 0)
@@ -381,9 +407,9 @@ async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depen
         })
 
     for i in range(1, num_cuotas + 1):
-        fecha_cuota = fecha_primer_pago + timedelta(weeks=i - 1)
+        fecha_cuota = fecha_primer_pago + timedelta(days=intervalo_dias * (i - 1))
         cuotas.append({
-            "numero": i, "tipo": "semanal",
+            "numero": i, "tipo": modo_pago,
             "fecha_vencimiento": fecha_cuota.isoformat(),
             "valor": valor_cuota_final,
             "estado": "vencida" if fecha_cuota.isoformat() < date.today().isoformat() else "pendiente",
@@ -395,6 +421,10 @@ async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depen
         **update_fields,
         "fecha_entrega": req.fecha_entrega,
         "fecha_primer_pago": fecha_primer_pago.isoformat(),
+        "modo_pago": modo_pago,
+        "cuota_base": int(cuota_base_stored),
+        "valor_cuota": valor_cuota_final,
+        "cuota_valor": valor_cuota_final,   # alias de compatibilidad
         "cuotas": cuotas,
         "estado": "activo",
         "datos_completos": True,
@@ -439,7 +469,10 @@ async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depen
     return {
         **loan,
         "primera_cuota_fecha": fecha_primer_pago.isoformat(),
-        "message": f"Loanbook activado — Primera cuota: {fecha_primer_pago.strftime('%d/%m/%Y')} (miércoles)",
+        "message": (
+            f"Loanbook activado — Primera cuota: {fecha_primer_pago.strftime('%d/%m/%Y')} (miércoles) | "
+            + resumen_cuota(int(cuota_base_stored), modo_pago)
+        ),
     }
 
 
