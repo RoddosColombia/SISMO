@@ -3492,6 +3492,73 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
             "sync": sync_result,
         }
 
+    # ── Special case: cargar_inventario_motos_lote ───────────────────────────
+    if action_type == "cargar_inventario_motos_lote":
+        from datetime import date as _date
+        motos_input = payload.get("motos", [])
+        if not motos_input:
+            return {"success": False, "message": "No se recibió ninguna moto en el payload."}
+        if len(motos_input) > 200:
+            return {"success": False, "message": "Máximo 200 motos por lote."}
+
+        hoy = _date.today().isoformat()
+        insertados = 0
+        actualizados = 0
+        errores = []
+
+        for m in motos_input:
+            vin = (
+                str(m.get("vin") or m.get("chasis") or "").strip().upper()
+            )
+            if not vin:
+                errores.append({"moto": m.get("modelo", "?"), "error": "VIN/chasis requerido"})
+                continue
+
+            doc = {
+                "vin":            vin,
+                "motor":          str(m.get("motor", "") or "").strip().upper(),
+                "marca":          str(m.get("marca", "TVS") or "TVS").strip(),
+                "referencia":     str(m.get("modelo", "") or m.get("version", "") or "").strip(),
+                "color":          str(m.get("color", "") or "").strip(),
+                "año":            int(m.get("año", m.get("ano_modelo", 0)) or 0),
+                "estado":         str(m.get("estado", "Disponible") or "Disponible").strip(),
+                "precio_costo":   float(m.get("costo", m.get("precio_costo", 0)) or 0),
+                "factura_compra": str(m.get("factura_compra", m.get("factura_no", "")) or "").strip(),
+                "placa":          str(m.get("placa", "") or "").strip() or None,
+                "fecha_ingreso":  hoy,
+                "updated_at":     datetime.now(timezone.utc).isoformat(),
+            }
+
+            try:
+                result = await db.inventario_motos.update_one(
+                    {"vin": vin},
+                    {"$set": doc, "$setOnInsert": {
+                        "id":         str(uuid.uuid4()),
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                    }},
+                    upsert=True,
+                )
+                if result.upserted_id:
+                    insertados += 1
+                else:
+                    actualizados += 1
+            except Exception as e:
+                errores.append({"vin": vin, "error": str(e)})
+
+        total = insertados + actualizados
+        msg = (
+            f"Lote procesado: {insertados} motos insertadas, {actualizados} actualizadas"
+            + (f", {len(errores)} errores." if errores else ".")
+        )
+        return {
+            "success": total > 0,
+            "insertados": insertados,
+            "actualizados": actualizados,
+            "total_procesadas": total,
+            "errores": errores,
+            "message": msg,
+        }
+
     if action_type not in ACTION_MAP:
         raise ValueError(f"Acción no reconocida: {action_type}")
 
