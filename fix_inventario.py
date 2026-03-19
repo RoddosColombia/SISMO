@@ -16,7 +16,7 @@ if sample:
     print('Campos del documento:', campos)
     tiene_vin = 'vin' in campos
     tiene_chasis = 'chasis' in campos
-    campo = 'vin' if tiene_vin else 'chasis'
+    campo = 'chasis' if tiene_chasis else 'vin'  # chasis es el estándar SISMO
     print(f'Campo a usar: {campo}')
 else:
     print('Coleccion vacia')

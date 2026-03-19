@@ -3932,15 +3932,16 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
         errores = []
 
         for m in motos_input:
-            vin = (
-                str(m.get("vin") or m.get("chasis") or "").strip().upper()
+            # FIX: estandarizar a 'chasis' — acepta 'vin' o 'chasis' como alias
+            chasis = (
+                str(m.get("chasis") or m.get("vin") or "").strip().upper()
             )
-            if not vin:
-                errores.append({"moto": m.get("modelo", "?"), "error": "VIN/chasis requerido"})
+            if not chasis:
+                errores.append({"moto": m.get("modelo", "?"), "error": "chasis requerido"})
                 continue
 
             doc = {
-                "vin":            vin,
+                "chasis":         chasis,
                 "motor":          str(m.get("motor", "") or "").strip().upper(),
                 "marca":          str(m.get("marca", "TVS") or "TVS").strip(),
                 "referencia":     str(m.get("modelo", "") or m.get("version", "") or "").strip(),
@@ -3956,7 +3957,7 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
 
             try:
                 result = await db.inventario_motos.update_one(
-                    {"vin": vin},
+                    {"chasis": chasis},
                     {"$set": doc, "$setOnInsert": {
                         "id":         str(uuid.uuid4()),
                         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -3968,7 +3969,7 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
                 else:
                     actualizados += 1
             except Exception as e:
-                errores.append({"vin": vin, "error": str(e)})
+                errores.append({"chasis": chasis, "error": str(e)})
 
         total = insertados + actualizados
         msg = (
@@ -3983,6 +3984,60 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
             "errores": errores,
             "message": msg,
         }
+
+    # ── Special case: sincronizar_inventario_loanbooks ─────────────────────
+    if action_type == "sincronizar_inventario_loanbooks":
+        now = datetime.now(timezone.utc).isoformat()
+        cambios = []
+        errores_sinc = []
+
+        loanbooks = await db.loanbook.find(
+            {"estado": {"$in": ["activo", "mora", "pendiente_entrega"]},
+             "moto_chasis": {"$exists": True, "$ne": None}},
+            {"_id": 0, "codigo": 1, "cliente_nombre": 1, "moto_chasis": 1, "estado": 1}
+        ).to_list(1000)
+
+        for lb in loanbooks:
+            chasis_lb = lb.get("moto_chasis")
+            if not chasis_lb:
+                continue
+            estado_correcto = "Entregada" if lb["estado"] in ("activo", "mora") else "Vendida"
+            moto = await db.inventario_motos.find_one(
+                {"$or": [{"chasis": chasis_lb}, {"vin": chasis_lb}]},
+                {"_id": 0, "chasis": 1, "vin": 1, "estado": 1}
+            )
+            if not moto:
+                errores_sinc.append({"loanbook": lb["codigo"], "chasis": chasis_lb, "error": "Moto no encontrada"})
+                continue
+            estado_actual = moto.get("estado", "")
+            if estado_actual != estado_correcto:
+                campo = "chasis" if moto.get("chasis") else "vin"
+                await db.inventario_motos.update_one(
+                    {campo: chasis_lb},
+                    {"$set": {"estado": estado_correcto, "loanbook_codigo": lb["codigo"], "updated_at": now}}
+                )
+                cambios.append({
+                    "chasis": chasis_lb, "cliente": lb["cliente_nombre"],
+                    "estado_antes": estado_actual, "estado_ahora": estado_correcto,
+                    "loanbook": lb["codigo"]
+                })
+
+        await db.roddos_events.insert_one({
+            "event_type": "inventario.estados.sincronizados", "source": "agente_contador",
+            "timestamp": now, "datos": {"cambios": len(cambios), "errores": len(errores_sinc)}
+        })
+
+        n = len(cambios)
+        msg = f"Sincronización completada: {n} estado(s) corregido(s)."
+        if cambios:
+            detalles = "\n".join([f"• {c['chasis']} ({c['cliente']}): {c['estado_antes']} → {c['estado_ahora']}" for c in cambios])
+            msg += f"\n\n{detalles}"
+        else:
+            msg += " ✅ Todos los estados ya estaban correctos."
+        if errores_sinc:
+            msg += f"\n\n⚠️ {len(errores_sinc)} motos no encontradas en inventario."
+
+        return {"success": True, "cambios": n, "message": msg}
 
     if action_type not in ACTION_MAP:
         raise ValueError(f"Acción no reconocida: {action_type}")
