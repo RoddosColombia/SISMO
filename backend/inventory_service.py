@@ -6,7 +6,7 @@ import json
 from datetime import datetime, timezone
 
 import pdfplumber
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+import anthropic
 
 
 PARSE_PROMPT = """Eres un extractor especializado en facturas de Auteco (distribuidor motos TVS/Apache Colombia).
@@ -66,15 +66,15 @@ async def extract_motos_from_pdf(pdf_bytes: bytes, filename: str) -> list:
     if not api_key:
         raise ValueError("EMERGENT_LLM_KEY no configurado")
 
-    session_id = f"pdf-{uuid.uuid4().hex[:8]}"
-    chat = LlmChat(
-        api_key=api_key,
-        session_id=session_id,
-        system_message="Eres un extractor preciso de datos. Responde SOLO con JSON válido.",
-    ).with_model("anthropic", "claude-sonnet-4-5-20250929")
-
+    client = anthropic.AsyncAnthropic(api_key=api_key)
     prompt = PARSE_PROMPT.format(text=text[:8000])
-    response = await chat.send_message(UserMessage(text=prompt))
+    _resp = await client.messages.create(
+        model="claude-sonnet-4-5-20250929",
+        max_tokens=4096,
+        system="Eres un extractor preciso de datos. Responde SOLO con JSON válido.",
+        messages=[{"role": "user", "content": prompt}],
+    )
+    response = _resp.content[0].text
 
     # Parse JSON
     json_start = response.find("[")

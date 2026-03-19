@@ -17,3 +17,7 @@ requests==2.32.3
 aiohttp==3.9.5
 apscheduler==3.10.4
 PyJWT==2.8.0
+pyotp==2.9.0
+qrcode==7.4.2
+cryptography==42.0.5
+pdfplumber==0.11.0

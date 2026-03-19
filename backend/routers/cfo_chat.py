@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from database import db
 from dependencies import get_current_user
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+import anthropic
 
 router = APIRouter(prefix="/cfo", tags=["cfo-estrategico"])
 
@@ -204,15 +204,14 @@ async def cfo_chat_message(body: CfoMessage, user=Depends(get_current_user)):
     # Call LLM
     api_key = os.environ.get("EMERGENT_LLM_KEY")
     try:
-        chat = LlmChat(
-            api_key=api_key,
-            session_id=session_id,
-            system_message=system_prompt,
-        ).with_model("anthropic", "claude-sonnet-4-5-20250929")
-        response_text = await chat.send_message(
-            UserMessage(text=body.message),
+        _client = anthropic.AsyncAnthropic(api_key=api_key)
+        _resp = await _client.messages.create(
+            model="claude-sonnet-4-5-20250929",
+            max_tokens=4096,
+            system=system_prompt,
+            messages=messages,
         )
-        assistant_text = response_text if isinstance(response_text, str) else str(response_text)
+        assistant_text = _resp.content[0].text
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error LLM: {str(e)}")
 

@@ -18,7 +18,7 @@ import json
 import logging
 from datetime import datetime, timezone, date, timedelta
 
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+import anthropic
 
 logger = logging.getLogger(__name__)
 
@@ -695,15 +695,7 @@ async def generar_informe_cfo(db, triggered_by: str = "manual") -> dict:
     plan_acciones: list[dict] = []
 
     try:
-        chat = LlmChat(
-            api_key=api_key,
-            session_id=f"cfo-informe-{uuid.uuid4().hex[:8]}",
-            system_message=(
-                "Eres el asesor CFO de RODDOS Colombia — concesionario Auteco en Bogotá. "
-                "Analizas datos financieros reales y das recomendaciones accionables y concretas."
-            ),
-        ).with_model("anthropic", "claude-sonnet-4-5-20250929")
-
+        _cfo_client = anthropic.AsyncAnthropic(api_key=api_key)
         prompt = (
             f"DATOS FINANCIEROS RODDOS — {datos['periodo']}:\n"
             f"{json.dumps(resumen, ensure_ascii=False, indent=2)}\n\n"
@@ -717,7 +709,16 @@ async def generar_informe_cfo(db, triggered_by: str = "manual") -> dict:
             "   ACCIÓN|RESPONSABLE|FECHA|MÉTRICA\n"
             "Sé preciso. Usa solo los números del JSON. No inventes datos."
         )
-        analisis_ia = await chat.send_message(UserMessage(text=prompt))
+        _cfo_resp = await _cfo_client.messages.create(
+            model="claude-sonnet-4-5-20250929",
+            max_tokens=4096,
+            system=(
+                "Eres el asesor CFO de RODDOS Colombia — concesionario Auteco en Bogotá. "
+                "Analizas datos financieros reales y das recomendaciones accionables y concretas."
+            ),
+            messages=[{"role": "user", "content": prompt}],
+        )
+        analisis_ia = _cfo_resp.content[0].text
 
         # Parse plan
         for line in analisis_ia.split("\n"):
@@ -837,21 +838,22 @@ async def process_cfo_query(message: str, db, user: dict, session_id: str) -> di
             "kpis": kpis,
         }
 
-        chat = LlmChat(
-            api_key=api_key,
-            session_id=session_id,
-            system_message=(
-                "Eres el Agente CFO de RODDOS Colombia. Respondes preguntas financieras "
-                "con datos reales. Sé conciso, usa cifras. Responde en español."
-            ),
-        ).with_model("anthropic", "claude-sonnet-4-5-20250929")
-
+        _query_client = anthropic.AsyncAnthropic(api_key=api_key)
         prompt = (
             f"CONTEXTO FINANCIERO RODDOS ({datos['periodo']}):\n"
             f"{json.dumps(contexto, ensure_ascii=False)}\n\n"
             f"CONSULTA: {message}"
         )
-        response = await chat.send_message(UserMessage(text=prompt))
+        _query_resp = await _query_client.messages.create(
+            model="claude-sonnet-4-5-20250929",
+            max_tokens=4096,
+            system=(
+                "Eres el Agente CFO de RODDOS Colombia. Respondes preguntas financieras "
+                "con datos reales. Sé conciso, usa cifras. Responde en español."
+            ),
+            messages=[{"role": "user", "content": prompt}],
+        )
+        response = _query_resp.content[0].text
 
         return {
             "message":        response,

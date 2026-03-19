@@ -1,0 +1,61 @@
+HOTFIX 21.1 — Fix 3 Bugs Críticos P0 en SISMO
+
+════ CONTEXTO ════
+Proyecto: SISMO — Sistema Contable RODDOS
+Stack: FastAPI + MongoDB + React + Alegra API
+BUILD actual: 21 (9.0/10)
+
+REGLAS PERMANENTES:
+1. NUNCA reportar éxito sin verificar HTTP 200 en Alegra
+2. request_with_verify() OBLIGATORIO para escrituras en Alegra
+3. post_action_sync() SIEMPRE después de escrituras cartera/loanbook
+
+════ BUGS A CORREGIR ════
+
+BUG #1: Endpoint pagos NO usa request_with_verify()
+Archivo: backend/routers/loanbook.py línea 436-460
+Problema: usa service.request() simple, except ignora errores
+
+BUG #2: Falta post_action_sync() después del pago
+Archivo: backend/routers/loanbook.py línea 490
+Problema: No invalida cfo_cache
+
+BUG #3: Botones Excel/PDF no funcionan
+Problema: Falta endpoint o handler frontend
+
+════ IMPLEMENTACIÓN ════
+
+FIX 1: En register_pago (loanbook.py línea 436-460)
+- Cambiar service.request() por service.request_with_verify()
+- Agregar validación factura_alegra_id antes de enviar
+- Cambiar except pass por HTTPException
+- Verificar alegra_res.get('_verificado') es True
+
+FIX 2: Después de línea 490 en loanbook.py
+- Importar: from routers.cfo import invalidar_cache_cfo
+- Llamar: await invalidar_cache_cfo()
+
+FIX 3: Crear endpoint Excel
+- Crear backend/routers/reports.py con POST /excel
+- Agregar openpyxl==3.1.2 a requirements.txt
+- Registrar router en server.py
+- Frontend: agregar onClick con fetch a /api/reports/excel
+
+════ TESTS ════
+
+TEST 1: Pago LB-2026-0016 debe registrarse en Alegra
+TEST 2: cfo_cache timestamp debe cambiar después del pago
+TEST 3: Botón Excel debe descargar archivo .xlsx con datos
+TEST 4: Smoke test 10/10 flujos
+
+════ ÉXITO ════
+✅ José Altamiranda registra pago OK
+✅ Pago verificado en Alegra HTTP 200
+✅ Dashboard CFO actualizado inmediato
+✅ Excel descarga con datos reales
+✅ Smoke test 10/10
+
+════ COMANDOS ════
+pip install openpyxl==3.1.2
+uvicorn server:app --host 0.0.0.0 --port 8001 --reload
+git commit -m "[HOTFIX-21.1] Fix 3 bugs P0"

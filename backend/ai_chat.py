@@ -7,7 +7,7 @@ import csv
 import io
 from datetime import datetime, timezone, timedelta
 from fastapi import HTTPException
-from emergentintegrations.llm.chat import LlmChat, UserMessage, FileContent
+import anthropic
 
 
 # ── Helpers para context builders (evitar NoneType format errors) ─────────────
@@ -2159,16 +2159,19 @@ async def process_document_chat(
     })
 
     # Call Claude with file content (use separate session to avoid polluting main chat context)
-    chat = LlmChat(
-        api_key=api_key,
-        session_id=f"{session_id}-doc-{uuid.uuid4().hex[:8]}",
-        system_message=system_prompt,
-    ).with_model("anthropic", "claude-sonnet-4-5-20250929")
-
-    file_obj = FileContent(content_type=file_type, file_content_base64=file_content)
+    _doc_client = anthropic.AsyncAnthropic(api_key=api_key)
     text = user_message or "Analiza este comprobante contable y extrae todos los datos para su registro en Alegra."
-    msg = UserMessage(text=text, file_contents=[file_obj])
-    response_text = await chat.send_message(msg)
+    if file_type == "application/pdf":
+        _file_block = {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": file_content}}
+    else:
+        _file_block = {"type": "image", "source": {"type": "base64", "media_type": file_type, "data": file_content}}
+    _doc_resp = await _doc_client.messages.create(
+        model="claude-sonnet-4-5-20250929",
+        max_tokens=4096,
+        system=system_prompt,
+        messages=[{"role": "user", "content": [_file_block, {"type": "text", "text": text}]}],
+    )
+    response_text = _doc_resp.content[0].text
 
     # Parse <document_proposal> block
     document_proposal = None
@@ -2984,22 +2987,20 @@ async def process_chat(
 
         # Summarize the old portion
         try:
-            summary_chat = LlmChat(
-                api_key=api_key,
-                session_id=f"{session_id}-summary",
-                system_message=(
+            _summary_client = anthropic.AsyncAnthropic(api_key=api_key)
+            _summary_msgs = [m for m in old_msgs[:60] if m.get("role") in ("user", "assistant")]
+            _summary_msgs.append({"role": "user", "content": "Resume los puntos clave de esta conversación."})
+            _summary_resp = await _summary_client.messages.create(
+                model="claude-sonnet-4-5-20250929",
+                max_tokens=512,
+                system=(
                     "Eres un asistente que resume conversaciones de contabilidad. "
                     "Extrae: tareas completadas, datos mencionados (clientes, montos, facturas, NITs), pendientes. "
                     "Máximo 200 palabras en español."
                 ),
-                initial_messages=(
-                    [{"role": "system", "content": "Resume la siguiente conversación en máximo 200 palabras."}]
-                    + old_msgs[:60]
-                ),
-            ).with_model("anthropic", "claude-sonnet-4-5-20250929")
-            summary_text = await summary_chat.send_message(
-                UserMessage(text="Resume los puntos clave de esta conversación.")
+                messages=_summary_msgs,
             )
+            summary_text = _summary_resp.content[0].text
             summary_msg = {
                 "role": "system",
                 "content": f"RESUMEN DE CONVERSACIÓN ANTERIOR:\n{summary_text}",
@@ -3037,15 +3038,17 @@ async def process_chat(
     })
 
     # Call Claude with full history context
-    chat = LlmChat(
-        api_key=api_key,
-        session_id=session_id,
-        system_message=system_prompt,
-        initial_messages=initial_messages,
-    ).with_model("anthropic", "claude-sonnet-4-5-20250929")
-
-    msg = UserMessage(text=user_message)
-    response_text = await chat.send_message(msg)
+    _chat_client = anthropic.AsyncAnthropic(api_key=api_key)
+    _system_parts = [m["content"] for m in initial_messages if m.get("role") == "system"]
+    _chat_msgs = [m for m in initial_messages if m.get("role") in ("user", "assistant")]
+    _chat_msgs.append({"role": "user", "content": user_message})
+    _chat_resp = await _chat_client.messages.create(
+        model="claude-sonnet-4-5-20250929",
+        max_tokens=4096,
+        system="\n\n".join(_system_parts) if _system_parts else system_prompt,
+        messages=_chat_msgs,
+    )
+    response_text = _chat_resp.content[0].text
 
     # Parse action block
     action = None
