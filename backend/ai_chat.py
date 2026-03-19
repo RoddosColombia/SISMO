@@ -3597,6 +3597,215 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
             ),
         }
 
+    # ── Special case: cargar_loanbooks_lote ──────────────────────────────────
+    if action_type == "cargar_loanbooks_lote":
+        import math as _math
+        from datetime import date as _date, timedelta as _td
+
+        # ── Constantes internas ───────────────────────────────────────────────
+        _PLAN_CUOTAS = {"P26S": 26, "P39S": 39, "P52S": 52, "P78S": 78}
+        _MULT = {"semanal": 1.0, "quincenal": 2.2, "mensual": 4.33}
+        _DIAS = {"semanal": 7,   "quincenal": 14,  "mensual": 28}
+
+        def _first_wed(d: _date) -> _date:
+            """Primer miércoles >= (d + 7 días)."""
+            target = d + _td(days=7)
+            wd = target.weekday()  # 0=Mon … 6=Sun
+            if wd == 2:   return target
+            if wd < 2:    return target + _td(days=2 - wd)
+            return target + _td(days=9 - wd)
+
+        # ── Obtener máximo código existente para continuar secuencia ──────────
+        year = datetime.now(timezone.utc).year
+        last = await db.loanbook.find_one(
+            {"codigo": {"$regex": f"^LB-{year}-"}},
+            {"codigo": 1},
+            sort=[("codigo", -1)],
+        )
+        seq_start = 1
+        if last:
+            try:
+                seq_start = int(last["codigo"].split("-")[-1]) + 1
+            except (ValueError, IndexError):
+                seq_start = await db.loanbook.count_documents({}) + 1
+
+        loans_input = payload.get("loanbooks", payload.get("loans", []))
+        if not loans_input:
+            return {"success": False, "message": "No se recibió ningún loanbook en el payload (key: 'loanbooks')."}
+        if len(loans_input) > 200:
+            return {"success": False, "message": "Máximo 200 loanbooks por lote."}
+
+        insertados  = 0
+        actualizados = 0
+        codigos: list[str] = []
+        errores: list[dict] = []
+
+        for idx, lb in enumerate(loans_input):
+            # ── Validaciones ──────────────────────────────────────────────────
+            chasis = str(lb.get("moto_chasis") or lb.get("vin") or "").strip().upper()
+            if not chasis:
+                errores.append({"idx": idx, "error": "moto_chasis/vin requerido"})
+                continue
+
+            cliente = str(lb.get("cliente_nombre") or "").strip()
+            cedula  = str(lb.get("cliente_cedula") or "").strip()
+            motor   = str(lb.get("moto_motor") or "").strip().upper()
+            ref     = str(lb.get("moto_referencia") or lb.get("modelo") or "").strip()
+            color   = str(lb.get("moto_color") or "").strip()
+            plan    = str(lb.get("plan") or "P52S").strip().upper()
+            modo    = str(lb.get("modo_pago") or "semanal").strip().lower()
+
+            if not cliente:
+                errores.append({"idx": idx, "chasis": chasis, "error": "cliente_nombre requerido"})
+                continue
+            if plan not in _PLAN_CUOTAS:
+                errores.append({"idx": idx, "chasis": chasis, "error": f"plan inválido: {plan}"})
+                continue
+            if modo not in _MULT:
+                modo = "semanal"
+
+            try:
+                valor_total   = float(lb.get("valor_total") or 0)
+                cuota_inicial = float(lb.get("cuota_inicial") or 0)
+                cuota_base    = int(lb.get("cuota_base") or 0)
+                cuotas_pagadas = int(lb.get("cuotas_pagadas") or 0)
+                fecha_fac_str  = str(lb.get("fecha_factura") or _date.today().isoformat())
+                fecha_ent_str  = str(lb.get("fecha_entrega")  or _date.today().isoformat())
+                fecha_entrega  = _date.fromisoformat(fecha_ent_str[:10])
+            except Exception as ve:
+                errores.append({"idx": idx, "chasis": chasis, "error": f"Error en campos numéricos/fecha: {ve}"})
+                continue
+
+            if cuota_base <= 0:
+                errores.append({"idx": idx, "chasis": chasis, "error": "cuota_base debe ser > 0"})
+                continue
+
+            # ── Cálculos ──────────────────────────────────────────────────────
+            num_cuotas     = _PLAN_CUOTAS[plan]
+            cuota_valor    = _math.ceil(cuota_base * _MULT[modo])
+            intervalo_dias = _DIAS[modo]
+            saldo_pendiente = max(0.0, valor_total - cuota_inicial - (cuota_base * cuotas_pagadas))
+            fecha_primer_pago = _first_wed(fecha_entrega)
+            codigo = f"LB-{year}-{str(seq_start + idx):>04}"
+
+            # ── Cuotas schedule ───────────────────────────────────────────────
+            cuotas: list[dict] = [{
+                "numero": 0, "tipo": "inicial",
+                "fecha_vencimiento": fecha_fac_str[:10],
+                "valor": cuota_inicial,
+                "estado": "pagada" if cuota_inicial > 0 else "pendiente",
+                "fecha_pago": fecha_fac_str[:10] if cuota_inicial > 0 else None,
+                "valor_pagado": cuota_inicial if cuota_inicial > 0 else 0.0,
+                "alegra_payment_id": None, "comprobante": None, "notas": "",
+            }]
+            for i in range(1, num_cuotas + 1):
+                fecha_c = fecha_primer_pago + _td(days=intervalo_dias * (i - 1))
+                fv_str  = fecha_c.isoformat()
+                hoy_str = _date.today().isoformat()
+                if i <= cuotas_pagadas:
+                    estado_c = "pagada"
+                elif fv_str < hoy_str:
+                    estado_c = "vencida"
+                else:
+                    estado_c = "pendiente"
+                cuotas.append({
+                    "numero": i, "tipo": modo,
+                    "fecha_vencimiento": fv_str,
+                    "valor": cuota_valor,
+                    "estado": estado_c,
+                    "fecha_pago": fv_str if estado_c == "pagada" else None,
+                    "valor_pagado": cuota_valor if estado_c == "pagada" else 0.0,
+                    "alegra_payment_id": None, "comprobante": None, "notas": "",
+                })
+
+            estado_lb = str(lb.get("estado") or "activo").strip().lower()
+            if estado_lb not in ("activo", "mora", "completado", "pendiente_entrega"):
+                estado_lb = "activo"
+
+            doc = {
+                "codigo":            codigo,
+                "cliente_nombre":    cliente,
+                "cliente_cedula":    cedula,
+                "cliente_tipo_doc":  str(lb.get("cliente_tipo_doc") or "CC").strip().upper(),
+                "cliente_telefono":  str(lb.get("cliente_telefono") or "").strip(),
+                "moto_chasis":       chasis,
+                "moto_motor":        motor,
+                "moto_referencia":   ref,
+                "moto_color":        color,
+                "moto_placa":        str(lb.get("moto_placa") or "").strip() or None,
+                "plan":              plan,
+                "modo_pago":         modo,
+                "cuota_base":        cuota_base,
+                "valor_cuota":       cuota_valor,
+                "cuota_valor":       cuota_valor,
+                "valor_total":       valor_total,
+                "cuota_inicial":     cuota_inicial,
+                "num_cuotas":        num_cuotas,
+                "cuotas_pagadas":    cuotas_pagadas,
+                "saldo_pendiente":   saldo_pendiente,
+                "fecha_factura":     fecha_fac_str[:10],
+                "fecha_entrega":     fecha_ent_str[:10],
+                "fecha_primer_pago": fecha_primer_pago.isoformat(),
+                "cuotas":            cuotas,
+                "estado":            estado_lb,
+                "num_cuotas_pagadas":  cuotas_pagadas,
+                "num_cuotas_vencidas": sum(1 for c in cuotas if c["estado"] == "vencida"),
+                "total_cobrado":     cuota_base * cuotas_pagadas,
+                "datos_completos":   True,
+                "ai_suggested":      True,
+                "updated_at":        datetime.now(timezone.utc).isoformat(),
+            }
+
+            try:
+                res = await db.loanbook.update_one(
+                    {"moto_chasis": chasis},
+                    {"$set": doc, "$setOnInsert": {
+                        "id":         str(uuid.uuid4()),
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                    }},
+                    upsert=True,
+                )
+                if res.upserted_id:
+                    insertados += 1
+                else:
+                    actualizados += 1
+                codigos.append(codigo)
+            except Exception as e:
+                errores.append({"chasis": chasis, "error": str(e)})
+
+        total = insertados + actualizados
+
+        # ── Registrar evento ──────────────────────────────────────────────────
+        if total > 0:
+            try:
+                await db.roddos_events.insert_one({
+                    "id":          str(uuid.uuid4()),
+                    "event_type":  "loanbook.carga_masiva",
+                    "entity_type": "loanbook",
+                    "insertados":  insertados,
+                    "actualizados": actualizados,
+                    "total":       total,
+                    "codigos":     codigos,
+                    "actor":       user.get("email", "agente"),
+                    "timestamp":   datetime.now(timezone.utc).isoformat(),
+                    "estado":      "processed",
+                })
+            except Exception:
+                pass
+
+        msg = f"Lote procesado: {insertados} loanbooks insertados, {actualizados} actualizados"
+        if errores:
+            msg += f", {len(errores)} errores"
+        return {
+            "success": total > 0 or len(errores) == 0,
+            "insertados":      insertados,
+            "actualizados":    actualizados,
+            "total_procesados": total,
+            "codigos":         codigos,
+            "errores":         errores,
+            "message":         msg,
+        }
+
     # ── Special case: cargar_inventario_motos_lote ───────────────────────────
     if action_type == "cargar_inventario_motos_lote":
         from datetime import date as _date
