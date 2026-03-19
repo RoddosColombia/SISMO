@@ -3037,6 +3037,117 @@ async def process_chat(
         "user_id": user.get("id"),
     })
 
+    # ── Pre-LLM bypass: cargar_loanbooks_lote ────────────────────────────────
+    # Fires when the message explicitly names the action OR contains the four
+    # mandatory field markers of a bulk loanbook payload.  When the payload can
+    # be parsed we skip the LLM entirely and return a confirmation card with
+    # pending_action so the frontend "Confirmar y ejecutar" button can fire.
+    import re as _re_lb
+
+    _msg_lo_lb = user_message.lower()
+    _is_lote_lb = (
+        "cargar_loanbooks_lote" in user_message
+        or (
+            "cliente_nombre:" in _msg_lo_lb
+            and "moto_chasis:"  in _msg_lo_lb
+            and "cuota_base:"   in _msg_lo_lb
+            and "modo_pago:"    in _msg_lo_lb
+        )
+    )
+
+    if _is_lote_lb:
+        _lb_list: list = []
+
+        # Strategy 1 — JSON array in the message body
+        _jarr_m = _re_lb.search(r'\[\s*\{.*?\}\s*\]', user_message, _re_lb.DOTALL)
+        if _jarr_m:
+            try:
+                _parsed_lb = json.loads(_jarr_m.group())
+                if isinstance(_parsed_lb, list) and _parsed_lb:
+                    _lb_list = _parsed_lb
+            except Exception:
+                pass
+
+        # Strategy 2 — {"loanbooks": [...]} wrapper object
+        if not _lb_list:
+            _jobj_m = _re_lb.search(
+                r'\{[^{}]*"loanbooks"\s*:\s*\[.*?\]\s*\}', user_message, _re_lb.DOTALL
+            )
+            if _jobj_m:
+                try:
+                    _pobj_lb = json.loads(_jobj_m.group())
+                    if isinstance(_pobj_lb.get("loanbooks"), list):
+                        _lb_list = _pobj_lb["loanbooks"]
+                except Exception:
+                    pass
+
+        # Strategy 3 — key:value pairs (single-loanbook fallback)
+        if not _lb_list:
+            def _kv_lb(field: str, text: str, cast=str):
+                m = _re_lb.search(rf'(?i){field}\s*[:\-=]\s*([^\n,;]+)', text)
+                if m:
+                    try:
+                        return cast(m.group(1).strip().strip('"\''))
+                    except Exception:
+                        return None
+                return None
+
+            _lb_candidate = {k: v for k, v in {
+                "cliente_nombre":   _kv_lb("cliente_nombre",   user_message),
+                "moto_chasis":      _kv_lb("moto_chasis",      user_message),
+                "plan":             _kv_lb("plan",             user_message),
+                "modo_pago":        _kv_lb("modo_pago",        user_message),
+                "cuota_base":       _kv_lb("cuota_base",       user_message, int),
+                "precio_venta":     _kv_lb("precio_venta",     user_message, int),
+                "cuota_inicial":    _kv_lb("cuota_inicial",    user_message, int),
+                "fecha_factura":    _kv_lb("fecha_factura",    user_message),
+                "fecha_entrega":    _kv_lb("fecha_entrega",    user_message),
+                "moto_descripcion": _kv_lb("moto_descripcion", user_message),
+                "cliente_nit":      _kv_lb("cliente_nit",      user_message),
+                "cliente_telefono": _kv_lb("cliente_telefono", user_message),
+                "cuotas_pagadas":   _kv_lb("cuotas_pagadas",   user_message, int),
+            }.items() if v is not None}
+            if _lb_candidate.get("cliente_nombre") and _lb_candidate.get("moto_chasis"):
+                _lb_list = [_lb_candidate]
+
+        if _lb_list:
+            # Build preview card and return immediately — no LLM call needed
+            _preview_lines = []
+            for _lb_item in _lb_list[:5]:
+                _preview_lines.append(
+                    f"• **{_lb_item.get('cliente_nombre', '?')}** — "
+                    f"Chasis: `{_lb_item.get('moto_chasis', '?')}` "
+                    f"| Plan: {_lb_item.get('plan', '?')} "
+                    f"| Modo: {_lb_item.get('modo_pago', '?')} "
+                    f"| Cuota base: ${int(_lb_item.get('cuota_base', 0)):,}"
+                )
+            _rem_lb = len(_lb_list) - 5
+            _prev_txt_lb = "\n".join(_preview_lines)
+            if _rem_lb > 0:
+                _prev_txt_lb += f"\n  _(y {_rem_lb} más…)_"
+            _confirm_msg_lb = (
+                f"📋 Detecté **{len(_lb_list)} loanbook(s)** para carga masiva:\n\n"
+                f"{_prev_txt_lb}\n\n"
+                "Haz clic en **Confirmar y ejecutar** para insertar en MongoDB Atlas."
+            )
+            await db.chat_messages.insert_one({
+                "id": str(uuid.uuid4()),
+                "session_id": session_id,
+                "role": "assistant",
+                "content": _confirm_msg_lb,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "user_id": user.get("id"),
+            })
+            return {
+                "message": _confirm_msg_lb,
+                "pending_action": {
+                    "action": "cargar_loanbooks_lote",
+                    "payload": {"loanbooks": _lb_list},
+                },
+                "session_id": session_id,
+            }
+    # ── End pre-LLM bypass ───────────────────────────────────────────────────
+
     # Call Claude with full history context
     _chat_client = anthropic.AsyncAnthropic(api_key=api_key)
     _system_parts = [m["content"] for m in initial_messages if m.get("role") == "system"]

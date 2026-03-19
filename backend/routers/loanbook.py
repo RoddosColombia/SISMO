@@ -727,3 +727,66 @@ async def get_snapshot(loan_id: str, current_user=Depends(get_current_user)):
     if not snapshot:
         raise HTTPException(status_code=404, detail="Loanbook no encontrado")
     return snapshot
+
+
+# ── Direct bulk-insert endpoint (bypasses chat agent entirely) ─────────────
+
+class CargaMasivaRequest(BaseModel):
+    loanbooks: list
+    dry_run: bool = False
+
+
+@router.post("/carga-masiva")
+async def carga_masiva_loanbooks(
+    req: CargaMasivaRequest,
+    current_user=Depends(get_current_user),
+):
+    """Inserta o actualiza loanbooks en lote sin pasar por el agente de chat.
+
+    Útil para llamadas directas desde la Shell de Render, scripts de migración
+    o cualquier herramienta externa que no use el flujo de confirmación del chat.
+
+    Payload:
+        {
+          "loanbooks": [ { ...campos... }, ... ],
+          "dry_run": false          # true → simula sin escribir en DB
+        }
+
+    Campos por loanbook:
+        cliente_nombre, moto_chasis, plan (P26S|P39S|P52S|P78S|Contado),
+        modo_pago (semanal|quincenal|mensual), cuota_base (int, COP),
+        precio_venta, cuota_inicial, fecha_factura (ISO date),
+        fecha_entrega (ISO date, opcional), cuotas_pagadas (int, opcional).
+        Opcionales: cliente_nit, cliente_telefono, moto_descripcion.
+
+    Returns el mismo resultado que cargar_loanbooks_lote del agente.
+    """
+    if not req.loanbooks:
+        raise HTTPException(
+            status_code=400,
+            detail="Se requiere 'loanbooks' con al menos un registro.",
+        )
+    if len(req.loanbooks) > 500:
+        raise HTTPException(
+            status_code=400,
+            detail="Máximo 500 loanbooks por lote. Divide el archivo y vuelve a intentarlo.",
+        )
+
+    # Inline import to avoid circular dependency (ai_chat imports nothing from loanbook)
+    from ai_chat import execute_chat_action
+
+    payload = {"loanbooks": req.loanbooks}
+    if req.dry_run:
+        payload["dry_run"] = True
+
+    try:
+        return await execute_chat_action(
+            "cargar_loanbooks_lote", payload, db, current_user
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error en carga masiva de loanbooks: {exc}",
+        )
