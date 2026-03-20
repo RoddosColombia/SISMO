@@ -1,6 +1,8 @@
 import base64
 import uuid
 import httpx
+import os
+import logging
 from datetime import datetime, timezone, timedelta
 from fastapi import HTTPException
 from mock_data import (
@@ -9,7 +11,11 @@ from mock_data import (
     MOCK_JOURNAL_ENTRIES, MOCK_COMPANY, MOCK_RECONCILIATION_ITEMS
 )
 
+logger = logging.getLogger(__name__)
+
 ALEGRA_BASE_URL = "https://api.alegra.com/api/v1"
+ALEGRA_EMAIL = os.environ.get("ALEGRA_EMAIL", "")
+ALEGRA_TOKEN = os.environ.get("ALEGRA_TOKEN", "")
 
 # In-memory TTL caches (per-token)
 _settings_cache: dict = {}   # {key: (expires_at, data)}
@@ -52,8 +58,29 @@ class AlegraService:
             expires_at, cached = _settings_cache[cache_key]
             if now < expires_at:
                 return cached
+
+        # PRIORITY 1: Environment variables (production)
+        if ALEGRA_EMAIL and ALEGRA_TOKEN:
+            result = {
+                "email": ALEGRA_EMAIL,
+                "token": ALEGRA_TOKEN,
+                "is_demo_mode": False,
+                "_source": "environment_variables"
+            }
+            logger.info(f"[Alegra] Usando credenciales de producción desde variables de entorno")
+            _settings_cache[cache_key] = (now + timedelta(seconds=_SETTINGS_TTL), result)
+            return result
+
+        # PRIORITY 2: MongoDB collection
         settings = await self.db.alegra_credentials.find_one({}, {"_id": 0})
-        result = settings or {"email": "", "token": "", "is_demo_mode": True}
+        if settings and settings.get("email") and settings.get("token") and not settings.get("is_demo_mode"):
+            logger.info(f"[Alegra] Usando credenciales de MongoDB (producción)")
+            _settings_cache[cache_key] = (now + timedelta(seconds=_SETTINGS_TTL), settings)
+            return settings
+
+        # FALLBACK: Demo mode
+        result = {"email": "", "token": "", "is_demo_mode": True, "_source": "fallback_demo"}
+        logger.warning(f"[Alegra] ⚠️ DEMO MODE ACTIVO - Credenciales no configuradas. Usar variables de entorno ALEGRA_EMAIL/ALEGRA_TOKEN")
         _settings_cache[cache_key] = (now + timedelta(seconds=_SETTINGS_TTL), result)
         return result
 
@@ -169,8 +196,13 @@ class AlegraService:
         return raw_msg or f"Error desconocido de Alegra (HTTP {status_code})"
 
     async def request(self, endpoint: str, method: str = "GET", body: dict = None, params: dict = None):
-        if await self.is_demo_mode():
+        is_demo = await self.is_demo_mode()
+
+        if is_demo:
+            logger.debug(f"[Alegra DEMO] {method} {endpoint} (mock data)")
             return self._mock(endpoint, method, body, params)
+
+        logger.info(f"[Alegra REAL] {method} {endpoint} → Calling production API")
         headers = await self.get_auth_header()
         url = f"{ALEGRA_BASE_URL}/{endpoint}"
         try:
@@ -227,7 +259,9 @@ class AlegraService:
                 msg = self._translate_error_to_spanish(resp.status_code, error_data, endpoint, method)
                 raise HTTPException(status_code=503, detail=msg)
 
-            return resp.json()
+            result = resp.json()
+            logger.info(f"[Alegra REAL] ✅ {method} {endpoint} HTTP {resp.status_code} - Response ID: {result.get('id', 'N/A')}")
+            return result
 
         except HTTPException:
             raise
