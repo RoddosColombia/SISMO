@@ -46,6 +46,8 @@ async def upload_pdf(file: UploadFile = File(...), current_user=Depends(get_curr
 async def get_inventario(
     estado: Optional[str] = None,
     marca: Optional[str] = None,
+    fecha_desde: Optional[str] = None,
+    fecha_hasta: Optional[str] = None,
     current_user=Depends(get_current_user),
 ):
     query = {}
@@ -53,19 +55,41 @@ async def get_inventario(
         query["estado"] = estado
     if marca:
         query["marca"] = {"$regex": marca, "$options": "i"}
+    if fecha_desde and fecha_hasta:
+        date_filter = {"$gte": fecha_desde, "$lte": fecha_hasta}
+        query["$or"] = [{"fecha_ingreso": date_filter}, {"fecha_venta": date_filter}]
     motos = await db.inventario_motos.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
     return motos
 
 
 @router.get("/stats")
-async def get_inventario_stats(current_user=Depends(get_current_user)):
-    total = await db.inventario_motos.count_documents({})
-    disponibles      = await db.inventario_motos.count_documents({"estado": "Disponible"})
-    vendidas         = await db.inventario_motos.count_documents({"estado": "Vendida"})
-    entregadas       = await db.inventario_motos.count_documents({"estado": "Entregada"})
-    pendiente_datos  = await db.inventario_motos.count_documents({"estado": "Pendiente datos"})
-    anuladas         = await db.inventario_motos.count_documents({"estado": "Anulada"})
-    pipeline = [{"$group": {"_id": None, "total_inversion": {"$sum": "$total"}, "total_costo": {"$sum": "$costo"}}}]
+async def get_inventario_stats(
+    fecha_desde: Optional[str] = None,
+    fecha_hasta: Optional[str] = None,
+    current_user=Depends(get_current_user),
+):
+    base = {"chasis": {"$exists": True, "$nin": [None, ""]}}
+    now = datetime.now(timezone.utc)
+    # Determine period for loanbooks_mes
+    if fecha_desde and fecha_hasta:
+        lb_desde = fecha_desde          # YYYY-MM-DD string comparison
+        lb_hasta = fecha_hasta
+    else:
+        lb_desde = now.strftime("%Y-%m-01")
+        lb_hasta = now.strftime("%Y-%m-%d")
+    total           = await db.inventario_motos.count_documents(base)
+    disponibles     = await db.inventario_motos.count_documents({**base, "estado": "Disponible"})
+    vendidas        = await db.inventario_motos.count_documents({**base, "estado": "Vendida"})
+    entregadas      = await db.inventario_motos.count_documents({**base, "estado": "Entregada"})
+    pendiente_datos = await db.inventario_motos.count_documents({**base, "estado": "Pendiente datos"})
+    anuladas        = await db.inventario_motos.count_documents({**base, "estado": "Anulada"})
+    loanbooks_mes   = await db.loanbook.count_documents(
+        {"fecha_entrega": {"$gte": lb_desde, "$lte": lb_hasta}}
+    )
+    pipeline = [
+        {"$match": base},
+        {"$group": {"_id": None, "total_inversion": {"$sum": "$total"}, "total_costo": {"$sum": "$costo"}}},
+    ]
     agg = await db.inventario_motos.aggregate(pipeline).to_list(1)
     totals = agg[0] if agg else {"total_inversion": 0, "total_costo": 0}
     return {
@@ -75,9 +99,10 @@ async def get_inventario_stats(current_user=Depends(get_current_user)):
         "entregadas": entregadas,
         "pendiente_datos": pendiente_datos,
         "anuladas": anuladas,
+        "loanbooks_mes": loanbooks_mes,
         "total_inversion": totals.get("total_inversion", 0),
         "total_costo": totals.get("total_costo", 0),
-        "ultima_actualizacion": datetime.now(timezone.utc).isoformat(),
+        "ultima_actualizacion": now.isoformat(),
     }
 
 
