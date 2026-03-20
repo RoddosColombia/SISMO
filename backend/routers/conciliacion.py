@@ -45,7 +45,7 @@ class ResumenConciliacion(BaseModel):
 
 # ── Background Task Handler ────────────────────────────────────────────────
 
-_jobs_estado: dict[str, dict] = {}  # In-memory job tracking
+_jobs_estado: dict[str, dict] = {}  # In-memory cache (redundant with MongoDB)
 
 
 async def _procesar_extracto_background(
@@ -58,25 +58,47 @@ async def _procesar_extracto_background(
     """Procesa extracto en background para lotes grandes."""
     logger.info(f"[🔄 Job {job_id}] INICIANDO procesamiento de extracto {banco}")
 
-    _jobs_estado[job_id] = {
+    # Inicializar estado
+    job_state = {
+        "job_id": job_id,
         "status": "processing",
+        "banco": banco,
+        "fecha": fecha,
+        "usuario_id": usuario_id,
         "causados": 0,
         "pendientes": 0,
         "errores": 0,
         "timestamp_inicio": datetime.now(timezone.utc).isoformat(),
     }
 
+    # Guardar en MongoDB (persistente)
+    await db.conciliacion_jobs.insert_one(job_state)
+
+    # Guardar en memoria (para acceso rápido)
+    _jobs_estado[job_id] = job_state
+
     try:
         # Parsear
         logger.info(f"[📄 Job {job_id}] Parseando extracto {banco}...")
         movimientos = await engine.parsear_extracto(banco, archivo_bytes)
         _jobs_estado[job_id]["total_movimientos"] = len(movimientos)
+        await db.conciliacion_jobs.update_one(
+            {"job_id": job_id},
+            {"$set": {"total_movimientos": len(movimientos)}}
+        )
         logger.info(f"[📄 Job {job_id}] ✅ {len(movimientos)} movimientos parseados")
 
         # Clasificar
         logger.info(f"[🏷️  Job {job_id}] Clasificando movimientos...")
         causables, pendientes = await engine.clasificar_movimientos(movimientos)
         logger.info(f"[🏷️  Job {job_id}] ✅ {len(causables)} causables, {len(pendientes)} pendientes")
+        await db.conciliacion_jobs.update_one(
+            {"job_id": job_id},
+            {"$set": {
+                "causables_total": len(causables),
+                "pendientes_total": len(pendientes)
+            }}
+        )
 
         # Causar en Alegra
         logger.info(f"[💰 Job {job_id}] Causando {len(causables)} movimientos en Alegra...")
@@ -97,9 +119,19 @@ async def _procesar_extracto_background(
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "job_id": job_id,
                 })
+                # Actualizar estado en MongoDB
+                await db.conciliacion_jobs.update_one(
+                    {"job_id": job_id},
+                    {"$inc": {"causados": 1}}
+                )
             else:
                 _jobs_estado[job_id]["errores"] += 1
                 logger.error(f"[❌ Job {job_id}] Error causando {mov.descripcion}: {error}")
+                # Actualizar errores en MongoDB
+                await db.conciliacion_jobs.update_one(
+                    {"job_id": job_id},
+                    {"$inc": {"errores": 1}}
+                )
 
         # Guardar pendientes
         logger.info(f"[⏳ Job {job_id}] Guardando {len(pendientes)} movimientos pendientes...")
@@ -117,9 +149,22 @@ async def _procesar_extracto_background(
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "job_id": job_id,
             })
+            # Actualizar estado en MongoDB
+            await db.conciliacion_jobs.update_one(
+                {"job_id": job_id},
+                {"$inc": {"pendientes": 1}}
+            )
 
+        # Finalización exitosa
         _jobs_estado[job_id]["status"] = "completed"
         _jobs_estado[job_id]["timestamp_fin"] = datetime.now(timezone.utc).isoformat()
+        await db.conciliacion_jobs.update_one(
+            {"job_id": job_id},
+            {"$set": {
+                "status": "completed",
+                "timestamp_fin": _jobs_estado[job_id]["timestamp_fin"]
+            }}
+        )
         logger.info(f"[✅ Job {job_id}] COMPLETADO: "
                    f"✅ {_jobs_estado[job_id]['causados']} causados | "
                    f"⏳ {_jobs_estado[job_id]['pendientes']} pendientes | "
@@ -130,6 +175,15 @@ async def _procesar_extracto_background(
         _jobs_estado[job_id]["status"] = "failed"
         _jobs_estado[job_id]["error"] = str(e)
         _jobs_estado[job_id]["timestamp_fin"] = datetime.now(timezone.utc).isoformat()
+        # Guardar error en MongoDB
+        await db.conciliacion_jobs.update_one(
+            {"job_id": job_id},
+            {"$set": {
+                "status": "failed",
+                "error": str(e),
+                "timestamp_fin": _jobs_estado[job_id]["timestamp_fin"]
+            }}
+        )
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────
@@ -257,13 +311,16 @@ async def obtener_estado_job(
     current_user=Depends(get_current_user),
 ):
     """Obtiene el estado de un background job de conciliación."""
-    if job_id not in _jobs_estado:
+    # Intentar obtener del MongoDB (persistente)
+    job = await db.conciliacion_jobs.find_one(
+        {"job_id": job_id},
+        {"_id": 0}
+    )
+
+    if not job:
         raise HTTPException(status_code=404, detail=f"Job {job_id} no encontrado")
 
-    return {
-        "job_id": job_id,
-        **_jobs_estado[job_id],
-    }
+    return job
 
 
 @router.get("/pendientes")
