@@ -113,11 +113,10 @@ class BancolombiParser:
 
 class BBVAParser:
     """Parser para extractos BBVA."""
-    SKIP_ROWS = 6
-    COL_FECHA = "Fecha Operación"
-    COL_DESCRIPCION = "Concepto"
-    COL_VALOR = "Importe"
-    ENCODING = "latin-1"
+    SKIP_ROWS = 13  # Headers en fila 14 (índice 13)
+    COL_FECHA = "FECHA DE OPERACIÓN"
+    COL_DESCRIPCION = "CONCEPTO"
+    COL_VALOR = "IMPORTE (COP)"
     CUENTA_ALEGRA = 5318  # BBVA 0210
 
     @staticmethod
@@ -126,8 +125,7 @@ class BBVAParser:
         try:
             df = pd.read_excel(
                 BytesIO(archivo_bytes),
-                skiprows=BBVAParser.SKIP_ROWS,
-                encoding=BBVAParser.ENCODING,
+                header=13,
             )
 
             movimientos = []
