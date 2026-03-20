@@ -48,11 +48,49 @@ function getFilterCount(key, stats) {
   }
 }
 
-function StatCard({ label, value, sub, color }) {
+const PERIODOS = [
+  { key: "hoy",      label: "Hoy" },
+  { key: "semana",   label: "Esta semana" },
+  { key: "10dias",   label: "10 días" },
+  { key: "15dias",   label: "15 días" },
+  { key: "mes",      label: "Este mes" },
+  { key: "bimestre", label: "Bimestre" },
+  { key: "trimestre",label: "Trimestre" },
+  { key: "semestre", label: "Semestre" },
+  { key: "anio",     label: "Este año" },
+];
+
+function calcularFechas(periodo) {
+  const hoy = new Date();
+  const pad = n => String(n).padStart(2, "0");
+  const fmt = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const hasta = fmt(hoy);
+  switch (periodo) {
+    case "hoy":       return { desde: hasta, hasta };
+    case "semana": {
+      const lunes = new Date(hoy);
+      lunes.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7));
+      return { desde: fmt(lunes), hasta };
+    }
+    case "10dias": { const d = new Date(hoy); d.setDate(hoy.getDate() - 10); return { desde: fmt(d), hasta }; }
+    case "15dias": { const d = new Date(hoy); d.setDate(hoy.getDate() - 15); return { desde: fmt(d), hasta }; }
+    case "mes":       return { desde: `${hoy.getFullYear()}-${pad(hoy.getMonth() + 1)}-01`, hasta };
+    case "bimestre":  { const d = new Date(hoy); d.setMonth(hoy.getMonth() - 2); return { desde: fmt(d), hasta }; }
+    case "trimestre": { const d = new Date(hoy); d.setMonth(hoy.getMonth() - 3); return { desde: fmt(d), hasta }; }
+    case "semestre":  { const d = new Date(hoy); d.setMonth(hoy.getMonth() - 6); return { desde: fmt(d), hasta }; }
+    case "anio":      return { desde: `${hoy.getFullYear()}-01-01`, hasta };
+    default:          return { desde: `${hoy.getFullYear()}-${pad(hoy.getMonth() + 1)}-01`, hasta };
+  }
+}
+
+function StatCard({ label, value, sub, colorHex, Icon }) {
   return (
-    <div className={`bg-white rounded-xl border p-4 flex flex-col gap-1 shadow-sm`}>
-      <span className="text-xs text-slate-500 font-medium uppercase tracking-wide">{label}</span>
-      <span className={`text-2xl font-bold ${color || "text-[#0F2A5C]"}`}>{value}</span>
+    <div className="bg-white rounded-xl border p-4 flex flex-col gap-1 shadow-sm">
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-slate-500 font-medium uppercase tracking-wide">{label}</span>
+        {Icon && <Icon size={16} style={{ color: colorHex }} />}
+      </div>
+      <span className="text-2xl font-bold" style={{ color: colorHex || "#0F2A5C" }}>{value}</span>
       {sub && <span className="text-xs text-slate-400">{sub}</span>}
     </div>
   );
@@ -78,6 +116,7 @@ export default function InventarioAuteco() {
   const [uploading, setUploading] = useState(false);
   const [registeringId, setRegisteringId] = useState(null);
   const [filterEstado, setFilterEstado] = useState("Disponible");
+  const [periodo, setPeriodo] = useState("mes");
   const [filtroFecha, setFiltroFecha] = useState(() => loadRange("inventario"));
   const [editId, setEditId] = useState(null);
   const [editData, setEditData] = useState({});
@@ -98,9 +137,10 @@ export default function InventarioAuteco() {
     setLoading(true);
     try {
       const apiEstado = filterEstado === "TODAS" ? undefined : filterEstado || undefined;
+      const { desde, hasta } = calcularFechas(periodo);
       const [motosRes, statsRes] = await Promise.all([
-        api.get("/inventario/motos", { params: { estado: apiEstado } }),
-        api.get("/inventario/stats"),
+        api.get("/inventario/motos", { params: { estado: apiEstado, fecha_desde: desde, fecha_hasta: hasta } }),
+        api.get("/inventario/stats", { params: { fecha_desde: desde, fecha_hasta: hasta } }),
       ]);
       let motosData = motosRes.data;
       if (filterEstado === "TODAS") {
@@ -114,7 +154,7 @@ export default function InventarioAuteco() {
     } finally {
       setLoading(false);
     }
-  }, [api, filterEstado]);
+  }, [api, filterEstado, periodo]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -122,7 +162,8 @@ export default function InventarioAuteco() {
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const statsRes = await api.get("/inventario/stats");
+        const { desde, hasta } = calcularFechas(periodo);
+        const statsRes = await api.get("/inventario/stats", { params: { fecha_desde: desde, fecha_hasta: hasta } });
         const newStats = statsRes.data;
         const prev = prevStatsRef.current;
         if (prev && (
@@ -134,7 +175,7 @@ export default function InventarioAuteco() {
           prevStatsRef.current = newStats;
           setStats(newStats);
           const apiEstado = filterEstado === "TODAS" ? undefined : filterEstado || undefined;
-          const motosRes = await api.get("/inventario/motos", { params: { estado: apiEstado } });
+          const motosRes = await api.get("/inventario/motos", { params: { estado: apiEstado, fecha_desde: desde, fecha_hasta: hasta } });
           let motosData = motosRes.data;
           if (filterEstado === "TODAS") motosData = motosData.filter((m) => m.estado !== "Anulada");
           setMotos(motosData);
@@ -145,7 +186,7 @@ export default function InventarioAuteco() {
       }
     }, 30000);
     return () => clearInterval(interval);
-  }, [api, filterEstado]);
+  }, [api, filterEstado, periodo]);
 
   const handleUpload = async (e) => {
     const file = e.target.files?.[0];
@@ -358,12 +399,30 @@ export default function InventarioAuteco() {
         </div>
       </div>
 
+      {/* Period selector */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {PERIODOS.map(p => (
+          <button
+            key={p.key}
+            onClick={() => setPeriodo(p.key)}
+            className="text-xs px-3 py-1.5 rounded-full font-medium transition-all border"
+            style={
+              periodo === p.key
+                ? { background: "#0F2A5C", color: "#fff", borderColor: "#0F2A5C" }
+                : { background: "#fff", color: "#374151", borderColor: "#e2e8f0" }
+            }
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard label="Total Motos" value={stats.total || 0} color="text-[#0F2A5C]" />
-        <StatCard label="Disponibles" value={stats.disponibles || 0} color="text-emerald-600" sub="En bodega" />
-        <StatCard label="Vendidas/Entregadas" value={(stats.vendidas || 0) + (stats.entregadas || 0)} color="text-blue-600" />
-        <StatCard label="Inversión Total" value={formatCOP(stats.total_inversion || 0)} color="text-[#C9A84C]" sub="Costo + IVA + IPOC" />
+        <StatCard label="Disponibles"            value={stats.disponibles || 0}    sub="Listas para venta"            colorHex="#15803d" Icon={Package} />
+        <StatCard label="Entregadas este mes"     value={stats.loanbooks_mes || 0}  sub="Créditos activos del mes"     colorHex="#1d4ed8" Icon={CheckCircle2} />
+        <StatCard label="Facturadas sin entregar" value={stats.vendidas || 0}        sub="Pendientes de entrega física" colorHex="#92400e" Icon={Tag} />
+        <StatCard label="Total inventario"        value={stats.total || 0}           sub="Motos registradas"            colorHex="#0F2A5C" Icon={Bike} />
       </div>
 
       {/* Upload hint */}
