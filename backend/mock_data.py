@@ -283,15 +283,15 @@ MOCK_JOURNAL_ENTRIES = [
     {
         "id": "je1", "number": "CE-2025-001", "date": "2025-10-01", "observations": "Causación nómina octubre 2025",
         "entries": [
-            {"account": {"id": "5105", "code": "5105", "name": "Gastos de personal - administración"}, "debit": 5000000, "credit": 0},
-            {"account": {"id": "2505", "code": "2505", "name": "Nómina por pagar"}, "debit": 0, "credit": 5000000},
+            {"id": "5105", "code": "5105", "name": "Gastos de personal - administración", "debit": 5000000, "credit": 0},
+            {"id": "2505", "code": "2505", "name": "Nómina por pagar", "debit": 0, "credit": 5000000},
         ]
     },
     {
         "id": "je2", "number": "CE-2025-002", "date": "2025-10-10", "observations": "Depreciación equipos octubre",
         "entries": [
-            {"account": {"id": "5160", "code": "5160", "name": "Depreciaciones - administración"}, "debit": 350000, "credit": 0},
-            {"account": {"id": "1592", "code": "1592", "name": "Depreciación acumulada"}, "debit": 0, "credit": 350000},
+            {"id": "5160", "code": "5160", "name": "Depreciaciones - administración", "debit": 350000, "credit": 0},
+            {"id": "1592", "code": "1592", "name": "Depreciación acumulada", "debit": 0, "credit": 350000},
         ]
     },
 ]
