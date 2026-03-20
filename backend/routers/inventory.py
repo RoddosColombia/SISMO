@@ -635,6 +635,29 @@ async def update_costo_moto(
     return {"ok": True, "moto": moto}
 
 
+@router.post("/motos")
+async def crear_moto(body: dict, current_user=Depends(require_admin)):
+    """Inserta un documento de moto directamente (solo admin). Valida chasis único."""
+    import uuid as _uuid
+    chasis = body.get("chasis", "").strip()
+    if not chasis:
+        raise HTTPException(status_code=400, detail="El campo 'chasis' es obligatorio")
+    existing = await db.inventario_motos.find_one({"chasis": chasis}, {"_id": 0, "id": 1})
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Ya existe una moto con chasis {chasis}")
+    now = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "id": str(_uuid.uuid4()),
+        "estado": body.get("estado", "Disponible"),
+        "created_at": now,
+        "updated_at": now,
+        **{k: v for k, v in body.items() if k not in ("id", "created_at", "updated_at")},
+    }
+    await db.inventario_motos.insert_one({k: v for k, v in doc.items() if k != "_id"})
+    await log_action(current_user, "/inventario/motos", "POST", {"chasis": chasis})
+    return doc
+
+
 @router.post("/migrate/vin-to-chasis")
 async def migrate_vin_to_chasis(current_user=Depends(require_admin)):
     """One-time migration: rename vin→chasis and año→ano_modelo in all documents.
