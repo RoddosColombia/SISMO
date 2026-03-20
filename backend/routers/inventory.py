@@ -635,6 +635,43 @@ async def update_costo_moto(
     return {"ok": True, "moto": moto}
 
 
+@router.post("/migrate/vin-to-chasis")
+async def migrate_vin_to_chasis(current_user=Depends(require_admin)):
+    """One-time migration: rename vin→chasis and año→ano_modelo in all documents.
+    Safe to run multiple times — only touches docs that still have the old fields.
+    """
+    # Step 1: vin → chasis
+    r_vin = await db.inventario_motos.update_many(
+        {"vin": {"$exists": True}},
+        [
+            {"$set": {"chasis": "$vin", "ano_modelo": "$año"}},
+            {"$unset": ["vin", "año"]},
+        ],
+    )
+    # Step 2: fix any remaining docs with año but no ano_modelo (safety pass)
+    r_ano = await db.inventario_motos.update_many(
+        {"año": {"$exists": True}, "ano_modelo": {"$exists": False}},
+        [{"$set": {"ano_modelo": "$año"}}, {"$unset": ["año"]}],
+    )
+    total_modified = r_vin.modified_count + r_ano.modified_count
+    await db.roddos_events.insert_one({
+        "event_type": "inventario.migration.vin_to_chasis",
+        "vin_matched": r_vin.matched_count,
+        "vin_modified": r_vin.modified_count,
+        "ano_modified": r_ano.modified_count,
+        "ejecutado_por": current_user.get("email"),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+    return {
+        "ok": True,
+        "vin_matched": r_vin.matched_count,
+        "vin_modified": r_vin.modified_count,
+        "ano_modified": r_ano.modified_count,
+        "total_modified": total_modified,
+        "mensaje": f"✅ Migración completa: {total_modified} documentos actualizados (vin→chasis, año→ano_modelo)",
+    }
+
+
 @router.post("/sincronizar-estados")
 async def sincronizar_estados_inventario(current_user=Depends(get_current_user)):
     """Sincroniza automáticamente el estado de las motos cruzando con loanbooks.
