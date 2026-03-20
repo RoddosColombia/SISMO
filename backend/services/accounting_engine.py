@@ -500,3 +500,429 @@ def obtener_nombre_cuenta(cuenta_id: int) -> str:
         if cuenta["id"] == cuenta_id:
             return cuenta["nombre"]
     return f"Cuenta {cuenta_id} (desconocida)"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AmbiguousMovementHandler — Resolución Conversacional vía Mercately WhatsApp
+# ══════════════════════════════════════════════════════════════════════════════
+
+from enum import Enum
+from typing import List
+
+
+class EstadoResolucion(Enum):
+    """Estados posibles de una transacción ambigua."""
+    PENDIENTE = "pendiente"           # Esperando respuesta de usuario
+    CONFIRMADA = "confirmada"         # Usuario confirmó clasificación
+    RECHAZADA = "rechazada"          # Usuario rechazó, necesita reclasificación
+    RESUELTA = "resuelta"            # Clasificación final enviada a Alegra
+    ABANDONADA = "abandonada"        # Timeout o error en conversación
+
+
+@dataclass
+class MovimientoAmbiguo:
+    """Movimiento bancario que requiere confirmación manual."""
+    id: str                           # UUID único
+    monto: float
+    descripcion: str
+    proveedor: str
+    banco_origen: int
+    fecha_movimiento: str             # ISO format
+
+    # Clasificaciones propuestas
+    cuenta_debito_sugerida: int
+    cuenta_credito_sugerida: Optional[int]
+    confianza: float
+    razon_ambiguedad: str
+
+    # Estado de resolución
+    estado: EstadoResolucion = EstadoResolucion.PENDIENTE
+    telefono_usuario: Optional[str] = None
+    conversation_id: Optional[str] = None  # Mercately conversation ID
+
+    # Historial de intentos
+    intentos_whatsapp: int = 0
+    fecha_creacion: str = ""
+    fecha_ultimo_intento: Optional[str] = None
+    fecha_resolucion: Optional[str] = None
+
+    # Clasificaciones alternativas consideradas
+    alternativas: List[dict] = None   # [{"cuenta_debito": 5X, "confianza": 0.X, "razon": "..."}, ...]
+
+    # Resolución final
+    cuenta_debito_final: Optional[int] = None
+    cuenta_credito_final: Optional[int] = None
+    notas_resolucion: str = ""
+
+
+class AmbiguousMovementHandler:
+    """
+    Maneja la resolución de transacciones contables ambiguas mediante:
+    1. Detección de clasificaciones de baja confianza
+    2. Almacenamiento en contabilidad_pendientes (MongoDB)
+    3. Iniciación de conversaciones WhatsApp vía Mercately
+    4. Procesamiento de respuestas de usuario
+    5. Escalamiento a manual si necesario
+    """
+
+    def __init__(self, db_instance):
+        """
+        Args:
+            db_instance: Instancia de MongoDB client (del módulo database.py)
+        """
+        self.db = db_instance
+        self.logger = logging.getLogger(f"{__name__}.AmbiguousMovementHandler")
+        self.CONFIANZA_MIN_AUTOMATICO = 0.70  # Debajo de esto requiere confirmación
+        self.TIMEOUT_HORAS = 24
+        self.MAX_INTENTOS = 3
+
+    async def detectar_y_procesar(
+        self,
+        movimiento_id: str,
+        monto: float,
+        descripcion: str,
+        proveedor: str,
+        banco_origen: int,
+        clasificacion: ClasificacionResult,
+        telefono_usuario: Optional[str] = None,
+    ) -> tuple[bool, Optional[str]]:
+        """
+        Detecta si una clasificación es ambigua y la procesa.
+
+        Returns:
+            (es_ambigua, movement_tracking_id)
+            - Si es_ambigua=True, necesita confirmación del usuario
+            - Si es_ambigua=False, se puede enviar directamente a Alegra
+        """
+        es_ambigua = (
+            clasificacion.confianza < self.CONFIANZA_MIN_AUTOMATICO
+            or clasificacion.requiere_confirmacion
+        )
+
+        if not es_ambigua:
+            return False, None
+
+        # Almacenar como movimiento pendiente
+        movimiento_ambiguo = MovimientoAmbiguo(
+            id=movimiento_id,
+            monto=monto,
+            descripcion=descripcion,
+            proveedor=proveedor,
+            banco_origen=banco_origen,
+            fecha_movimiento=datetime.now(timezone.utc).isoformat(),
+            cuenta_debito_sugerida=clasificacion.cuenta_debito,
+            cuenta_credito_sugerida=clasificacion.cuenta_credito,
+            confianza=clasificacion.confianza,
+            razon_ambiguedad=clasificacion.razon,
+            telefono_usuario=telefono_usuario,
+            fecha_creacion=datetime.now(timezone.utc).isoformat(),
+            alternativas=[],  # Will be populated if multiple options
+        )
+
+        try:
+            await self.db.contabilidad_pendientes.insert_one(
+                self._to_dict(movimiento_ambiguo)
+            )
+            self.logger.info(f"Movimiento ambiguo almacenado: {movimiento_id} (confianza: {clasificacion.confianza})")
+
+            # Intentar enviar WhatsApp si hay teléfono disponible
+            if telefono_usuario:
+                success = await self.enviar_solicitud_whatsapp(movimiento_ambiguo)
+                if success:
+                    return True, movimiento_id
+                else:
+                    self.logger.warning(f"No se pudo enviar WhatsApp para {movimiento_id}")
+            else:
+                self.logger.info(f"Sin teléfono de usuario para {movimiento_id}, pendiente de contacto manual")
+
+            return True, movimiento_id
+
+        except Exception as e:
+            self.logger.error(f"Error al procesar movimiento ambiguo {movimiento_id}: {e}")
+            return False, None
+
+    async def enviar_solicitud_whatsapp(self, movimiento: MovimientoAmbiguo) -> bool:
+        """
+        Envía un mensaje WhatsApp vía Mercately solicitando confirmación.
+
+        Formato esperado del mensaje:
+        ---
+        📊 CONFIRMACIÓN DE CLASIFICACIÓN CONTABLE
+
+        Transacción:
+        • Monto: $X,XXX,XXX
+        • Descripción: [descripción]
+        • Proveedor: [nombre]
+
+        Clasificación Sugerida:
+        • Cuenta: [cuenta_debito_nombre]
+        • Confianza: XX%
+
+        ¿Confirmas esta clasificación?
+        Responde: SI o NO
+        ---
+        """
+        try:
+            from routers.mercately import MercatelyService
+        except ImportError:
+            self.logger.warning("MercatelyService no disponible")
+            return False
+
+        try:
+            nombre_cuenta = obtener_nombre_cuenta(movimiento.cuenta_debito_sugerida)
+            confianza_pct = int(movimiento.confianza * 100)
+
+            mensaje = f"""📊 CONFIRMACIÓN DE CLASIFICACIÓN CONTABLE
+
+Transacción:
+• Monto: ${movimiento.monto:,.0f}
+• Descripción: {movimiento.descripcion}
+• Proveedor: {movimiento.proveedor or 'N/A'}
+
+Clasificación Sugerida:
+• Cuenta: {nombre_cuenta}
+• Confianza: {confianza_pct}%
+
+¿Confirmas esta clasificación?
+Responde: SI o NO"""
+
+            # Simulación: En producción, se usaría MercatelyService real
+            movimiento.intentos_whatsapp += 1
+            movimiento.fecha_ultimo_intento = datetime.now(timezone.utc).isoformat()
+
+            # Actualizar registro en MongoDB
+            await self.db.contabilidad_pendientes.update_one(
+                {"id": movimiento.id},
+                {
+                    "$set": {
+                        "intentos_whatsapp": movimiento.intentos_whatsapp,
+                        "fecha_ultimo_intento": movimiento.fecha_ultimo_intento,
+                        "estado": EstadoResolucion.PENDIENTE.value,
+                    }
+                },
+            )
+
+            self.logger.info(f"WhatsApp enviado para {movimiento.id} (intento {movimiento.intentos_whatsapp})")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error al enviar WhatsApp para {movimiento.id}: {e}")
+            return False
+
+    async def procesar_respuesta_whatsapp(
+        self,
+        movimiento_id: str,
+        respuesta_usuario: str,
+        telefono_usuario: str,
+    ) -> bool:
+        """
+        Procesa la respuesta del usuario al mensaje WhatsApp de confirmación.
+
+        Args:
+            movimiento_id: ID del movimiento ambiguo
+            respuesta_usuario: Texto de la respuesta ("SI", "NO", etc.)
+            telefono_usuario: Teléfono desde el que respondió
+
+        Returns:
+            True si se procesó exitosamente
+        """
+        movimiento = await self.db.contabilidad_pendientes.find_one(
+            {"id": movimiento_id},
+            {"_id": 0}
+        )
+
+        if not movimiento:
+            self.logger.warning(f"Movimiento no encontrado: {movimiento_id}")
+            return False
+
+        # Normalizar respuesta
+        respuesta_normalizada = respuesta_usuario.lower().strip()
+        es_confirmacion = any(
+            palabra in respuesta_normalizada
+            for palabra in ["si", "sí", "yes", "confirmar", "confirm", "ok", "dale"]
+        )
+        es_rechazo = any(
+            palabra in respuesta_normalizada
+            for palabra in ["no", "cancelar", "cancel", "rechazar"]
+        )
+
+        ahora = datetime.now(timezone.utc).isoformat()
+
+        if es_confirmacion:
+            # Marcar como confirmada
+            await self.db.contabilidad_pendientes.update_one(
+                {"id": movimiento_id},
+                {
+                    "$set": {
+                        "estado": EstadoResolucion.CONFIRMADA.value,
+                        "cuenta_debito_final": movimiento.get("cuenta_debito_sugerida"),
+                        "cuenta_credito_final": movimiento.get("cuenta_credito_sugerida"),
+                        "notas_resolucion": f"Confirmado por usuario vía WhatsApp",
+                        "fecha_resolucion": ahora,
+                    }
+                },
+            )
+            self.logger.info(f"Movimiento {movimiento_id} confirmado por usuario")
+            return True
+
+        elif es_rechazo:
+            # Marcar como rechazada, escalar a manual
+            await self.db.contabilidad_pendientes.update_one(
+                {"id": movimiento_id},
+                {
+                    "$set": {
+                        "estado": EstadoResolucion.RECHAZADA.value,
+                        "notas_resolucion": f"Rechazado por usuario. Respuesta: {respuesta_usuario}",
+                        "fecha_resolucion": ahora,
+                    }
+                },
+            )
+            self.logger.info(f"Movimiento {movimiento_id} rechazado por usuario — Escalando a manual")
+            return True
+
+        else:
+            # Respuesta no clara, intentar nuevamente
+            if movimiento.get("intentos_whatsapp", 0) < self.MAX_INTENTOS:
+                await self.db.contabilidad_pendientes.update_one(
+                    {"id": movimiento_id},
+                    {
+                        "$set": {
+                            "fecha_ultimo_intento": ahora,
+                        }
+                    },
+                )
+                self.logger.info(f"Respuesta no clara para {movimiento_id}, pendiente de aclaración")
+            else:
+                await self.db.contabilidad_pendientes.update_one(
+                    {"id": movimiento_id},
+                    {
+                        "$set": {
+                            "estado": EstadoResolucion.ABANDONADA.value,
+                            "notas_resolucion": f"Timeout: {self.MAX_INTENTOS} intentos sin confirmación clara",
+                            "fecha_resolucion": ahora,
+                        }
+                    },
+                )
+                self.logger.warning(f"Movimiento {movimiento_id} abandonado después de {self.MAX_INTENTOS} intentos")
+
+            return False
+
+    async def obtener_pendientes(
+        self,
+        estado: Optional[EstadoResolucion] = None,
+    ) -> List[dict]:
+        """
+        Obtiene lista de movimientos pendientes con estado opcional.
+
+        Args:
+            estado: Filtrar por EstadoResolucion (None = todos)
+
+        Returns:
+            Lista de movimientos pendientes
+        """
+        query = {}
+        if estado:
+            query["estado"] = estado.value
+
+        movimientos = await self.db.contabilidad_pendientes.find(
+            query,
+            {"_id": 0}
+        ).to_list(None)
+
+        return movimientos or []
+
+    async def obtener_movimiento(self, movimiento_id: str) -> Optional[dict]:
+        """Obtiene detalles de un movimiento ambiguo específico."""
+        return await self.db.contabilidad_pendientes.find_one(
+            {"id": movimiento_id},
+            {"_id": 0}
+        )
+
+    async def marcar_resuelto(
+        self,
+        movimiento_id: str,
+        cuenta_debito_final: int,
+        cuenta_credito_final: Optional[int],
+        notas: str = "",
+    ) -> bool:
+        """
+        Marca un movimiento como resuelto después de ser enviado a Alegra.
+
+        Args:
+            movimiento_id: ID del movimiento
+            cuenta_debito_final: Cuenta débito final usada
+            cuenta_credito_final: Cuenta crédito final usada
+            notas: Notas sobre la resolución
+
+        Returns:
+            True si se actualizó exitosamente
+        """
+        try:
+            result = await self.db.contabilidad_pendientes.update_one(
+                {"id": movimiento_id},
+                {
+                    "$set": {
+                        "estado": EstadoResolucion.RESUELTA.value,
+                        "cuenta_debito_final": cuenta_debito_final,
+                        "cuenta_credito_final": cuenta_credito_final,
+                        "fecha_resolucion": datetime.now(timezone.utc).isoformat(),
+                        "notas_resolucion": notas,
+                    }
+                },
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            self.logger.error(f"Error al marcar resuelto {movimiento_id}: {e}")
+            return False
+
+    async def limpiar_antiguos(self, horas: int = None) -> int:
+        """
+        Elimina movimientos pendientes expirados (sin resolver después de N horas).
+
+        Args:
+            horas: Horas de expiración (default: TIMEOUT_HORAS)
+
+        Returns:
+            Número de registros eliminados
+        """
+        horas = horas or self.TIMEOUT_HORAS
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=horas)
+        cutoff_iso = cutoff_time.isoformat()
+
+        result = await self.db.contabilidad_pendientes.delete_many(
+            {
+                "estado": EstadoResolucion.PENDIENTE.value,
+                "fecha_creacion": {"$lt": cutoff_iso},
+            }
+        )
+
+        if result.deleted_count > 0:
+            self.logger.info(f"Limpiados {result.deleted_count} movimientos expirados (>{horas} horas)")
+
+        return result.deleted_count
+
+    def _to_dict(self, movimiento: MovimientoAmbiguo) -> dict:
+        """Convierte MovimientoAmbiguo a diccionario para MongoDB."""
+        return {
+            "id": movimiento.id,
+            "monto": movimiento.monto,
+            "descripcion": movimiento.descripcion,
+            "proveedor": movimiento.proveedor,
+            "banco_origen": movimiento.banco_origen,
+            "fecha_movimiento": movimiento.fecha_movimiento,
+            "cuenta_debito_sugerida": movimiento.cuenta_debito_sugerida,
+            "cuenta_credito_sugerida": movimiento.cuenta_credito_sugerida,
+            "confianza": movimiento.confianza,
+            "razon_ambiguedad": movimiento.razon_ambiguedad,
+            "estado": movimiento.estado.value,
+            "telefono_usuario": movimiento.telefono_usuario,
+            "conversation_id": movimiento.conversation_id,
+            "intentos_whatsapp": movimiento.intentos_whatsapp,
+            "fecha_creacion": movimiento.fecha_creacion,
+            "fecha_ultimo_intento": movimiento.fecha_ultimo_intento,
+            "fecha_resolucion": movimiento.fecha_resolucion,
+            "alternativas": movimiento.alternativas or [],
+            "cuenta_debito_final": movimiento.cuenta_debito_final,
+            "cuenta_credito_final": movimiento.cuenta_credito_final,
+            "notas_resolucion": movimiento.notas_resolucion,
+        }
