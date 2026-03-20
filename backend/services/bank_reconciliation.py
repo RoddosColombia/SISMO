@@ -76,7 +76,6 @@ class BancolombiParser:
             df = pd.read_excel(
                 BytesIO(archivo_bytes),
                 skiprows=BancolombiParser.SKIP_ROWS,
-                encoding=BancolombiParser.ENCODING,
             )
 
             movimientos = []
@@ -167,7 +166,6 @@ class DaviviendaParser:
     COL_DESCRIPCION = "Descripción"
     COL_VALOR = "Valor"
     COL_TIPO = "Naturaleza"  # C = ingreso, D = egreso
-    ENCODING = "utf-8"
     CUENTA_ALEGRA = 5322  # Davivienda 482
 
     @staticmethod
@@ -177,7 +175,6 @@ class DaviviendaParser:
             df = pd.read_excel(
                 BytesIO(archivo_bytes),
                 skiprows=DaviviendaParser.SKIP_ROWS,
-                encoding=DaviviendaParser.ENCODING,
             )
 
             movimientos = []
@@ -219,7 +216,6 @@ class NequiParser:
     COL_DESCRIPCION = "Descripción"
     COL_VALOR = "Monto"
     COL_TIPO = "Tipo"  # ingreso | egreso
-    ENCODING = "utf-8"
     CUENTA_ALEGRA = 5310  # Caja general
 
     @staticmethod
@@ -229,7 +225,6 @@ class NequiParser:
             df = pd.read_excel(
                 BytesIO(archivo_bytes),
                 skiprows=NequiParser.SKIP_ROWS,
-                encoding=NequiParser.ENCODING,
             )
 
             movimientos = []
