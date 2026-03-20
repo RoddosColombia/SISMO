@@ -56,6 +56,8 @@ async def _procesar_extracto_background(
     usuario_id: str,
 ):
     """Procesa extracto en background para lotes grandes."""
+    logger.info(f"[🔄 Job {job_id}] INICIANDO procesamiento de extracto {banco}")
+
     _jobs_estado[job_id] = {
         "status": "processing",
         "causados": 0,
@@ -66,17 +68,24 @@ async def _procesar_extracto_background(
 
     try:
         # Parsear
+        logger.info(f"[📄 Job {job_id}] Parseando extracto {banco}...")
         movimientos = await engine.parsear_extracto(banco, archivo_bytes)
         _jobs_estado[job_id]["total_movimientos"] = len(movimientos)
+        logger.info(f"[📄 Job {job_id}] ✅ {len(movimientos)} movimientos parseados")
 
         # Clasificar
+        logger.info(f"[🏷️  Job {job_id}] Clasificando movimientos...")
         causables, pendientes = await engine.clasificar_movimientos(movimientos)
+        logger.info(f"[🏷️  Job {job_id}] ✅ {len(causables)} causables, {len(pendientes)} pendientes")
 
         # Causar en Alegra
-        for mov in causables:
+        logger.info(f"[💰 Job {job_id}] Causando {len(causables)} movimientos en Alegra...")
+        for idx, mov in enumerate(causables, 1):
+            logger.debug(f"[💰 Job {job_id}] [{idx}/{len(causables)}] Causando: {mov.descripcion} ${mov.monto:,.0f}")
             exitoso, journal_id, error = await engine.crear_journal_alegra(mov)
             if exitoso:
                 _jobs_estado[job_id]["causados"] += 1
+                logger.info(f"[✅ Job {job_id}] Journal {journal_id} creado para {mov.descripcion}")
                 # Guardar en roddos_events
                 await db.roddos_events.insert_one({
                     "event_type": "extracto_bancario.causado",
@@ -86,15 +95,18 @@ async def _procesar_extracto_background(
                     "monto": mov.monto,
                     "journal_id": journal_id,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "job_id": job_id,
                 })
             else:
                 _jobs_estado[job_id]["errores"] += 1
-                logger.error(f"[Job {job_id}] Error causando {mov.descripcion}: {error}")
+                logger.error(f"[❌ Job {job_id}] Error causando {mov.descripcion}: {error}")
 
         # Guardar pendientes
-        for mov in pendientes:
+        logger.info(f"[⏳ Job {job_id}] Guardando {len(pendientes)} movimientos pendientes...")
+        for idx, mov in enumerate(pendientes, 1):
             mov_id = await engine.guardar_movimiento_pendiente(mov)
             _jobs_estado[job_id]["pendientes"] += 1
+            logger.debug(f"[⏳ Job {job_id}] [{idx}/{len(pendientes)}] Pendiente guardado: {mov.descripcion} (confianza: {mov.confianza:.0%})")
             await db.roddos_events.insert_one({
                 "event_type": "extracto_bancario.pendiente",
                 "banco": banco,
@@ -103,16 +115,21 @@ async def _procesar_extracto_background(
                 "monto": mov.monto,
                 "movimiento_id": mov_id,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
+                "job_id": job_id,
             })
 
         _jobs_estado[job_id]["status"] = "completed"
-        logger.info(f"[Job {job_id}] Completado: {_jobs_estado[job_id]['causados']} causados, "
-                   f"{_jobs_estado[job_id]['pendientes']} pendientes")
+        _jobs_estado[job_id]["timestamp_fin"] = datetime.now(timezone.utc).isoformat()
+        logger.info(f"[✅ Job {job_id}] COMPLETADO: "
+                   f"✅ {_jobs_estado[job_id]['causados']} causados | "
+                   f"⏳ {_jobs_estado[job_id]['pendientes']} pendientes | "
+                   f"❌ {_jobs_estado[job_id]['errores']} errores")
 
     except Exception as e:
-        logger.error(f"[Job {job_id}] Error: {e}")
+        logger.error(f"[❌ Job {job_id}] ERROR CRÍTICO: {str(e)}", exc_info=True)
         _jobs_estado[job_id]["status"] = "failed"
         _jobs_estado[job_id]["error"] = str(e)
+        _jobs_estado[job_id]["timestamp_fin"] = datetime.now(timezone.utc).isoformat()
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────
@@ -232,6 +249,21 @@ async def cargar_extracto(
     except Exception as e:
         logger.error(f"Error cargando extracto: {e}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+@router.get("/job-status/{job_id}")
+async def obtener_estado_job(
+    job_id: str,
+    current_user=Depends(get_current_user),
+):
+    """Obtiene el estado de un background job de conciliación."""
+    if job_id not in _jobs_estado:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} no encontrado")
+
+    return {
+        "job_id": job_id,
+        **_jobs_estado[job_id],
+    }
 
 
 @router.get("/pendientes")
