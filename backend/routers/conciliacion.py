@@ -8,6 +8,9 @@ Endpoints:
 """
 
 import logging
+import base64
+import os
+import httpx
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -321,6 +324,95 @@ async def obtener_estado_job(
         raise HTTPException(status_code=404, detail=f"Job {job_id} no encontrado")
 
     return job
+
+
+@router.get("/test-alegra")
+async def test_alegra(
+    current_user=Depends(get_current_user),
+):
+    """
+    TEST DIRECTO: Lee ALEGRA_EMAIL/TOKEN del entorno y hace un GET real a Alegra.
+    SIN MOCKS, SIN DEMOS, SIN FALLBACKS.
+
+    Retorna:
+    - http_status: HTTP status de la respuesta
+    - email_usado: Email de credenciales (parte de la prueba)
+    - tiene_token: True si token fue leído
+    - primer_journal: Primer comprobante encontrado en Alegra (si hay)
+    - error: Mensaje de error (si falla)
+    """
+
+    # Leer credenciales directamente del entorno (sin caché, sin fallbacks)
+    email = os.environ.get("ALEGRA_EMAIL", "")
+    token = os.environ.get("ALEGRA_TOKEN", "")
+
+    logger.info(f"[TEST-ALEGRA] Email desde env: {email[:10]}..." if email else "[TEST-ALEGRA] Email: NO CONFIGURADO")
+    logger.info(f"[TEST-ALEGRA] Token presente: {bool(token)}")
+
+    # Validar credenciales
+    if not email or not token:
+        return {
+            "error": "CREDENCIALES NO CONFIGURADAS",
+            "email_usado": email,
+            "tiene_token": bool(token),
+            "http_status": None,
+            "primer_journal": None,
+            "detalles": "Configure ALEGRA_EMAIL y ALEGRA_TOKEN en variables de entorno de Render"
+        }
+
+    # Construir header Basic Auth (sin servicio, directo)
+    try:
+        creds_str = f"{email}:{token}"
+        creds_b64 = base64.b64encode(creds_str.encode()).decode()
+        headers = {
+            "Authorization": f"Basic {creds_b64}",
+            "Content-Type": "application/json",
+        }
+
+        logger.info(f"[TEST-ALEGRA] Construyendo header: Basic {creds_b64[:20]}...")
+
+        # GET DIRECTO a Alegra sin pasar por AlegraService
+        url = "https://api.alegra.com/api/v1/journals?limit=1"
+        logger.info(f"[TEST-ALEGRA] Llamando GET {url}")
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.get(url, headers=headers)
+
+        logger.info(f"[TEST-ALEGRA] ✅ HTTP {response.status_code}")
+
+        # Intentar parsear respuesta
+        try:
+            data = response.json()
+        except:
+            data = None
+
+        # Extraer primer journal si está disponible
+        primer_journal = None
+        if isinstance(data, list) and len(data) > 0:
+            primer_journal = data[0]
+        elif isinstance(data, dict) and "results" in data and len(data["results"]) > 0:
+            primer_journal = data["results"][0]
+
+        return {
+            "http_status": response.status_code,
+            "email_usado": email,
+            "tiene_token": True,
+            "primer_journal": primer_journal,
+            "response_headers": dict(response.headers),
+            "response_body_keys": list(data.keys()) if isinstance(data, dict) else "lista",
+            "detalles": "✅ Conexión exitosa a Alegra API"
+        }
+
+    except Exception as e:
+        logger.error(f"[TEST-ALEGRA] ❌ Error: {str(e)}", exc_info=True)
+        return {
+            "error": str(e),
+            "email_usado": email,
+            "tiene_token": bool(token),
+            "http_status": None,
+            "primer_journal": None,
+            "detalles": f"Error conectando a Alegra: {str(e)}"
+        }
 
 
 @router.get("/pendientes")
