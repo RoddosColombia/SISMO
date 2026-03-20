@@ -242,6 +242,105 @@ REGLAS_CLASIFICACION = {
         "cuenta_credito": 5376,
         "confianza_min": 0.75,
     },
+
+    # POLÍTICA CONTABLE OFICIAL BBVA 2026 — 12 REGLAS ESPECÍFICAS
+
+    # 1. CXC GASTO SOCIO ANDRES — CXC socios (5329), confianza 95%
+    "cxc_gasto_socio_andres": {
+        "palabras_clave": ["cxc gasto socio andres", "gasto socio andres"],
+        "cuenta_debito": 5329,
+        "cuenta_credito": None,
+        "confianza_min": 0.95,
+    },
+
+    # 2. CXC GASTO SOCIO IVAN — CXC socios (5329), confianza 95%
+    "cxc_gasto_socio_ivan": {
+        "palabras_clave": ["cxc gasto socio ivan", "gasto socio ivan"],
+        "cuenta_debito": 5329,
+        "cuenta_credito": None,
+        "confianza_min": 0.95,
+    },
+
+    # 3. ANTICIPO NÓMINA ANDRES — CXC socios (5329), confianza 92%
+    "anticipo_nomina_andres": {
+        "palabras_clave": ["anticipo nomina andres"],
+        "cuenta_debito": 5329,
+        "cuenta_credito": None,
+        "confianza_min": 0.92,
+    },
+
+    # 4. NÓMINA RODDOS — Sueldos y salarios (5462), confianza 92%
+    "nomina_roddos": {
+        "palabras_clave": ["nomina roddos"],
+        "cuenta_debito": 5462,
+        "cuenta_credito": None,
+        "confianza_min": 0.92,
+    },
+
+    # 5. PAGO ARRIENDO — Arrendamientos (5480), confianza 90%
+    "pago_arriendo": {
+        "palabras_clave": ["pago arriendo", "arriendo oficina"],
+        "cuenta_debito": 5480,
+        "cuenta_credito": 5376,
+        "confianza_min": 0.90,
+    },
+
+    # 6. INTERESES (ANDRES CANO / DAVID MARTINEZ) — Intereses rentistas (5534), confianza 95%
+    "intereses_rentistas_especifico": {
+        "palabras_clave": ["intereses andres cano", "intereses david martinez"],
+        "cuenta_debito": 5534,
+        "cuenta_credito": None,
+        "confianza_min": 0.95,
+    },
+
+    # 7. TRASLADO CUENTAS PROPIAS O INTERNO — NO contabilizar, confianza 95%
+    "traslado_interno": {
+        "palabras_clave": ["traslado de la 212 a la 210", "traslado de dinero", "abono por domic traslado"],
+        "cuenta_debito": 5535,  # Cuenta de control
+        "cuenta_credito": None,
+        "confianza_min": 0.95,
+        "es_transferencia_interna": True,  # NO contabilizar
+    },
+
+    # 8. INGRESOS CARTERA (RDX) — Créditos Directos (5327), confianza 90%
+    "ingresos_cartera_rdx": {
+        "palabras_clave": ["rdx", "motos del tropico", "recibiste diner"],
+        "cuenta_debito": None,  # Banco como débito
+        "cuenta_credito": 5327,  # Créditos Directos Roddos (INGRESO)
+        "confianza_min": 0.90,
+    },
+
+    # 9. PAGO SOFTWARE (ALEGRA / SOFÍA) — Procesamiento datos (5484), confianza 92%
+    "pago_software": {
+        "palabras_clave": ["pago alegra", "pago sofia sdc", "sofia sds"],
+        "cuenta_debito": 5484,
+        "cuenta_credito": 5376,
+        "confianza_min": 0.92,
+    },
+
+    # 10. REEMBOLSO MULTA — Transporte (5499), confianza 80%
+    "reembolso_multa": {
+        "palabras_clave": ["reembolso pago multa"],
+        "cuenta_debito": 5499,
+        "cuenta_credito": 5376,
+        "confianza_min": 0.80,
+    },
+
+    # 11. ABONO POR INTERESES — Ingresos financieros (5456), confianza 85%
+    "abono_intereses": {
+        "palabras_clave": ["abono por inter", "rendimientos financieros"],
+        "cuenta_debito": None,  # Banco como débito
+        "cuenta_credito": 5456,
+        "confianza_min": 0.85,
+    },
+
+    # 12. PAGO PSE RECARGA NEQUI — Baja confianza, requiere contexto
+    "pago_pse_nequi": {
+        "palabras_clave": ["pago pse comerc recarga nequi"],
+        "cuenta_debito": 5496,  # Fallback
+        "cuenta_credito": None,
+        "confianza_min": 0.25,  # MUY baja confianza
+    },
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -258,6 +357,7 @@ class ClasificacionResult:
     razon: str
     tipo_retencion: Optional[str] = None
     categoria: str = ""
+    es_transferencia_interna: bool = False  # True = no contabilizar en Alegra
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -294,7 +394,67 @@ def clasificar_movimiento(
     prov_lower = (proveedor or "").lower()
     texto_combinado = f"{desc_lower} {prov_lower}"
 
-    # 1. GASTO SOCIO — SIEMPRE CXC, nunca gasto operativo
+    # ─────────────────────────────────────────────────────────────────────────────
+    # POLÍTICA CONTABLE OFICIAL BBVA 2026 — REGLAS ESPECÍFICAS (MÁXIMA PRIORIDAD)
+    # ─────────────────────────────────────────────────────────────────────────────
+
+    # 0a. CXC GASTO SOCIO ANDRES — confianza 95%
+    if any(kw in texto_combinado for kw in REGLAS_CLASIFICACION["cxc_gasto_socio_andres"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5329,
+            cuenta_credito=banco_origen,
+            confianza=0.95,
+            requiere_confirmacion=False,
+            razon="CXC Gasto Socio Andres → NUNCA P&L",
+            categoria="CXC_GASTO_ANDRES"
+        )
+
+    # 0b. CXC GASTO SOCIO IVAN — confianza 95%
+    if any(kw in texto_combinado for kw in REGLAS_CLASIFICACION["cxc_gasto_socio_ivan"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5329,
+            cuenta_credito=banco_origen,
+            confianza=0.95,
+            requiere_confirmacion=False,
+            razon="CXC Gasto Socio Ivan → NUNCA P&L",
+            categoria="CXC_GASTO_IVAN"
+        )
+
+    # 0c. ANTICIPO NÓMINA ANDRES — confianza 92%
+    if any(kw in texto_combinado for kw in REGLAS_CLASIFICACION["anticipo_nomina_andres"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5329,
+            cuenta_credito=banco_origen,
+            confianza=0.92,
+            requiere_confirmacion=False,
+            razon="Anticipo Nómina Andres → CXC socios",
+            categoria="ANTICIPO_ANDRES"
+        )
+
+    # 0d. NÓMINA RODDOS — confianza 92%
+    if any(kw in texto_combinado for kw in REGLAS_CLASIFICACION["nomina_roddos"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5462,
+            cuenta_credito=banco_origen,
+            confianza=0.92,
+            requiere_confirmacion=False,
+            razon="Nómina RODDOS → Sueldos y salarios",
+            categoria="NOMINA_RODDOS"
+        )
+
+    # 0e. TRASLADO INTERNO (212→210 o dinero entre cuentas) — confianza 95%, NO CONTABILIZAR
+    if any(kw in texto_combinado for kw in REGLAS_CLASIFICACION["traslado_interno"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5535,
+            cuenta_credito=None,
+            confianza=0.95,
+            requiere_confirmacion=False,
+            razon="Traslado interno RODDOS → NO contabilizar",
+            categoria="TRASLADO_INTERNO",
+            es_transferencia_interna=True
+        )
+
+    # 1. GASTO SOCIO GENÉRICO — SIEMPRE CXC, nunca gasto operativo (fallback)
     for socio in REGLAS_CLASIFICACION["gasto_socio"]["proveedores"]:
         if socio in prov_lower:
             return ClasificacionResult(
@@ -462,6 +622,143 @@ def clasificar_movimiento(
             requiere_confirmacion=True,
             razon="Transporte/Mensajería — revisar si aplica retención",
             categoria="TRANSPORTE"
+        )
+
+    # ─────────────────────────────────────────────────────────────────────────────
+    # POLÍTICA CONTABLE OFICIAL BBVA 2026 — 12 REGLAS ORDENADAS POR PRIORIDAD
+    # ─────────────────────────────────────────────────────────────────────────────
+
+    # 1. CXC GASTO SOCIO ANDRES — confianza 95%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["cxc_gasto_socio_andres"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5329,
+            cuenta_credito=banco_origen,
+            confianza=0.95,
+            requiere_confirmacion=False,
+            razon="CXC Gasto Socio Andres → NUNCA P&L",
+            categoria="CXC_GASTO_ANDRES"
+        )
+
+    # 2. CXC GASTO SOCIO IVAN — confianza 95%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["cxc_gasto_socio_ivan"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5329,
+            cuenta_credito=banco_origen,
+            confianza=0.95,
+            requiere_confirmacion=False,
+            razon="CXC Gasto Socio Ivan → NUNCA P&L",
+            categoria="CXC_GASTO_IVAN"
+        )
+
+    # 3. ANTICIPO NÓMINA ANDRES — confianza 92%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["anticipo_nomina_andres"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5329,
+            cuenta_credito=banco_origen,
+            confianza=0.92,
+            requiere_confirmacion=False,
+            razon="Anticipo Nómina Andres → CXC socios",
+            categoria="ANTICIPO_ANDRES"
+        )
+
+    # 4. NÓMINA RODDOS — confianza 92%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["nomina_roddos"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5462,
+            cuenta_credito=banco_origen,
+            confianza=0.92,
+            requiere_confirmacion=False,
+            razon="Nómina RODDOS → Sueldos y salarios",
+            categoria="NOMINA_RODDOS"
+        )
+
+    # 5. PAGO ARRIENDO — confianza 90%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["pago_arriendo"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5480,
+            cuenta_credito=5376,
+            confianza=0.90,
+            requiere_confirmacion=False,
+            razon="Pago Arriendo Oficina → Arrendamientos",
+            categoria="ARRIENDO"
+        )
+
+    # 6. INTERESES RENTISTAS ESPECÍFICOS — confianza 95%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["intereses_rentistas_especifico"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5534,
+            cuenta_credito=banco_origen,
+            confianza=0.95,
+            requiere_confirmacion=False,
+            razon="Intereses Rentistas → 5534",
+            categoria="INTERES_RENTISTA"
+        )
+
+    # 7. TRASLADO INTERNO (212→210 o dinero entre cuentas) — confianza 95%, NO CONTABILIZAR
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["traslado_interno"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5535,
+            cuenta_credito=None,
+            confianza=0.95,
+            requiere_confirmacion=False,
+            razon="Traslado interno RODDOS → NO contabilizar",
+            categoria="TRASLADO_INTERNO",
+            es_transferencia_interna=True
+        )
+
+    # 8. INGRESOS CARTERA (RDX) — confianza 90%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["ingresos_cartera_rdx"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=banco_origen,
+            cuenta_credito=5327,
+            confianza=0.90,
+            requiere_confirmacion=False,
+            razon="Ingreso Cartera (RDX) → Créditos Directos",
+            categoria="INGRESO_CARTERA"
+        )
+
+    # 9. PAGO SOFTWARE (ALEGRA / SOFÍA) — confianza 92%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["pago_software"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5484,
+            cuenta_credito=5376,
+            confianza=0.92,
+            requiere_confirmacion=False,
+            razon="Pago Software → Procesamiento Electrónico",
+            categoria="PAGO_SOFTWARE"
+        )
+
+    # 10. REEMBOLSO MULTA — confianza 80%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["reembolso_multa"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5499,
+            cuenta_credito=5376,
+            confianza=0.80,
+            requiere_confirmacion=False,
+            razon="Reembolso Multa → Transporte",
+            categoria="MULTA"
+        )
+
+    # 11. ABONO POR INTERESES — confianza 85%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["abono_intereses"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=banco_origen,
+            cuenta_credito=5456,
+            confianza=0.85,
+            requiere_confirmacion=False,
+            razon="Abono Intereses → Ingresos Financieros",
+            categoria="ABONO_INTERES"
+        )
+
+    # 12. PAGO PSE RECARGA NEQUI — confianza 25%, REQUIERE CONTEXTO
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["pago_pse_nequi"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5496,
+            cuenta_credito=5376,
+            confianza=0.25,
+            requiere_confirmacion=True,
+            razon="Recarga NEQUI → Esperando contexto vía WhatsApp",
+            categoria="RECARGA_NEQUI"
         )
 
     # 15. FALLBACK — ASEO/CAFETERÍA (cuenta genérica)
