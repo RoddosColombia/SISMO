@@ -186,17 +186,30 @@ async def _procesar_extracto_background(
                 {"$inc": {"pendientes": 1}}
             )
 
-        # Guardar hash del extracto como procesado
-        await db.conciliacion_extractos_procesados.insert_one({
-            "hash": hash_extracto,
-            "banco": banco.lower(),
-            "fecha": fecha,
-            "procesado_at": datetime.now(timezone.utc).isoformat(),
-            "journals_creados": _jobs_estado[job_id]["causados"],
-            "movimientos_pendientes": _jobs_estado[job_id]["pendientes"],
-            "usuario": usuario_id,
-            "job_id": job_id,
-        })
+        # ─────────────────────────────────────────────────────────────────────────────
+        # ANTI-DUPLICADOS: Solo guardar hash si se crearon journals (causados > 0)
+        # Si causados == 0, NO marcar como procesado para permitir reintento
+        # ─────────────────────────────────────────────────────────────────────────────
+        if _jobs_estado[job_id]["causados"] > 0:
+            await db.conciliacion_extractos_procesados.insert_one({
+                "hash": hash_extracto,
+                "banco": banco.lower(),
+                "fecha": fecha,
+                "procesado_at": datetime.now(timezone.utc).isoformat(),
+                "journals_creados": _jobs_estado[job_id]["causados"],
+                "movimientos_pendientes": _jobs_estado[job_id]["pendientes"],
+                "usuario": usuario_id,
+                "job_id": job_id,
+            })
+            logger.info(
+                f"[✅ PROCESADO] Job {job_id}: Extracto {banco} "
+                f"({_jobs_estado[job_id]['causados']} journals creados)"
+            )
+        else:
+            logger.warning(
+                f"[⚠️  NO PROCESADO] Job {job_id}: Extracto {banco} sin journals "
+                f"(causados=0). Hash NO guardado — permitiendo reintento"
+            )
 
         # Finalización exitosa
         _jobs_estado[job_id]["status"] = "completed"
@@ -258,13 +271,30 @@ async def cargar_extracto(
         # CAPA 1: ANTI-DUPLICADOS — Hash del extracto completo
         # ─────────────────────────────────────────────────────────────────────────────
         hash_extracto = hashlib.md5(archivo_bytes).hexdigest()
+
+        # Diagnostic: mostrar documentos del banco en MongoDB
+        if banco.lower() == "bancolombia":
+            docs_banco = await db.conciliacion_extractos_procesados.find({
+                "banco": banco.lower()
+            }).to_list(100)
+            logger.info(f"[DIAG] Documentos Bancolombia en BD: {len(docs_banco)} encontrados")
+            for doc in docs_banco:
+                logger.info(
+                    f"  → Hash {doc.get('hash', 'N/A')[:16]}... : "
+                    f"{doc.get('journals_creados', 0)} journals "
+                    f"| {doc.get('procesado_at', 'N/A')}"
+                )
+
         extracto_existente = await db.conciliacion_extractos_procesados.find_one({
             "hash": hash_extracto,
             "banco": banco.lower(),
         })
 
         if extracto_existente:
-            logger.warning(f"[DUPLICADO] Extracto {banco} del {fecha} ya fue procesado")
+            logger.warning(
+                f"[DUPLICADO] Extracto {banco} del {fecha} ya fue procesado "
+                f"({extracto_existente.get('journals_creados', 0)} journals)"
+            )
             raise HTTPException(
                 status_code=409,
                 detail=f"Este extracto ya fue procesado el {extracto_existente.get('procesado_at', 'fecha desconocida')}. "
@@ -351,16 +381,26 @@ async def cargar_extracto(
             },
         )
 
-        # Guardar hash del extracto como procesado
-        await db.conciliacion_extractos_procesados.insert_one({
-            "hash": hash_extracto,
-            "banco": banco.lower(),
-            "fecha": fecha,
-            "procesado_at": datetime.now(timezone.utc).isoformat(),
-            "journals_creados": causados,
-            "movimientos_pendientes": pendientes_count,
-            "usuario": current_user,
-        })
+        # ─────────────────────────────────────────────────────────────────────────────
+        # ANTI-DUPLICADOS: Solo guardar hash si se crearon journals (causados > 0)
+        # Si causados == 0, NO marcar como procesado para permitir reintento
+        # ─────────────────────────────────────────────────────────────────────────────
+        if causados > 0:
+            await db.conciliacion_extractos_procesados.insert_one({
+                "hash": hash_extracto,
+                "banco": banco.lower(),
+                "fecha": fecha,
+                "procesado_at": datetime.now(timezone.utc).isoformat(),
+                "journals_creados": causados,
+                "movimientos_pendientes": pendientes_count,
+                "usuario": current_user,
+            })
+            logger.info(f"[✅ PROCESADO] Extracto {banco} ({causados} journals creados)")
+        else:
+            logger.warning(
+                f"[⚠️  NO PROCESADO] Extracto {banco} sin journals creados (causados=0). "
+                f"Hash NO guardado — permitiendo reintento"
+            )
 
         return {
             "causados": causados,
