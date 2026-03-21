@@ -341,6 +341,155 @@ REGLAS_CLASIFICACION = {
         "cuenta_credito": None,
         "confianza_min": 0.25,  # MUY baja confianza
     },
+
+    # ─────────────────────────────────────────────────────────────────────────────
+    # POLÍTICA CONTABLE BANCOLOMBIA 2026 — 18 REGLAS ESPECÍFICAS
+    # ─────────────────────────────────────────────────────────────────────────────
+
+    # 1. ABONO INTERESES AHORROS → Ingresos financieros (5456), confianza 95%
+    "bc_abono_intereses_ahorros": {
+        "palabras_clave": ["abono intereses ahorros"],
+        "cuenta_debito": None,  # Banco como débito
+        "cuenta_credito": 5456,
+        "confianza_min": 0.95,
+    },
+
+    # 2. CUOTA PLAN CANAL NEGOCIOS → Comisión bancaria (5508), confianza 92%
+    "bc_cuota_plan_canal": {
+        "palabras_clave": ["cuota plan canal negocios"],
+        "cuenta_debito": 5508,
+        "cuenta_credito": None,
+        "confianza_min": 0.92,
+    },
+
+    # 3. IVA CUOTA PLAN CANAL → Gasto bancario (5507), confianza 92%
+    "bc_iva_cuota_plan": {
+        "palabras_clave": ["iva cuota plan canal"],
+        "cuenta_debito": 5507,
+        "cuenta_credito": None,
+        "confianza_min": 0.92,
+    },
+
+    # 4. CUOTA MANEJO TRJ DEB → Gasto bancario (5507), confianza 92%
+    "bc_cuota_manejo_trj": {
+        "palabras_clave": ["cuota manejo trj deb"],
+        "cuenta_debito": 5507,
+        "cuenta_credito": None,
+        "confianza_min": 0.92,
+    },
+
+    # 5. AJUSTE INTERES AHORROS DB → Gasto financiero (5507), confianza 90%
+    "bc_ajuste_interes_ahorros": {
+        "palabras_clave": ["ajuste interes ahorros db"],
+        "cuenta_debito": 5507,
+        "cuenta_credito": None,
+        "confianza_min": 0.90,
+    },
+
+    # 6. COMPRA INTL ELEVENLABS → Tecnología (5484), confianza 95%
+    "bc_compra_elevenlabs": {
+        "palabras_clave": ["compra intl elevenlabs"],
+        "cuenta_debito": 5484,
+        "cuenta_credito": 5376,
+        "confianza_min": 0.95,
+    },
+
+    # 7. COMPRA INTL APPLE.COM → Tecnología (5484), confianza 95%
+    "bc_compra_apple": {
+        "palabras_clave": ["compra intl apple.com"],
+        "cuenta_debito": 5484,
+        "cuenta_credito": 5376,
+        "confianza_min": 0.95,
+    },
+
+    # 8. COMPRA INTL GOOGLE → Tecnología (5484), confianza 90%
+    "bc_compra_google": {
+        "palabras_clave": ["compra intl google"],
+        "cuenta_debito": 5484,
+        "cuenta_credito": 5376,
+        "confianza_min": 0.90,
+    },
+
+    # 9. RETIRO CAJERO → Pendiente, confianza 25% (requiere contexto)
+    "bc_retiro_cajero": {
+        "palabras_clave": ["retiro cajero"],
+        "cuenta_debito": 5496,  # Fallback
+        "cuenta_credito": None,
+        "confianza_min": 0.25,
+    },
+
+    # 10. TRANSFERENCIA DESDE NEQUI → Pendiente, confianza 30% (puede ser cobro cartera o traslado)
+    "bc_transferencia_nequi": {
+        "palabras_clave": ["transferencia desde nequi"],
+        "cuenta_debito": 5496,  # Fallback
+        "cuenta_credito": None,
+        "confianza_min": 0.30,
+    },
+
+    # 11. PAGO PSE Banco Davivienda → Pendiente, confianza 25% (requiere contexto)
+    "bc_pago_pse_davivienda": {
+        "palabras_clave": ["pago pse banco davivienda"],
+        "cuenta_debito": 5496,  # Fallback
+        "cuenta_credito": None,
+        "confianza_min": 0.25,
+    },
+
+    # 12. CONSIGNACION CORRESPONSAL CB → Pendiente ingreso, confianza 30%
+    "bc_consignacion_corresponsal": {
+        "palabras_clave": ["consignacion corresponsal cb"],
+        "cuenta_debito": None,  # Banco como débito
+        "cuenta_credito": 5496,  # Fallback
+        "confianza_min": 0.30,
+    },
+
+    # 13. COMPRA EN TIENDA D1 → CXC socio si es gasto personal, confianza 45%
+    "bc_compra_d1": {
+        "palabras_clave": ["compra en tienda d1"],
+        "cuenta_debito": 5329,  # CXC socio
+        "cuenta_credito": None,
+        "confianza_min": 0.45,
+    },
+
+    # 14. COMPRA EN UBER / RAPPI / MC DONALD / BURGER → Gasto personal socio CXC (5329), confianza 80%
+    "bc_compra_personal": {
+        "palabras_clave": ["compra en uber", "compra en rappi", "compra en mc donald", "compra en burger"],
+        "cuenta_debito": 5329,  # CXC socio
+        "cuenta_credito": None,
+        "confianza_min": 0.80,
+    },
+
+    # 15. COMPRA EN FONTANAR / OPTICA / CASA D BTA → Gasto personal socio CXC (5329), confianza 75%
+    "bc_compra_personal_otros": {
+        "palabras_clave": ["compra en fontanar", "compra en optica", "compra en casa d bta"],
+        "cuenta_debito": 5329,  # CXC socio
+        "cuenta_credito": None,
+        "confianza_min": 0.75,
+    },
+
+    # 16. TRANSFERENCIA CTA SUC VIRTUAL → Transferencia interna (5535), NO contabilizar, confianza 90%
+    "bc_transferencia_cta_virtual": {
+        "palabras_clave": ["transferencia cta suc virtual"],
+        "cuenta_debito": 5535,
+        "cuenta_credito": None,
+        "confianza_min": 0.90,
+        "es_transferencia_interna": True,
+    },
+
+    # 17. PAGO PSE EMPRESA DE TELECOMUN → Telecomunicaciones (5487), confianza 85%
+    "bc_pago_telecom": {
+        "palabras_clave": ["pago pse empresa de telecomun"],
+        "cuenta_debito": 5487,
+        "cuenta_credito": 5376,
+        "confianza_min": 0.85,
+    },
+
+    # 18. PAGO PSE GOU PAYMENTS → Pendiente, confianza 30%
+    "bc_pago_gou": {
+        "palabras_clave": ["pago pse gou payments"],
+        "cuenta_debito": 5496,  # Fallback
+        "cuenta_credito": None,
+        "confianza_min": 0.30,
+    },
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -759,6 +908,209 @@ def clasificar_movimiento(
             requiere_confirmacion=True,
             razon="Recarga NEQUI → Esperando contexto vía WhatsApp",
             categoria="RECARGA_NEQUI"
+        )
+
+    # ─────────────────────────────────────────────────────────────────────────────
+    # POLÍTICA CONTABLE BANCOLOMBIA 2026 — 18 REGLAS ESPECÍFICAS
+    # ─────────────────────────────────────────────────────────────────────────────
+
+    # BC-1. ABONO INTERESES AHORROS → Ingresos financieros (5456), confianza 95%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_abono_intereses_ahorros"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=banco_origen,
+            cuenta_credito=5456,
+            confianza=0.95,
+            requiere_confirmacion=False,
+            razon="Abono Intereses Ahorros → Ingresos Financieros",
+            categoria="BC_ABONO_INTERES"
+        )
+
+    # BC-2. CUOTA PLAN CANAL NEGOCIOS → Comisión bancaria (5508), confianza 92%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_cuota_plan_canal"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5508,
+            cuenta_credito=banco_origen,
+            confianza=0.92,
+            requiere_confirmacion=False,
+            razon="Cuota Plan Canal Negocios → Comisión Bancaria",
+            categoria="BC_COMISION"
+        )
+
+    # BC-3. IVA CUOTA PLAN CANAL → Gasto bancario (5507), confianza 92%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_iva_cuota_plan"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5507,
+            cuenta_credito=banco_origen,
+            confianza=0.92,
+            requiere_confirmacion=False,
+            razon="IVA Cuota Plan Canal → Gasto Bancario",
+            categoria="BC_GASTO_BANCARIO"
+        )
+
+    # BC-4. CUOTA MANEJO TRJ DEB → Gasto bancario (5507), confianza 92%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_cuota_manejo_trj"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5507,
+            cuenta_credito=banco_origen,
+            confianza=0.92,
+            requiere_confirmacion=False,
+            razon="Cuota Manejo TRJ DEB → Gasto Bancario",
+            categoria="BC_GASTO_BANCARIO"
+        )
+
+    # BC-5. AJUSTE INTERES AHORROS DB → Gasto financiero (5507), confianza 90%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_ajuste_interes_ahorros"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5507,
+            cuenta_credito=banco_origen,
+            confianza=0.90,
+            requiere_confirmacion=False,
+            razon="Ajuste Interes Ahorros DB → Gasto Bancario",
+            categoria="BC_GASTO_BANCARIO"
+        )
+
+    # BC-6. COMPRA INTL ELEVENLABS → Tecnología (5484), confianza 95%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_compra_elevenlabs"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5484,
+            cuenta_credito=5376,
+            confianza=0.95,
+            requiere_confirmacion=False,
+            razon="Compra INTL ElevenLabs → Tecnología",
+            categoria="BC_TECNOLOGIA"
+        )
+
+    # BC-7. COMPRA INTL APPLE.COM → Tecnología (5484), confianza 95%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_compra_apple"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5484,
+            cuenta_credito=5376,
+            confianza=0.95,
+            requiere_confirmacion=False,
+            razon="Compra INTL Apple → Tecnología",
+            categoria="BC_TECNOLOGIA"
+        )
+
+    # BC-8. COMPRA INTL GOOGLE → Tecnología (5484), confianza 90%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_compra_google"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5484,
+            cuenta_credito=5376,
+            confianza=0.90,
+            requiere_confirmacion=False,
+            razon="Compra INTL Google → Tecnología",
+            categoria="BC_TECNOLOGIA"
+        )
+
+    # BC-9. RETIRO CAJERO → Pendiente, confianza 25%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_retiro_cajero"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5496,
+            cuenta_credito=banco_origen,
+            confianza=0.25,
+            requiere_confirmacion=True,
+            razon="Retiro Cajero → Requiere contexto (gasto personal o cobro)",
+            categoria="BC_PENDIENTE"
+        )
+
+    # BC-10. TRANSFERENCIA DESDE NEQUI → Pendiente, confianza 30%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_transferencia_nequi"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5496,
+            cuenta_credito=banco_origen,
+            confianza=0.30,
+            requiere_confirmacion=True,
+            razon="Transferencia desde Nequi → Puede ser cobro cartera o traslado",
+            categoria="BC_PENDIENTE"
+        )
+
+    # BC-11. PAGO PSE Banco Davivienda → Pendiente, confianza 25%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_pago_pse_davivienda"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5496,
+            cuenta_credito=banco_origen,
+            confianza=0.25,
+            requiere_confirmacion=True,
+            razon="Pago PSE Davivienda → Requiere contexto (pago a quién)",
+            categoria="BC_PENDIENTE"
+        )
+
+    # BC-12. CONSIGNACION CORRESPONSAL CB → Pendiente ingreso, confianza 30%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_consignacion_corresponsal"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=banco_origen,
+            cuenta_credito=5496,
+            confianza=0.30,
+            requiere_confirmacion=True,
+            razon="Consignación Corresponsal CB → Requiere identificación del origen",
+            categoria="BC_PENDIENTE"
+        )
+
+    # BC-13. COMPRA EN TIENDA D1 → CXC socio si es gasto personal, confianza 45%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_compra_d1"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5329,
+            cuenta_credito=banco_origen,
+            confianza=0.45,
+            requiere_confirmacion=True,
+            razon="Compra D1 → Posible gasto personal socio (requiere confirmación)",
+            categoria="BC_CXC_SOCIO"
+        )
+
+    # BC-14. COMPRA EN UBER / RAPPI / MC DONALD / BURGER → Gasto personal socio CXC (5329), confianza 80%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_compra_personal"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5329,
+            cuenta_credito=banco_origen,
+            confianza=0.80,
+            requiere_confirmacion=False,
+            razon="Compra personal (Uber/Rappi/MC/Burger) → CXC Socio",
+            categoria="BC_CXC_SOCIO"
+        )
+
+    # BC-15. COMPRA EN FONTANAR / OPTICA / CASA D BTA → Gasto personal socio CXC (5329), confianza 75%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_compra_personal_otros"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5329,
+            cuenta_credito=banco_origen,
+            confianza=0.75,
+            requiere_confirmacion=False,
+            razon="Compra personal (Fontanar/Optica/Casa) → CXC Socio",
+            categoria="BC_CXC_SOCIO"
+        )
+
+    # BC-16. TRANSFERENCIA CTA SUC VIRTUAL → Transferencia interna (5535), NO contabilizar, confianza 90%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_transferencia_cta_virtual"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5535,
+            cuenta_credito=None,
+            confianza=0.90,
+            requiere_confirmacion=False,
+            razon="Transferencia CTA Suc Virtual → NO contabilizar",
+            categoria="BC_TRASLADO_INTERNO",
+            es_transferencia_interna=True
+        )
+
+    # BC-17. PAGO PSE EMPRESA DE TELECOMUN → Telecomunicaciones (5487), confianza 85%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_pago_telecom"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5487,
+            cuenta_credito=5376,
+            confianza=0.85,
+            requiere_confirmacion=False,
+            razon="Pago PSE Empresa de Telecomunicaciones → Telecomunicaciones",
+            categoria="BC_TELECOM"
+        )
+
+    # BC-18. PAGO PSE GOU PAYMENTS → Pendiente, confianza 30%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_pago_gou"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5496,
+            cuenta_credito=banco_origen,
+            confianza=0.30,
+            requiere_confirmacion=True,
+            razon="Pago PSE Gou Payments → Por definir, requiere contexto",
+            categoria="BC_PENDIENTE"
         )
 
     # 15. FALLBACK — ASEO/CAFETERÍA (cuenta genérica)
