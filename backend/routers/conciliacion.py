@@ -920,3 +920,112 @@ async def limpiar_bancolombia_parcial(current_user=Depends(require_admin)):
     except Exception as e:
         logger.error(f"[CLEANUP] Error durante limpieza: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+@router.get("/journals-banco")
+async def get_journals_by_banco(
+    banco: str = None,
+    mes: str = None,
+    limit: int = 500,
+    current_user=Depends(get_current_user),
+):
+    """
+    Endpoint de auditoría: Consulta movimientos procesados en MongoDB.
+
+    Permite auditar qué movimientos fueron causados en Alegra sin depender
+    de la API de Alegra. Útil para reconciliación y validación.
+
+    Parámetros:
+    - banco: "bancolombia", "bbva", "davivienda", "nequi" (requerido)
+    - mes: "2026-01", "2026-02" (YYYY-MM, requerido)
+    - limit: máximo de registros (default 500)
+
+    Ejemplo:
+    GET /api/conciliacion/journals-banco?banco=bancolombia&mes=2026-01
+    GET /api/conciliacion/journals-banco?banco=bbva&mes=2026-02
+
+    Retorna:
+    {
+      "banco": "bancolombia",
+      "mes": "2026-01",
+      "total": 15,
+      "monto_total": 1234567.89,
+      "journals": [
+        {
+          "fecha": "2026-01-15",
+          "descripcion": "PAGO PSE TIGO",
+          "monto": 450000.0,
+          "journal_id": "341",
+          "hash": "abc123...",
+          "procesado_at": "2026-03-21T10:30:00Z"
+        },
+        ...
+      ]
+    }
+    """
+    # Validar parámetros
+    if not banco:
+        raise HTTPException(status_code=400, detail="Parámetro 'banco' requerido")
+    if not mes:
+        raise HTTPException(status_code=400, detail="Parámetro 'mes' requerido (formato YYYY-MM)")
+
+    banco_lower = banco.lower()
+
+    # Validar que mes tiene formato YYYY-MM
+    if not mes or len(mes) != 7 or mes[4] != "-":
+        raise HTTPException(status_code=400, detail="Mes debe estar en formato YYYY-MM (ej: 2026-01)")
+
+    try:
+        # Buscar movimientos procesados del banco y mes especificado
+        # La fecha en MongoDB está en formato ISO (YYYY-MM-DD)
+        # Buscamos con regex ^2026-01 para enero, ^2026-02 para febrero, etc.
+        mes_prefix = mes  # "2026-01" → "2026-01"
+
+        movimientos = await db.conciliacion_movimientos_procesados.find({
+            "banco": banco_lower,
+            "fecha": {"$regex": f"^{mes_prefix}"}
+        }).sort("fecha", 1).to_list(limit)
+
+        if not movimientos:
+            return {
+                "banco": banco_lower,
+                "mes": mes,
+                "total": 0,
+                "monto_total": 0.0,
+                "journals": [],
+                "mensaje": f"No hay movimientos procesados de {banco_lower} en {mes}"
+            }
+
+        # Procesar resultados
+        total_monto = 0.0
+        journals_list = []
+
+        for mov in movimientos:
+            monto = mov.get("monto", 0)
+            total_monto += monto
+
+            journals_list.append({
+                "fecha": mov.get("fecha", "N/A"),
+                "descripcion": mov.get("descripcion", "N/A"),
+                "monto": monto,
+                "journal_id": mov.get("journal_id", "N/A"),
+                "hash": mov.get("hash", "N/A")[:16] + "...",
+                "procesado_at": mov.get("procesado_at", "N/A"),
+            })
+
+        logger.info(
+            f"[AUDIT] Consulta journals: {banco_lower}/{mes} → "
+            f"{len(journals_list)} movimientos, ${total_monto:,.0f}"
+        )
+
+        return {
+            "banco": banco_lower,
+            "mes": mes,
+            "total": len(journals_list),
+            "monto_total": total_monto,
+            "journals": journals_list,
+        }
+
+    except Exception as e:
+        logger.error(f"[AUDIT] Error consultando journals: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
