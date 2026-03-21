@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, B
 from pydantic import BaseModel
 
 from database import db
-from dependencies import get_current_user, log_action
+from dependencies import get_current_user, log_action, require_admin
 from services.bank_reconciliation import BankReconciliationEngine, Banco
 
 router = APIRouter(prefix="/conciliacion", tags=["conciliacion"])
@@ -787,4 +787,136 @@ async def diagnostico_causados_hoy(
 
     except Exception as e:
         logger.error(f"Error en diagnostico causados: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+@router.post("/limpiar-bancolombia-parcial")
+async def limpiar_bancolombia_parcial(current_user=Depends(require_admin)):
+    """
+    Endpoint administrativo para limpiar documentos parciales de Bancolombia.
+
+    Elimina:
+    1. Documentos en conciliacion_extractos_procesados con journals_creados < 10
+    2. Movimientos en conciliacion_movimientos_procesados de enero 2026
+
+    Permite que el extracto Bancolombia se reprocesse correctamente.
+
+    REQUIERE: Admin
+    """
+    try:
+        logger.warning("[ADMIN] Iniciando limpieza de documentos parciales Bancolombia")
+
+        # ─────────────────────────────────────────────────────────────────────────────
+        # PASO 1: Eliminar extractos parciales
+        # ─────────────────────────────────────────────────────────────────────────────
+
+        # Buscar documentos parciales ANTES de eliminar
+        parciales = await db.conciliacion_extractos_procesados.find({
+            "banco": "bancolombia",
+            "journals_creados": {"$lt": 10}
+        }).to_list(100)
+
+        parciales_info = []
+        if parciales:
+            logger.warning(f"[CLEANUP] Encontrados {len(parciales)} documentos parciales Bancolombia")
+            for doc in parciales:
+                info = {
+                    "hash": doc.get("hash", "N/A")[:20],
+                    "journals_creados": doc.get("journals_creados", 0),
+                    "fecha": doc.get("fecha", "N/A"),
+                    "procesado_at": doc.get("procesado_at", "N/A"),
+                }
+                parciales_info.append(info)
+                logger.warning(
+                    f"  → Eliminando: Hash {info['hash']}... "
+                    f"({info['journals_creados']} journals | {info['fecha']})"
+                )
+
+            # Eliminar documentos
+            result_extractos = await db.conciliacion_extractos_procesados.delete_many({
+                "banco": "bancolombia",
+                "journals_creados": {"$lt": 10}
+            })
+            logger.info(f"[CLEANUP] Eliminados {result_extractos.deleted_count} extractos parciales")
+        else:
+            result_extractos = None
+            logger.info("[CLEANUP] No hay extractos parciales (journals_creados < 10)")
+
+        # ─────────────────────────────────────────────────────────────────────────────
+        # PASO 2: Eliminar movimientos de enero 2026
+        # ─────────────────────────────────────────────────────────────────────────────
+
+        # Buscar movimientos ANTES de eliminar
+        enero_movimientos = await db.conciliacion_movimientos_procesados.find({
+            "banco": "bancolombia",
+            "fecha": {"$regex": "^2026-01"}
+        }).to_list(100)
+
+        enero_info = []
+        if enero_movimientos:
+            logger.warning(f"[CLEANUP] Encontrados {len(enero_movimientos)} movimientos Bancolombia enero 2026")
+            for mov in enero_movimientos:
+                info = {
+                    "hash": mov.get("hash", "N/A")[:20],
+                    "descripcion": mov.get("descripcion", "N/A")[:50],
+                    "monto": mov.get("monto", 0),
+                    "fecha": mov.get("fecha", "N/A"),
+                }
+                enero_info.append(info)
+                logger.warning(
+                    f"  → Eliminando: {info['descripcion']} "
+                    f"(${info['monto']:,.0f} | {info['fecha']})"
+                )
+
+            # Eliminar movimientos
+            result_movimientos = await db.conciliacion_movimientos_procesados.delete_many({
+                "banco": "bancolombia",
+                "fecha": {"$regex": "^2026-01"}
+            })
+            logger.info(f"[CLEANUP] Eliminados {result_movimientos.deleted_count} movimientos enero 2026")
+        else:
+            result_movimientos = None
+            logger.info("[CLEANUP] No hay movimientos bloqueantes de Bancolombia enero 2026")
+
+        # ─────────────────────────────────────────────────────────────────────────────
+        # PASO 3: Verificación Final
+        # ─────────────────────────────────────────────────────────────────────────────
+
+        extractos_restantes = await db.conciliacion_extractos_procesados.count_documents({
+            "banco": "bancolombia"
+        })
+        movimientos_restantes = await db.conciliacion_movimientos_procesados.count_documents({
+            "banco": "bancolombia",
+            "fecha": {"$regex": "^2026-01"}
+        })
+
+        limpieza_exitosa = (extractos_restantes == 0 and movimientos_restantes == 0)
+
+        if limpieza_exitosa:
+            logger.info("[CLEANUP] Coleccion limpia - lista para reprocesar Bancolombia")
+        else:
+            logger.warning(f"[CLEANUP] Aun existen documentos: {extractos_restantes} extractos, {movimientos_restantes} movimientos")
+
+        return {
+            "exitoso": True,
+            "limpieza_completa": limpieza_exitosa,
+            "paso_1_extractos": {
+                "encontrados": len(parciales) if parciales else 0,
+                "eliminados": result_extractos.deleted_count if result_extractos else 0,
+                "detalles": parciales_info,
+            },
+            "paso_2_movimientos": {
+                "encontrados": len(enero_movimientos) if enero_movimientos else 0,
+                "eliminados": result_movimientos.deleted_count if result_movimientos else 0,
+                "detalles": enero_info,
+            },
+            "estado_final": {
+                "extractos_restantes": extractos_restantes,
+                "movimientos_restantes": movimientos_restantes,
+                "mensaje": "Coleccion limpia - lista para reprocesar" if limpieza_exitosa else "Aun hay documentos"
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"[CLEANUP] Error durante limpieza: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
