@@ -23,10 +23,13 @@ interface ProcesosResult {
 export default function CargarExtraacto() {
   const { api, user } = useAuth();
   const [banco, setBanco] = useState("bbva");
-  const [fecha, setFecha] = useState(new Date().toISOString().split("T")[0]);
+  const today = new Date().toISOString().split("T")[0];
+  const [fechaInicio, setFechaInicio] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split("T")[0]);
+  const [fechaFin, setFechaFin] = useState(today);
   const [archivo, setArchivo] = useState<File | null>(null);
   const [cargando, setCargando] = useState(false);
   const [resultado, setResultado] = useState<ProcesosResult | null>(null);
+  const [componentError, setComponentError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const bancos = [
@@ -76,36 +79,45 @@ export default function CargarExtraacto() {
     }
 
     setCargando(true);
+    setComponentError(null);
     try {
       const formData = new FormData();
       formData.append("file", archivo);
       formData.append("banco", banco);
+      formData.append("fecha", fechaFin);
 
+      console.log("📤 Enviando extracto:", { banco, fechaInicio, fechaFin, archivo: archivo.name });
       const res = await api.post("/conciliacion/cargar-extracto", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
+      console.log("✅ Respuesta recibida:", res.data);
       const data = res.data;
-      setResultado({
-        status: data.status === "procesando" ? "processing" : "success",
-        job_id: data.job_id || "",
-        total_movimientos: data.total_movimientos || 0,
-        causados: data.causados || 0,
-        pendientes: data.pendientes || 0,
-        movimientos_pendientes: data.movimientos_pendientes || [],
-      });
 
+      const resultado_data: ProcesosResult = {
+        status: (data.status === "procesando" || data.status === "processing") ? "processing" : "success",
+        job_id: data.job_id || "",
+        total_movimientos: parseInt(data.total_movimientos) || 0,
+        causados: parseInt(data.causados) || 0,
+        pendientes: parseInt(data.pendientes) || 0,
+        movimientos_pendientes: Array.isArray(data.movimientos_pendientes) ? data.movimientos_pendientes : [],
+      };
+
+      setResultado(resultado_data);
       toast.success("Extracto procesado correctamente");
     } catch (error: any) {
+      console.error("❌ Error al procesar extracto:", error);
+      const errorMsg = error.response?.data?.detail || error.message || "Error procesando el extracto";
+      setComponentError(errorMsg);
       setResultado({
         status: "error",
         job_id: "",
         total_movimientos: 0,
         causados: 0,
         pendientes: 0,
-        error: error.response?.data?.detail || "Error procesando el extracto",
+        error: errorMsg,
       });
-      toast.error(error.response?.data?.detail || "Error procesando el extracto");
+      toast.error(errorMsg);
     } finally {
       setCargando(false);
     }
@@ -113,6 +125,26 @@ export default function CargarExtraacto() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 p-6">
+      {/* Error boundary display */}
+      {componentError && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle size={24} className="text-red-600 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <h3 className="font-bold text-red-900">Error del componente</h3>
+              <p className="text-sm text-red-700 mt-1">{componentError}</p>
+              <p className="text-xs text-red-600 mt-2">Revisa la consola del navegador (F12) para más detalles.</p>
+            </div>
+            <button
+              onClick={() => setComponentError(null)}
+              className="text-red-600 hover:text-red-700"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+      )}
+
       <div>
         <h2 className="text-2xl font-bold text-slate-900">Cargar Extracto Bancario</h2>
         <p className="text-slate-500 text-sm mt-1">
@@ -144,17 +176,30 @@ export default function CargarExtraacto() {
           </div>
         </div>
 
-        {/* Date picker */}
-        <div>
-          <label className="block text-sm font-semibold text-slate-700 mb-2">
-            Fecha del extracto *
-          </label>
-          <input
-            type="date"
-            value={fecha}
-            onChange={(e) => setFecha(e.target.value)}
-            className="w-full px-4 py-2 rounded-lg border border-slate-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-          />
+        {/* Date range picker */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">
+              Fecha inicio *
+            </label>
+            <input
+              type="date"
+              value={fechaInicio}
+              onChange={(e) => setFechaInicio(e.target.value)}
+              className="w-full px-4 py-2 rounded-lg border border-slate-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">
+              Fecha fin *
+            </label>
+            <input
+              type="date"
+              value={fechaFin}
+              onChange={(e) => setFechaFin(e.target.value)}
+              className="w-full px-4 py-2 rounded-lg border border-slate-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
         </div>
 
         {/* Drag and drop */}
@@ -216,6 +261,10 @@ export default function CargarExtraacto() {
           resultado.status === "error" ? "bg-red-50 border-red-200" :
           "bg-blue-50 border-blue-200"
         }`}>
+          {/* Safety: fallback if resultado is malformed */}
+          {typeof resultado.status !== "string" && (
+            <div className="text-red-600 text-sm mb-4">Respuesta malformada del servidor</div>
+          )}
           <div className="flex items-start gap-3 mb-4">
             {resultado.status === "success" && (
               <CheckCircle size={24} className="text-green-600 flex-shrink-0 mt-1" />
@@ -275,40 +324,53 @@ export default function CargarExtraacto() {
                     Movimientos pendientes de clasificación
                   </h4>
                   <div className="space-y-2 max-h-96 overflow-y-auto">
-                    {resultado.movimientos_pendientes.map((mov, i) => (
-                      <div key={i} className="bg-white rounded-lg p-3 border border-slate-200">
-                        <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
-                          <div>
-                            <p className="text-xs text-slate-600 font-medium">Fecha</p>
-                            <p className="font-medium">{mov.fecha}</p>
+                    {resultado.movimientos_pendientes.map((mov, i) => {
+                      try {
+                        const monto = typeof mov.monto === "number" ? mov.monto : parseInt(mov.monto) || 0;
+                        const confianza = typeof mov.confianza === "number" ? mov.confianza : parseFloat(mov.confianza) || 0;
+                        return (
+                          <div key={i} className="bg-white rounded-lg p-3 border border-slate-200">
+                            <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-sm">
+                              <div>
+                                <p className="text-xs text-slate-600 font-medium">Fecha</p>
+                                <p className="font-medium">{mov.fecha || "—"}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-slate-600 font-medium">Descripción</p>
+                                <p className="font-medium truncate">{mov.descripcion || "—"}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-slate-600 font-medium">Monto</p>
+                                <p className="font-medium">
+                                  ${monto.toLocaleString("es-CO")}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-slate-600 font-medium">Sugerencia</p>
+                                <p className="text-xs font-medium truncate">
+                                  {mov.sugerencia_cuenta || "—"}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-slate-600 font-medium">Confianza</p>
+                                <p className={`font-bold ${
+                                  confianza >= 70 ? "text-green-600" : "text-amber-600"
+                                }`}>
+                                  {Math.round(confianza)}%
+                                </p>
+                              </div>
+                            </div>
                           </div>
-                          <div>
-                            <p className="text-xs text-slate-600 font-medium">Descripción</p>
-                            <p className="font-medium truncate">{mov.descripcion}</p>
+                        );
+                      } catch (err) {
+                        console.error("Error rendering movimiento:", err, mov);
+                        return (
+                          <div key={i} className="bg-red-50 rounded-lg p-3 border border-red-200 text-sm text-red-600">
+                            Error mostrando movimiento {i + 1}
                           </div>
-                          <div>
-                            <p className="text-xs text-slate-600 font-medium">Monto</p>
-                            <p className="font-medium">
-                              ${mov.monto?.toLocaleString("es-CO") || "0"}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-slate-600 font-medium">Sugerencia</p>
-                            <p className="text-xs font-medium truncate">
-                              {mov.sugerencia_cuenta}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-slate-600 font-medium">Confianza</p>
-                            <p className={`font-bold ${
-                              mov.confianza >= 70 ? "text-green-600" : "text-amber-600"
-                            }`}>
-                              {Math.round(mov.confianza)}%
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                        );
+                      }
+                    })}
                   </div>
                 </div>
               )}
