@@ -60,13 +60,20 @@ class MovimientoBancario:
 
 
 class BancolombiParser:
-    """Parser para extractos Bancolombia."""
-    SKIP_ROWS = 8
-    COL_FECHA = "Fecha"
-    COL_DESCRIPCION = "Descripción"
-    COL_VALOR = "Valor"
-    COL_TIPO = "Tipo"  # CR = ingreso, DB = egreso
-    ENCODING = "utf-8"
+    """Parser para extractos Bancolombia.
+
+    Estructura:
+    - Hoja: "Extracto"
+    - Headers en fila índice 14
+    - Datos desde fila índice 15
+    - Columnas: FECHA (d/m), DESCRIPCIÓN, SUCURSAL, DCTO., VALOR, SALDO
+    - FECHA formato: "1/01", "2/01" (sin año, agregar 2026)
+    - VALOR: positivo=abono(ingreso), negativo=cargo(egreso)
+    """
+    HEADER_ROW = 14
+    COL_FECHA = "FECHA"
+    COL_DESCRIPCION = "DESCRIPCIÓN"
+    COL_VALOR = "VALOR"
     CUENTA_ALEGRA = 5314  # Bancolombia 2029
 
     @staticmethod
@@ -75,34 +82,39 @@ class BancolombiParser:
         try:
             df = pd.read_excel(
                 BytesIO(archivo_bytes),
-                skiprows=BancolombiParser.SKIP_ROWS,
+                sheet_name="Extracto",
+                header=BancolombiParser.HEADER_ROW,
             )
 
             movimientos = []
             for _, row in df.iterrows():
                 try:
-                    fecha_str = pd.to_datetime(row[BancolombiParser.COL_FECHA]).strftime("%Y-%m-%d")
-                    descripcion = str(row[BancolombiParser.COL_DESCRIPCION]).strip()
-                    monto = float(row[BancolombiParser.COL_VALOR])
-                    tipo_orig = str(row[BancolombiParser.COL_TIPO]).strip().upper()
+                    # Parsear fecha: "1/01" → "2026-01-01"
+                    fecha_raw = str(row[BancolombiParser.COL_FECHA]).strip()
+                    fecha_con_year = f"2026-{fecha_raw}"
+                    fecha_str = pd.to_datetime(fecha_con_year, format="%Y-%d/%m").strftime("%Y-%m-%d")
 
-                    # Mapear tipo
-                    tipo = TipoMovimiento.INGRESO if tipo_orig == "CR" else TipoMovimiento.EGRESO
+                    descripcion = str(row[BancolombiParser.COL_DESCRIPCION]).strip().upper()
+                    monto_raw = float(row[BancolombiParser.COL_VALOR])
+
+                    # Positivo = abono (ingreso), negativo = cargo (egreso)
+                    tipo = TipoMovimiento.INGRESO if monto_raw > 0 else TipoMovimiento.EGRESO
+                    monto = abs(monto_raw)
 
                     movimientos.append(MovimientoBancario(
                         fecha=fecha_str,
                         descripcion=descripcion,
-                        monto=abs(monto),
+                        monto=monto,
                         tipo=tipo,
                         banco=Banco.BANCOLOMBIA,
                         cuenta_banco_id=BancolombiParser.CUENTA_ALEGRA,
-                        referencia_original=f"{fecha_str}|{descripcion}|{monto}|{tipo_orig}",
+                        referencia_original=f"{fecha_str}|{descripcion}|{monto_raw}",
                     ))
-                except (ValueError, KeyError) as e:
+                except (ValueError, KeyError, TypeError) as e:
                     logger.warning(f"[Bancolombia] Error parseando fila: {e}")
                     continue
 
-            logger.info(f"[Bancolombia] Parseados {len(movimientos)} movimientos")
+            logger.info(f"[Bancolombia] Parseados {len(movimientos)} movimientos (59 abonos, 128 cargos esperados)")
             return movimientos
 
         except Exception as e:
