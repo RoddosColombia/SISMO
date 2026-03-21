@@ -1294,7 +1294,10 @@ class AmbiguousMovementHandler:
         """
         Envía un mensaje WhatsApp vía Mercately solicitando confirmación.
 
-        Formato esperado del mensaje:
+        Usa credenciales desde MongoDB (mercately_config.api_key y .phone_number).
+        Si no hay teléfono configurado, retorna False sin intentar.
+
+        Formato del mensaje:
         ---
         📊 CONFIRMACIÓN DE CLASIFICACIÓN CONTABLE
 
@@ -1312,12 +1315,19 @@ class AmbiguousMovementHandler:
         ---
         """
         try:
-            from routers.mercately import MercatelyService
-        except ImportError:
-            self.logger.warning("MercatelyService no disponible")
-            return False
+            # Leer configuración desde MongoDB (no hardcodeado)
+            cfg = await self.db.mercately_config.find_one({}, {"_id": 0})
+            if not cfg or not cfg.get("api_key"):
+                self.logger.warning(f"No hay API key Mercately configurada — no se envía WhatsApp para {movimiento.id}")
+                return False
 
-        try:
+            api_key = cfg.get("api_key")
+            # Usar número de usuario si está disponible, sino el número base
+            phone_to = movimiento.telefono_usuario or cfg.get("phone_number")
+            if not phone_to:
+                self.logger.warning(f"No hay número de teléfono configurado para {movimiento.id}")
+                return False
+
             nombre_cuenta = obtener_nombre_cuenta(movimiento.cuenta_debito_sugerida)
             confianza_pct = int(movimiento.confianza * 100)
 
@@ -1335,7 +1345,21 @@ Clasificación Sugerida:
 ¿Confirmas esta clasificación?
 Responde: SI o NO"""
 
-            # Simulación: En producción, se usaría MercatelyService real
+            # Enviar via Mercately API
+            import httpx
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(
+                    "https://api.mercately.com/api/v1/customers/send_message",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={"phone": phone_to, "message": mensaje},
+                )
+
+            if resp.status_code not in (200, 201, 202):
+                self.logger.error(
+                    f"Mercately error enviando WhatsApp para {movimiento.id}: HTTP {resp.status_code}"
+                )
+                return False
+
             movimiento.intentos_whatsapp += 1
             movimiento.fecha_ultimo_intento = datetime.now(timezone.utc).isoformat()
 
@@ -1351,11 +1375,14 @@ Responde: SI o NO"""
                 },
             )
 
-            self.logger.info(f"WhatsApp enviado para {movimiento.id} (intento {movimiento.intentos_whatsapp})")
+            self.logger.info(
+                f"WhatsApp enviado via Mercately para {movimiento.id} "
+                f"(intento {movimiento.intentos_whatsapp}) a {phone_to[-4:]}"
+            )
             return True
 
         except Exception as e:
-            self.logger.error(f"Error al enviar WhatsApp para {movimiento.id}: {e}")
+            self.logger.error(f"Error al enviar WhatsApp para {movimiento.id}: {str(e)[:100]}")
             return False
 
     async def procesar_respuesta_whatsapp(

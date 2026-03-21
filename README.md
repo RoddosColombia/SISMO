@@ -93,6 +93,115 @@ CORS_ORIGINS=http://localhost:3000
 REACT_APP_BACKEND_URL=http://localhost:8001
 ```
 
+## Integración Mercately (WhatsApp)
+
+La integración de Mercately permite enviar mensajes WhatsApp automáticamente en dos contextos:
+
+### 1. Configuración del API Key
+
+1. Accede a tu dashboard de Mercately: https://mercately.com
+2. Navega a **Configuración → API Keys**
+3. Copia tu API Key (ej: `9965b1d2f06aced942a448a1eff3b2eb`)
+4. En SISMO, ve a **Configuración → Mercately**
+5. Pega el API Key en el campo correspondiente
+6. Haz clic en **Probar Conexión** para verificar que funciona
+
+### 2. Actualizar tu número de WhatsApp
+
+Para recibir notificaciones en tu WhatsApp personal:
+
+1. Ve a **Configuración → Mercately** en SISMO
+2. En el campo "Mi teléfono", ingresa tu número en formato internacional: `57XXXXXXXXXX`
+   - Ejemplo: `573115551234` (Andrés)
+   - El número debe incluir código país (57 para Colombia)
+3. Guarda los cambios
+4. Prueba la conexión — recibirás un mensaje de confirmación
+
+### 3. Casos de uso automáticos
+
+**A. Notificaciones de Movimientos Ambiguos (Clasificación Contable)**
+
+Cuando se carga un extracto bancario y hay movimientos con baja confianza en su clasificación contable:
+- El sistema intenta clasificarlos automáticamente
+- Si confianza < 70%, se solicita confirmación vía WhatsApp
+- Mensaje enviado a tu número configurado con:
+  - Monto de la transacción
+  - Descripción
+  - Cuenta contable sugerida
+  - % de confianza en la clasificación
+
+Ejemplo:
+```
+📊 CONFIRMACIÓN DE CLASIFICACIÓN CONTABLE
+
+Transacción:
+• Monto: $450,000
+• Descripción: PAGO PSE TIGO
+• Proveedor: TIGO
+
+Clasificación Sugerida:
+• Cuenta: 5318 - Servicios públicos
+• Confianza: 62%
+
+¿Confirmas esta clasificación?
+Responde: SI o NO
+```
+
+**B. Recordatorios de Cuotas (Loanbook)**
+
+El scheduler envía mensajes WhatsApp en estos momentos:
+- **Lunes 8am**: Recordatorio D-2 a clientes que pagan miércoles
+- **Miércoles 8am**: Recordatorio día de vencimiento
+- **Jueves 9am**: Alerta de mora D+1 (cuota no pagada)
+- **Sábado 9am**: Alerta de mora severa (+30 días)
+
+### 4. Probar la integración
+
+**Endpoint de prueba:**
+```bash
+POST /api/settings/mercately/test
+Authorization: Bearer <tu-jwt-token>
+```
+
+**Respuesta exitosa:**
+```json
+{
+  "conectado": true,
+  "mensaje_enviado": true,
+  "detalles": "Conexión exitosa con Mercately ✓ — Mensaje de prueba enviado",
+  "phone_configurado": "1234"
+}
+```
+
+Si recibes un mensaje de prueba en tu WhatsApp, la integración está funcionando correctamente.
+
+### 5. Seguridad
+
+⚠️ **IMPORTANTE:**
+- El API Key nunca se guarda en variables de entorno — se almacena en MongoDB configuracion.mercately_config
+- Los logs de la aplicación NO incluyen el API Key (se trunca a últimos 4 dígitos)
+- El número de teléfono se registra solo en los últimos 4 dígitos en los logs
+- No guardes el API Key en el repositorio ni en archivos `.env`
+
+### 6. Troubleshooting
+
+**"No hay API Key configurada"**
+- Ve a Configuración → Mercately
+- Pega tu API Key real desde Mercately Dashboard
+
+**"API Key inválida (401)"**
+- Verifica que copiaste el API Key completo sin espacios
+- Regenera el API Key en Mercately Dashboard y prueba de nuevo
+
+**"Mercately no responde (timeout)"**
+- Verifica tu conexión a internet
+- Comprueba que Mercately esté en funcionamiento: https://status.mercately.com
+
+**No recibo mensajes en WhatsApp**
+- Verifica que tu número esté en formato correcto: `57XXXXXXXXXX`
+- Asegúrate de que el número tiene el código de país (57 para Colombia)
+- El número debe ser el mismo que está registrado en tu cuenta Mercately
+
 ## Colecciones MongoDB
 
 | Colección | Descripción |

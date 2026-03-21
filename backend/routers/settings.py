@@ -168,24 +168,99 @@ async def save_mercately_credentials(req: MercatelyCredentialsRequest, current_u
 
 @router.post("/mercately/test")
 async def test_mercately_connection(current_user=Depends(require_admin)):
+    """
+    Verifica conexión a Mercately y opcionalmente envía mensaje de prueba.
+
+    Response:
+    {
+        "conectado": true/false,
+        "mensaje_enviado": true/false,
+        "detalles": "...",
+        "phone_configurado": "...últimos 4 dígitos o vacío"
+    }
+    """
     cfg = await db.mercately_config.find_one({}, {"_id": 0})
     if not cfg or not cfg.get("api_key"):
-        raise HTTPException(status_code=400, detail="No hay API Key configurada. Guarda primero las credenciales.")
+        return {
+            "conectado": False,
+            "mensaje_enviado": False,
+            "detalles": "No hay API Key configurada. Guarda primero tus credenciales en /settings/mercately",
+            "phone_configurado": ""
+        }
+
     try:
+        api_key = cfg.get("api_key")
+        phone_number = cfg.get("phone_number", "")
+
+        # Paso 1: Verificar conexión (GET /agent)
         async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(
+            resp_auth = await client.get(
                 "https://api.mercately.com/api/v1/agent",
-                headers={"Authorization": f"Bearer {cfg['api_key']}"},
+                headers={"Authorization": f"Bearer {api_key}"},
             )
-        if resp.status_code == 200:
-            return {"ok": True, "message": "Conexión exitosa con Mercately ✓"}
-        if resp.status_code == 401:
-            raise HTTPException(status_code=400, detail="API Key inválida — verifica tus credenciales en Mercately.")
-        raise HTTPException(status_code=400, detail=f"Mercately respondió HTTP {resp.status_code}.")
+
+        if resp_auth.status_code == 401:
+            return {
+                "conectado": False,
+                "mensaje_enviado": False,
+                "detalles": "API Key inválida — verifica tus credenciales en Mercately Dashboard",
+                "phone_configurado": phone_number[-4:] if len(phone_number) > 4 else "no configurado"
+            }
+
+        if resp_auth.status_code != 200:
+            return {
+                "conectado": False,
+                "mensaje_enviado": False,
+                "detalles": f"Mercately respondió HTTP {resp_auth.status_code}",
+                "phone_configurado": phone_number[-4:] if len(phone_number) > 4 else "no configurado"
+            }
+
+        # Paso 2: Intentar enviar mensaje de prueba si hay número configurado
+        mensaje_enviado = False
+        if phone_number:
+            try:
+                mensaje_prueba = "✅ PRUEBA DE CONEXIÓN MERCATELY\n\nSi recibes este mensaje, la integración con WhatsApp está funcionando correctamente."
+
+                async with httpx.AsyncClient(timeout=10) as client:
+                    resp_msg = await client.post(
+                        "https://api.mercately.com/api/v1/customers/send_message",
+                        headers={"Authorization": f"Bearer {api_key}"},
+                        json={"phone": phone_number, "message": mensaje_prueba},
+                    )
+
+                mensaje_enviado = resp_msg.status_code in (200, 201, 202)
+            except Exception as e:
+                # Log error sin revelar credenciales
+                import logging
+                logging.getLogger(__name__).error(
+                    f"Error enviando mensaje de prueba: {str(e)[:50]}"
+                )
+                mensaje_enviado = False
+
+        return {
+            "conectado": True,
+            "mensaje_enviado": mensaje_enviado,
+            "detalles": "Conexión exitosa con Mercately ✓" + (
+                " — Mensaje de prueba enviado" if mensaje_enviado else
+                (" — No hay número configurado para enviar prueba" if not phone_number else "")
+            ),
+            "phone_configurado": phone_number[-4:] if len(phone_number) > 4 else "no configurado"
+        }
+
     except httpx.TimeoutException:
-        raise HTTPException(status_code=503, detail="Mercately no responde (timeout 10 s). Verifica tu conexión.")
+        return {
+            "conectado": False,
+            "mensaje_enviado": False,
+            "detalles": "Mercately no responde (timeout 10 s). Verifica tu conexión a internet.",
+            "phone_configurado": cfg.get("phone_number", "")[-4:] if len(cfg.get("phone_number", "")) > 4 else "no configurado"
+        }
     except httpx.RequestError as e:
-        raise HTTPException(status_code=503, detail=f"Error de red al contactar Mercately: {e}")
+        return {
+            "conectado": False,
+            "mensaje_enviado": False,
+            "detalles": f"Error de red: {str(e)[:50]}",
+            "phone_configurado": cfg.get("phone_number", "")[-4:] if len(cfg.get("phone_number", "")) > 4 else "no configurado"
+        }
 
 
 # ─── Catálogo de Motos ────────────────────────────────────────────────────────
