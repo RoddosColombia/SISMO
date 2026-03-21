@@ -394,8 +394,13 @@ class BankReconciliationEngine:
         """
         Crea journal en Alegra para movimiento causable.
         Retorna: (exitoso, journal_id, error_msg)
+
+        Si Alegra retorna 503/429, guarda en conciliacion_reintentos
+        para reintentarlo en el scheduler (cada 5 min).
         """
         from alegra_service import AlegraService
+        from fastapi import HTTPException
+        import hashlib
 
         try:
             service = AlegraService(self.db)
@@ -434,6 +439,47 @@ class BankReconciliationEngine:
 
             self.logger.info(f"[Alegra] Journal {journal_id} creado para {movimiento.descripcion}")
             return True, journal_id, None
+
+        except HTTPException as e:
+            # Si es 503 o 429, guardar para reintento
+            if e.status_code in (429, 503):
+                self.logger.warning(
+                    f"[Alegra] {e.status_code} temporal — guardando en reintentos: {movimiento.descripcion}"
+                )
+
+                hash_movimiento = hashlib.md5(
+                    f"{movimiento.banco.value}{movimiento.fecha}{movimiento.descripcion}{str(movimiento.monto)}".encode()
+                ).hexdigest()
+
+                from datetime import timedelta
+                ahora = datetime.now(timezone.utc)
+                proximo_intento = ahora + timedelta(minutes=5)
+
+                await self.db.conciliacion_reintentos.update_one(
+                    {"movimiento_hash": hash_movimiento},
+                    {
+                        "$set": {
+                            "movimiento_hash": hash_movimiento,
+                            "banco": movimiento.banco.value,
+                            "fecha": movimiento.fecha,
+                            "descripcion": movimiento.descripcion,
+                            "monto": movimiento.monto,
+                            "cuenta_debito": movimiento.cuenta_debito_sugerida,
+                            "cuenta_credito": movimiento.cuenta_credito_sugerida,
+                            "proximo_intento": proximo_intento,
+                            "estado": "pendiente_reintento",
+                            "timestamp_ultimo_intento": ahora,
+                        },
+                        "$inc": {"intentos": 1}
+                    },
+                    upsert=True
+                )
+
+                return False, None, f"Almacenado en reintentos ({e.status_code})"
+
+            # Otros errores HTTP
+            self.logger.error(f"[Alegra] HTTP {e.status_code}: {e.detail}")
+            return False, None, str(e.detail)
 
         except Exception as e:
             self.logger.error(f"[Alegra] Error creando journal: {e}")

@@ -6,7 +6,7 @@ Job único (BUILD 2):
   y los marca como 'processed'. Si event_type desconocido o excepción → estado='failed', log.
 """
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -207,6 +207,123 @@ async def _sincronizar_facturas_recientes() -> None:
         logger.error("[Scheduler] Alegra invoice sync error: %s", e)
 
 
+async def _procesar_reintentos_alegra() -> None:
+    """Every 5 min: retry movimientos pendientes causación en Alegra."""
+    from database import db
+    from services.bank_reconciliation import BankReconciliationEngine, Banco, MovimientoBancario
+    import hashlib
+
+    try:
+        engine = BankReconciliationEngine(db)
+
+        # Buscar movimientos pendientes reintento que están listos
+        ahora = datetime.now(timezone.utc)
+        reintentos = await db.conciliacion_reintentos.find(
+            {
+                "estado": "pendiente_reintento",
+                "proximo_intento": {"$lte": ahora}
+            }
+        ).to_list(50)
+
+        if not reintentos:
+            return
+
+        procesados = 0
+        fallidos = 0
+
+        for reintento in reintentos:
+            movimiento_hash = reintento.get("movimiento_hash")
+            try:
+                # Reconstruir MovimientoBancario para reintentar
+                mov = MovimientoBancario(
+                    banco=Banco[reintento["banco"].upper()],
+                    fecha=reintento["fecha"],
+                    descripcion=reintento["descripcion"],
+                    monto=reintento["monto"],
+                    cuenta_debito_sugerida=reintento["cuenta_debito"],
+                    cuenta_credito_sugerida=reintento["cuenta_credito"],
+                    confianza=1.0,  # Ya fue clasificado como causable
+                )
+
+                # Reintentar creación
+                exitoso, journal_id, error = await engine.crear_journal_alegra(mov)
+
+                if exitoso:
+                    # Éxito — guardar como procesado y eliminar de reintentos
+                    await db.conciliacion_movimientos_procesados.insert_one({
+                        "hash": movimiento_hash,
+                        "banco": reintento["banco"],
+                        "fecha": reintento["fecha"],
+                        "descripcion": reintento["descripcion"],
+                        "monto": reintento["monto"],
+                        "journal_id": journal_id,
+                        "procesado_at": datetime.now(timezone.utc).isoformat(),
+                        "reintento_num": reintento.get("intentos", 1),
+                    })
+
+                    await db.conciliacion_reintentos.delete_one(
+                        {"movimiento_hash": movimiento_hash}
+                    )
+
+                    logger.info(
+                        f"[Scheduler] Reintento éxito: {reintento['descripcion']} "
+                        f"(intento {reintento.get('intentos', 1)}) → journal {journal_id}"
+                    )
+                    procesados += 1
+
+                else:
+                    # Falló de nuevo
+                    intentos_actuales = reintento.get("intentos", 1)
+
+                    if intentos_actuales >= 5:
+                        # Máximo de intentos — marcar como fallo permanente
+                        await db.conciliacion_reintentos.update_one(
+                            {"movimiento_hash": movimiento_hash},
+                            {
+                                "$set": {
+                                    "estado": "fallo_permanente",
+                                    "timestamp_fallo_permanente": datetime.now(timezone.utc).isoformat(),
+                                    "error_final": error,
+                                }
+                            }
+                        )
+
+                        logger.error(
+                            f"[Scheduler] Reintento fallo permanente: "
+                            f"{reintento['descripcion']} (5 intentos agotados)"
+                        )
+                    else:
+                        # Siguiente intento en 10 minutos
+                        proximo = datetime.now(timezone.utc) + timedelta(minutes=10)
+                        await db.conciliacion_reintentos.update_one(
+                            {"movimiento_hash": movimiento_hash},
+                            {
+                                "$set": {
+                                    "proximo_intento": proximo,
+                                    "timestamp_ultimo_intento": datetime.now(timezone.utc).isoformat(),
+                                    "error_ultimo": error,
+                                }
+                            }
+                        )
+
+                    fallidos += 1
+
+            except Exception as e:
+                logger.error(
+                    f"[Scheduler] Error procesando reintento {movimiento_hash}: {e}"
+                )
+                fallidos += 1
+
+        if procesados or fallidos:
+            logger.info(
+                f"[Scheduler] procesar_reintentos_alegra — "
+                f"{procesados} exitosos, {fallidos} fallidos"
+            )
+
+    except Exception as e:
+        logger.error(f"[Scheduler] procesar_reintentos_alegra error general: {e}")
+
+
 def start_scheduler() -> None:
     """Registra el job y arranca el scheduler. Llamar desde startup de FastAPI."""
     _scheduler.add_job(
@@ -291,6 +408,17 @@ def start_scheduler() -> None:
         misfire_grace_time=60,
     )
 
+    # ── Reintentos de causación Alegra cada 5 min ──────────────────────────────
+    _scheduler.add_job(
+        _procesar_reintentos_alegra,
+        trigger="interval",
+        minutes=5,
+        id="procesar_reintentos_alegra",
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=60,
+    )
+
     # ── Inventario reconciliación cada lunes 7am ────────────────────────────────
     _scheduler.add_job(
         _reconciliar_inventario_lunes,
@@ -317,7 +445,7 @@ def start_scheduler() -> None:
         "[Scheduler] APScheduler iniciado — "
         "process_pending_events@60s | informe_cfo@día1 08:00 | "
         "WA: T1@lun08 T2@mié08 T3@jue09 T5@sab09 | "
-        "inventario@lun07 | sync_pagos@5min | sync_facturas@5min | dian@23:00 | "
+        "inventario@lun07 | sync_pagos@5min | sync_facturas@5min | reintentos_alegra@5min | dian@23:00 | "
         "BUILD21: resumen_semanal_cfo@lun08 | anomalias_diarias@23:30 (COT)"
     )
 
