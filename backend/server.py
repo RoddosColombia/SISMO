@@ -33,6 +33,7 @@ from routers import reports as reports_router
 from routers import contabilidad_pendientes as contabilidad_pendientes_router
 from routers import conciliacion as conciliacion_router
 from routers import sync_manual as sync_manual_router
+from routers import diagnostico as diagnostico_router
 from services.scheduler import start_scheduler, stop_scheduler
 from services.loanbook_scheduler import start_loanbook_scheduler, stop_loanbook_scheduler
 from migration_v24 import run_migration_v24
@@ -326,6 +327,7 @@ app.include_router(reports_router.router,                      prefix=PREFIX)
 app.include_router(contabilidad_pendientes_router.router,      prefix=PREFIX)
 app.include_router(conciliacion_router.router,                 prefix=PREFIX)
 app.include_router(sync_manual_router.router,                  prefix=PREFIX)
+app.include_router(diagnostico_router.router,                  prefix=PREFIX)
 
 
 # ─── Smoke Test (PASO 5 — verificación post-deploy) ───────────────────────────
