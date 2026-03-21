@@ -106,7 +106,7 @@ async def get_mercately_credentials(current_user=Depends(require_admin)):
     if not cfg:
         return {
             "has_credentials": False, "api_key_masked": "",
-            "phone_number": "", "whitelist": [], "ceo_number": "",
+            "phone_number": "", "whitelist": [], "ceo_number": "", "cgo_number": "",
             "destinatarios_resumen": [], "configured_at": "",
             "global_activo": True, "horario_inicio": "08:00", "horario_fin": "19:00",
             "templates_activos": {"T1": True, "T2": True, "T3": True, "T4": True, "T5": True},
@@ -115,8 +115,12 @@ async def get_mercately_credentials(current_user=Depends(require_admin)):
     ak = cfg.get("api_key", "")
     destinatarios = list(cfg.get("destinatarios_resumen", []))
     ceo = cfg.get("ceo_number", "")
+    cgo = cfg.get("cgo_number", "")
+    # Add CEO and CGO to destinatarios if not already there
     if ceo and ceo not in destinatarios:
         destinatarios = [ceo] + destinatarios
+    if cgo and cgo not in destinatarios:
+        destinatarios = [cgo] + destinatarios
     # Default all templates to True if not set
     templates = cfg.get("templates_activos", {})
     for t in ("T1", "T2", "T3", "T4", "T5"):
@@ -128,6 +132,7 @@ async def get_mercately_credentials(current_user=Depends(require_admin)):
         "phone_number": cfg.get("phone_number", ""),
         "whitelist": cfg.get("whitelist", []),
         "ceo_number": ceo,
+        "cgo_number": cgo,
         "destinatarios_resumen": destinatarios,
         "configured_at": cfg.get("updated_at", ""),
         "global_activo": cfg.get("global_activo", True),
@@ -143,10 +148,13 @@ async def save_mercately_credentials(req: MercatelyCredentialsRequest, current_u
     destinatarios = list(req.destinatarios_resumen)
     if req.ceo_number and req.ceo_number not in destinatarios:
         destinatarios = [req.ceo_number] + destinatarios
+    if req.cgo_number and req.cgo_number not in destinatarios:
+        destinatarios = [req.cgo_number] + destinatarios
     update_data = {
         "phone_number": req.phone_number,
         "whitelist": req.whitelist,
         "ceo_number": req.ceo_number,
+        "cgo_number": req.cgo_number,
         "destinatarios_resumen": destinatarios,
         "global_activo": req.global_activo,
         "horario_inicio": req.horario_inicio,
