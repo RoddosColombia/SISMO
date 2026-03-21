@@ -67,17 +67,35 @@ export function AlegraProvider({ children }: { children: React.ReactNode }) {
       const resp = await api.get("/alegra/accounts");
       setAccounts(resp.data);
       setFlatAccounts(flattenAccounts(resp.data));
-    } catch { /* silent */ } finally { setLoadingAccounts(false); }
+    } catch (err: unknown) {
+      console.warn("⚠️  Error loading Alegra accounts:", err);
+      setAccounts([]);
+      setFlatAccounts([]);
+    } finally {
+      setLoadingAccounts(false);
+    }
   }, [token, api, flattenAccounts]);
 
   const loadContacts = useCallback(async () => {
     if (!token) return;
-    try { const resp = await api.get("/alegra/contacts"); setContacts(resp.data); } catch { /* silent */ }
+    try {
+      const resp = await api.get("/alegra/contacts");
+      setContacts(resp.data);
+    } catch (err: unknown) {
+      console.warn("⚠️  Error loading Alegra contacts:", err);
+      setContacts([]);
+    }
   }, [token, api]);
 
   const loadBankAccounts = useCallback(async () => {
     if (!token) return;
-    try { const resp = await api.get("/alegra/bank-accounts"); setBankAccounts(resp.data); } catch { /* silent */ }
+    try {
+      const resp = await api.get("/alegra/bank-accounts");
+      setBankAccounts(resp.data);
+    } catch (err: unknown) {
+      console.warn("⚠️  Error loading Alegra bank accounts:", err);
+      setBankAccounts([]);
+    }
   }, [token, api]);
 
   const loadDefaultAccounts = useCallback(async () => {
@@ -134,8 +152,20 @@ export function AlegraProvider({ children }: { children: React.ReactNode }) {
   }, [defaultAccounts]);
 
   useEffect(() => {
-    if (token) { checkConnection(); loadAccounts(); loadContacts(); loadBankAccounts(); loadDefaultAccounts(); }
-  }, [token]); // eslint-disable-line
+    if (!token) return;
+    (async () => {
+      try {
+        await checkConnection();
+        await loadAccounts();
+        await loadContacts();
+        await loadBankAccounts();
+        await loadDefaultAccounts();
+      } catch (err: unknown) {
+        console.error("❌ Fatal error loading Alegra data:", err);
+        setConnectionStatus("error");
+      }
+    })();
+  }, [token, checkConnection, loadAccounts, loadContacts, loadBankAccounts, loadDefaultAccounts]);
 
   return (
     <AlegraContext.Provider value={{ accounts, flatAccounts, loadingAccounts, contacts, bankAccounts, defaultAccounts, connectionStatus, isDemoMode, searchAccounts, getDefaultAccount, checkConnection, loadAccounts, loadContacts, setIsDemoMode, setConnectionStatus }}>

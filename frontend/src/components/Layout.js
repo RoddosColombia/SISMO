@@ -86,7 +86,11 @@ export default function Layout() {
     try {
       const res = await api.get("/notifications", { params: { unread_only: true } });
       setNotifications(res.data || []);
-    } catch {} // Always silent — badge shows 0 on error
+    } catch (err: any) {
+      // Silent for notifications — fallback to empty
+      console.warn("⚠️  Error fetching notifications:", err.message);
+      setNotifications([]);
+    }
   }, [api]);
 
   // Poll CFO alerts every 60s for sidebar badge
@@ -96,7 +100,11 @@ export default function Layout() {
       const res = await api.get("/cfo/alertas");
       const activas = (res.data || []).filter((a) => a.estado === "nueva");
       setCfoAlertCount(activas.length);
-    } catch {}
+    } catch (err: any) {
+      // Silent for alerts — fallback to 0
+      console.warn("⚠️  Error fetching CFO alerts:", err.message);
+      setCfoAlertCount(0);
+    }
   }, [api]);
 
   useEffect(() => {
