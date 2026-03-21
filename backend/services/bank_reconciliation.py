@@ -89,10 +89,22 @@ class BancolombiParser:
             movimientos = []
             for _, row in df.iterrows():
                 try:
-                    # Parsear fecha: "1/01" → "2026-01-01"
+                    # Parseo robusto de fecha: soporta "1/01", "01/01", "15/01", etc.
                     fecha_raw = str(row[BancolombiParser.COL_FECHA]).strip()
-                    fecha_con_year = f"2026-{fecha_raw}"
-                    fecha_str = pd.to_datetime(fecha_con_year, format="%Y-%d/%m").strftime("%Y-%m-%d")
+                    try:
+                        partes = fecha_raw.split("/")
+                        if len(partes) == 2:
+                            dia = partes[0].zfill(2)  # Rellenar con cero si es necesario
+                            mes = partes[1].zfill(2)
+                            fecha_str = f"2026-{mes}-{dia}"
+                            # Validar la fecha
+                            pd.to_datetime(fecha_str, format="%Y-%m-%d")
+                        else:
+                            fecha_str = "2026-01-01"
+                            logger.warning(f"[Bancolombia] Formato de fecha inválido '{fecha_raw}', usando fallback 2026-01-01")
+                    except:
+                        fecha_str = "2026-01-01"
+                        logger.warning(f"[Bancolombia] No se pudo parsear fecha '{fecha_raw}', usando fallback 2026-01-01")
 
                     descripcion = str(row[BancolombiParser.COL_DESCRIPCION]).strip().upper()
                     monto_raw = float(row[BancolombiParser.COL_VALOR])
@@ -132,7 +144,10 @@ class BBVAParser:
 
     @staticmethod
     async def parsear(archivo_bytes: bytes) -> List[MovimientoBancario]:
-        """Parsea extracto BBVA. Positivo=ingreso, negativo=egreso."""
+        """Parsea extracto BBVA. Positivo=ingreso, negativo=egreso.
+
+        Formato de fecha robusta: maneja "01-01-2026" y "1-01-2026" correctamente.
+        """
         try:
             df = pd.read_excel(
                 BytesIO(archivo_bytes),
@@ -142,7 +157,24 @@ class BBVAParser:
             movimientos = []
             for _, row in df.iterrows():
                 try:
-                    fecha_str = pd.to_datetime(row[BBVAParser.COL_FECHA], format='%d-%m-%Y').strftime("%Y-%m-%d")
+                    # Parseo robusto de fecha: soporta DD-MM-YYYY y D-MM-YYYY
+                    fecha_raw = str(row[BBVAParser.COL_FECHA]).strip()
+                    try:
+                        fecha_dt = pd.to_datetime(fecha_raw, dayfirst=True)
+                        fecha_str = fecha_dt.strftime("%Y-%m-%d")
+
+                        # Validar que el año sea 2026
+                        if not fecha_str.startswith("2026"):
+                            partes = fecha_raw.split("-")
+                            if len(partes) == 3:
+                                fecha_str = f"2026-{partes[1].zfill(2)}-{partes[0].zfill(2)}"
+                            else:
+                                fecha_str = "2026-01-01"
+                    except:
+                        # Fallback: asumir 2026-01-01
+                        fecha_str = "2026-01-01"
+                        logger.warning(f"[BBVA] No se pudo parsear fecha '{fecha_raw}', usando fallback 2026-01-01")
+
                     descripcion = str(row[BBVAParser.COL_DESCRIPCION]).strip()
                     monto_raw = float(row[BBVAParser.COL_VALOR])
 
