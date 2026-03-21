@@ -3,13 +3,14 @@ import { Outlet, NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Settings, LogOut, ChevronLeft, Menu, Bell, User,
   CreditCard, Receipt, BarChart2, Bike, X,
-  BookOpen, Wallet, Bot, BriefcaseBusiness, Brain, TrendingUp, Target,
+  BookOpen, Wallet, Bot, BriefcaseBusiness, Brain, TrendingUp, Target, Upload,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useAlegra } from "../contexts/AlegraContext";
 
 const MODULES = [
   { path: "/agente-contable",  label: "Agente Contador",    icon: Bot,              group: null,  badge: "active" },
+  { path: "/cargar-extracto",  label: "Cargar Extracto",    icon: Upload,           group: null  },
   { path: "/cfo-estrategico",  label: "CFO Estratégico",    icon: Brain,            group: null  },
   { path: "/dashboard",        label: "Dashboard",           icon: LayoutDashboard,  group: null  },
   { path: "/cfo",              label: "Panel CFO",           icon: TrendingUp,       group: null  },
