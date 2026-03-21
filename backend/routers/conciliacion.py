@@ -483,6 +483,47 @@ async def test_alegra(
         }
 
 
+@router.get("/reintentos")
+async def listar_reintentos(
+    estado: str = "pendiente_reintento",
+    limit: int = 50,
+    current_user=Depends(get_current_user),
+):
+    """
+    Lista movimientos pendientes reintento (cuando Alegra estuvo caído).
+
+    estados posibles:
+    - pendiente_reintento: esperando siguiente intento
+    - fallo_permanente: agotó 5 intentos sin éxito
+    """
+    try:
+        query = {}
+        if estado:
+            query["estado"] = estado
+
+        reintentos = await db.conciliacion_reintentos.find(
+            query,
+            {"_id": 0}
+        ).sort("proximo_intento", 1).to_list(limit)
+
+        ahora = datetime.now(timezone.utc)
+        total_listos = 0
+        for r in reintentos:
+            if r.get("proximo_intento", datetime.max) <= ahora:
+                total_listos += 1
+
+        return {
+            "total": len(reintentos),
+            "listos_para_reintento": total_listos,
+            "ahora": ahora.isoformat(),
+            "reintentos": reintentos,
+        }
+
+    except Exception as e:
+        logger.error(f"Error listando reintentos: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
 @router.get("/pendientes")
 async def listar_pendientes(
     limit: int = 50,

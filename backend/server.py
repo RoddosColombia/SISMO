@@ -152,7 +152,12 @@ async def startup():
         await db.conciliacion_extractos_procesados.create_index([("banco", 1), ("fecha", 1)])
         await db.conciliacion_movimientos_procesados.create_index([("hash", 1)], unique=True)
         await db.conciliacion_movimientos_procesados.create_index([("banco", 1), ("fecha", 1)])
-        logger.info("MongoDB indexes ensured (including anti-duplicados conciliacion)")
+
+        # ── Reintentos de movimientos (cuando Alegra está caído) ────────────────────
+        await db.conciliacion_reintentos.create_index([("movimiento_hash", 1)], unique=True)
+        await db.conciliacion_reintentos.create_index([("estado", 1), ("proximo_intento", 1)])
+        await db.conciliacion_reintentos.create_index([("banco", 1), ("fecha", 1)])
+        logger.info("MongoDB indexes ensured (including anti-duplicados + reintentos conciliacion)")
     except Exception as e:
         logger.warning(f"Index creation (non-fatal): {e}")
 
