@@ -437,6 +437,22 @@ class BankReconciliationEngine:
                 self.logger.error(f"GET verificación falló para journal {journal_id}")
                 return False, journal_id, "GET verification failed"
 
+            # Guardar en MongoDB después de verificación exitosa
+            hash_movimiento = hashlib.md5(
+                f"{movimiento.banco.value}{movimiento.fecha}{movimiento.descripcion}{str(movimiento.monto)}".encode()
+            ).hexdigest()
+
+            await self.db.conciliacion_movimientos_procesados.insert_one({
+                "hash": hash_movimiento,
+                "banco": movimiento.banco.value,
+                "fecha": movimiento.fecha,
+                "descripcion": movimiento.descripcion,
+                "monto": movimiento.monto,
+                "journal_id": journal_id,
+                "procesado_at": datetime.now(timezone.utc).isoformat(),
+            })
+            self.logger.info(f"[MONGO] Movimiento guardado en BD: journal_id {journal_id}")
+
             self.logger.info(f"[Alegra] Journal {journal_id} creado para {movimiento.descripcion}")
             return True, journal_id, None
 
