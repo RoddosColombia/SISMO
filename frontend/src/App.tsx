@@ -19,6 +19,7 @@ import CFO from "./pages/CFO";
 import Proveedores from "./pages/Proveedores";
 import Perfil from "./pages/Perfil";
 import Radar from "./pages/Radar";
+import CargarExtraacto from "./pages/CargarExtraacto";
 import "./App.css";
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -45,6 +46,7 @@ function AppRoutes() {
         >
           <Route index element={<Navigate to="/agente-contable" replace />} />
           <Route path="agente-contable" element={<AgentChatPage />} />
+          <Route path="cargar-extracto" element={<CargarExtraacto />} />
           <Route path="cfo-estrategico" element={<CFOEstrategico />} />
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="cfo" element={<CFO />} />
