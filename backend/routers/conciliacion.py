@@ -1054,8 +1054,8 @@ async def backfill_desde_alegra(req: BackfillRequest, current_user=Depends(requi
     Uso: POST /api/conciliacion/backfill-desde-alegra
     Body: {"banco": "bbva", "mes": "2026-01"}
     """
-    from alegra_service import AlegraService
     import re
+    import base64
 
     try:
         # Validar formato mes
@@ -1072,25 +1072,54 @@ async def backfill_desde_alegra(req: BackfillRequest, current_user=Depends(requi
 
         logger.info(f"[BACKFILL] Iniciando: {banco_normalized}/{req.mes}")
 
-        # Consultar journals en Alegra
-        service = AlegraService(db)
+        # Leer credenciales directamente del entorno (sin AlegraService)
+        email = os.environ.get("ALEGRA_EMAIL", "")
+        token = os.environ.get("ALEGRA_TOKEN", "")
 
-        # GET /journals filtrando por rango de fechas
-        # Nota: Alegra API puede no soportar filtros directos, así que consultamos todos
-        # y filtramos en código
-        journals_response = await service.request("journals")
+        if not email or not token:
+            raise ValueError(
+                "Credenciales de Alegra no configuradas. "
+                "Configura ALEGRA_EMAIL y ALEGRA_TOKEN en variables de entorno de Render."
+            )
 
-        if not isinstance(journals_response, list):
-            journals_response = journals_response.get("items", []) if isinstance(journals_response, dict) else []
+        # Construir header Basic Auth
+        creds_str = f"{email}:{token}"
+        creds_b64 = base64.b64encode(creds_str.encode()).decode()
+        headers = {
+            "Authorization": f"Basic {creds_b64}",
+            "Content-Type": "application/json",
+        }
 
-        logger.info(f"[BACKFILL] Total journals en Alegra: {len(journals_response)}")
+        logger.info(f"[BACKFILL] Consultando Alegra con credenciales: {email[:10]}...")
+
+        # Consultar journals en Alegra directamente (sin AlegraService)
+        url = "https://api.alegra.com/api/v1/journals"
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.get(url, headers=headers)
+
+        if response.status_code != 200:
+            raise ValueError(
+                f"Alegra retornó HTTP {response.status_code}: {response.text[:200]}"
+            )
+
+        journals_response = response.json()
+
+        # Parsear respuesta (puede ser lista o dict con "results")
+        if isinstance(journals_response, list):
+            journals_list = journals_response
+        elif isinstance(journals_response, dict) and "results" in journals_response:
+            journals_list = journals_response["results"]
+        else:
+            journals_list = []
+
+        logger.info(f"[BACKFILL] Total journals en Alegra: {len(journals_list)}")
 
         total_procesados = 0
         total_insertados = 0
         total_existentes = 0
 
         # Procesar cada journal
-        for journal in journals_response:
+        for journal in journals_list:
             fecha_journal = journal.get("date", "")
             observations = journal.get("observations", "").lower()
             journal_id = journal.get("id")
