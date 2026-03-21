@@ -4,8 +4,6 @@ import { Button } from "../components/ui/button";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
 
-const API = process.env.REACT_APP_BACKEND_URL;
-
 interface ProcesosResult {
   status: "processing" | "success" | "error";
   job_id: string;
@@ -83,7 +81,7 @@ export default function CargarExtraacto() {
       formData.append("file", archivo);
       formData.append("banco", banco);
 
-      const res = await api.post("/api/conciliacion/cargar-extracto", formData, {
+      const res = await api.post("/conciliacion/cargar-extracto", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
 
