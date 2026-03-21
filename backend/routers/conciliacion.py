@@ -593,3 +593,49 @@ async def obtener_estado_conciliacion(
     except Exception as e:
         logger.error(f"Error obteniendo estado: {e}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+@router.get("/diagnostico/causados-hoy")
+async def diagnostico_causados_hoy(
+    current_user=Depends(get_current_user),
+):
+    """Diagnóstico: Cuántos journals se crearon hoy en roddos_events."""
+    try:
+        today = datetime.now(timezone.utc).date().isoformat()
+
+        # Contar todos los causados de hoy
+        count = await db.roddos_events.count_documents({
+            "event_type": "extracto_bancario.causado",
+            "timestamp": {
+                "$gte": f"{today}T00:00:00",
+                "$lt": f"{today}T23:59:59"
+            }
+        })
+
+        # Primeros 5
+        eventos = await db.roddos_events.find({
+            "event_type": "extracto_bancario.causado",
+            "timestamp": {
+                "$gte": f"{today}T00:00:00",
+                "$lt": f"{today}T23:59:59"
+            }
+        }).sort("timestamp", -1).limit(5).to_list(5)
+
+        primeros_5 = []
+        for evt in eventos:
+            primeros_5.append({
+                "journal_id": evt.get("journal_id", "N/A"),
+                "monto": evt.get("monto", 0),
+                "descripcion": evt.get("descripcion", "N/A")[:80],
+                "timestamp": evt.get("timestamp", "N/A"),
+            })
+
+        return {
+            "fecha": today,
+            "total_causados": count,
+            "primeros_5": primeros_5,
+        }
+
+    except Exception as e:
+        logger.error(f"Error en diagnostico causados: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
