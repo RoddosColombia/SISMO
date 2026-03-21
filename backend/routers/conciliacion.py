@@ -11,6 +11,7 @@ import logging
 import base64
 import os
 import httpx
+import hashlib
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -57,6 +58,7 @@ async def _procesar_extracto_background(
     fecha: str,
     archivo_bytes: bytes,
     usuario_id: str,
+    hash_extracto: str,
 ):
     """Procesa extracto en background para lotes grandes."""
     logger.info(f"[🔄 Job {job_id}] INICIANDO procesamiento de extracto {banco}")
@@ -107,10 +109,36 @@ async def _procesar_extracto_background(
         logger.info(f"[💰 Job {job_id}] Causando {len(causables)} movimientos en Alegra...")
         for idx, mov in enumerate(causables, 1):
             logger.debug(f"[💰 Job {job_id}] [{idx}/{len(causables)}] Causando: {mov.descripcion} ${mov.monto:,.0f}")
+
+            # ─────────────────────────────────────────────────────────────────────────────
+            # CAPA 2: ANTI-DUPLICADOS — Hash por movimiento individual
+            # ─────────────────────────────────────────────────────────────────────────────
+            hash_movimiento = hashlib.md5(
+                f"{banco}{mov.fecha}{mov.descripcion}{str(mov.monto)}".encode()
+            ).hexdigest()
+
+            movimiento_duplicado = await db.conciliacion_movimientos_procesados.find_one({
+                "hash": hash_movimiento
+            })
+
+            if movimiento_duplicado:
+                logger.warning(f"[⚠️  DUPLICADO Job {job_id}] Movimiento {mov.descripcion} ya procesado, skipping")
+                continue
+
             exitoso, journal_id, error = await engine.crear_journal_alegra(mov)
             if exitoso:
                 _jobs_estado[job_id]["causados"] += 1
                 logger.info(f"[✅ Job {job_id}] Journal {journal_id} creado para {mov.descripcion}")
+                # Guardar hash del movimiento como procesado
+                await db.conciliacion_movimientos_procesados.insert_one({
+                    "hash": hash_movimiento,
+                    "banco": banco,
+                    "fecha": mov.fecha,
+                    "descripcion": mov.descripcion,
+                    "monto": mov.monto,
+                    "journal_id": journal_id,
+                    "procesado_at": datetime.now(timezone.utc).isoformat(),
+                })
                 # Guardar en roddos_events
                 await db.roddos_events.insert_one({
                     "event_type": "extracto_bancario.causado",
@@ -157,6 +185,18 @@ async def _procesar_extracto_background(
                 {"job_id": job_id},
                 {"$inc": {"pendientes": 1}}
             )
+
+        # Guardar hash del extracto como procesado
+        await db.conciliacion_extractos_procesados.insert_one({
+            "hash": hash_extracto,
+            "banco": banco.lower(),
+            "fecha": fecha,
+            "procesado_at": datetime.now(timezone.utc).isoformat(),
+            "journals_creados": _jobs_estado[job_id]["causados"],
+            "movimientos_pendientes": _jobs_estado[job_id]["pendientes"],
+            "usuario": usuario_id,
+            "job_id": job_id,
+        })
 
         # Finalización exitosa
         _jobs_estado[job_id]["status"] = "completed"
@@ -214,6 +254,23 @@ async def cargar_extracto(
         # Leer archivo
         archivo_bytes = await archivo.read()
 
+        # ─────────────────────────────────────────────────────────────────────────────
+        # CAPA 1: ANTI-DUPLICADOS — Hash del extracto completo
+        # ─────────────────────────────────────────────────────────────────────────────
+        hash_extracto = hashlib.md5(archivo_bytes).hexdigest()
+        extracto_existente = await db.conciliacion_extractos_procesados.find_one({
+            "hash": hash_extracto,
+            "banco": banco.lower(),
+        })
+
+        if extracto_existente:
+            logger.warning(f"[DUPLICADO] Extracto {banco} del {fecha} ya fue procesado")
+            raise HTTPException(
+                status_code=409,
+                detail=f"Este extracto ya fue procesado el {extracto_existente.get('procesado_at', 'fecha desconocida')}. "
+                        f"Journals creados: {extracto_existente.get('journals_creados', 0)}"
+            )
+
         # Parsear extracto
         movimientos = await engine.parsear_extracto(banco, archivo_bytes)
 
@@ -229,7 +286,7 @@ async def cargar_extracto(
             job_id = str(uuid.uuid4())
             background_tasks.add_task(
                 _procesar_extracto_background,
-                job_id, banco, fecha, archivo_bytes, current_user,
+                job_id, banco, fecha, archivo_bytes, current_user, hash_extracto,
             )
 
             await log_action(
@@ -293,6 +350,17 @@ async def cargar_extracto(
                 "pendientes": pendientes_count,
             },
         )
+
+        # Guardar hash del extracto como procesado
+        await db.conciliacion_extractos_procesados.insert_one({
+            "hash": hash_extracto,
+            "banco": banco.lower(),
+            "fecha": fecha,
+            "procesado_at": datetime.now(timezone.utc).isoformat(),
+            "journals_creados": causados,
+            "movimientos_pendientes": pendientes_count,
+            "usuario": current_user,
+        })
 
         return {
             "causados": causados,

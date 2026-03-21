@@ -146,7 +146,13 @@ async def startup():
         await db.roddos_events.create_index([("estado", 1), ("timestamp", -1)])
         await db.loanbook.create_index([("dpd_bucket", 1)])
         await db.loanbook.create_index([("score_pago", 1)])
-        logger.info("MongoDB indexes ensured")
+
+        # ── Anti-duplicados: Conciliación bancaria ─────────────────────────────────
+        await db.conciliacion_extractos_procesados.create_index([("hash", 1)], unique=True)
+        await db.conciliacion_extractos_procesados.create_index([("banco", 1), ("fecha", 1)])
+        await db.conciliacion_movimientos_procesados.create_index([("hash", 1)], unique=True)
+        await db.conciliacion_movimientos_procesados.create_index([("banco", 1), ("fecha", 1)])
+        logger.info("MongoDB indexes ensured (including anti-duplicados conciliacion)")
     except Exception as e:
         logger.warning(f"Index creation (non-fatal): {e}")
 
