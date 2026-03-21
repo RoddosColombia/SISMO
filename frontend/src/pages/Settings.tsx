@@ -1050,6 +1050,7 @@ function MercatelyTab({ api }: { api: any }) {
   const [apiKey, setApiKey] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [ceoNumber, setCeoNumber] = useState("");
+  const [cgoNumber, setCgoNumber] = useState("");
   const [whitelist, setWhitelist] = useState<string[]>([]);
   const [wlInput, setWlInput] = useState("");
   const [destinatarios, setDestinatarios] = useState<string[]>([]);
@@ -1083,6 +1084,7 @@ function MercatelyTab({ api }: { api: any }) {
       setStatus(d);
       setPhoneNumber(d.phone_number || "");
       setCeoNumber(d.ceo_number || "");
+      setCgoNumber(d.cgo_number || "");
       setWhitelist(d.whitelist || []);
       setDestinatarios(d.destinatarios_resumen || []);
       setGlobalActivo(d.global_activo ?? true);
@@ -1114,6 +1116,7 @@ function MercatelyTab({ api }: { api: any }) {
         phone_number: phoneNumber.trim(),
         whitelist,
         ceo_number: ceoNumber.trim(),
+        cgo_number: cgoNumber.trim(),
         destinatarios_resumen: destinatarios,
         global_activo: globalActivo,
         horario_inicio: horarioInicio,
@@ -1125,7 +1128,7 @@ function MercatelyTab({ api }: { api: any }) {
       toast.success("Configuración Mercately guardada");
       setStatus((p: any) => ({
         ...p, has_credentials: payload.api_key ? true : p.has_credentials,
-        phone_number: phoneNumber, ceo_number: ceoNumber, whitelist,
+        phone_number: phoneNumber, ceo_number: ceoNumber, cgo_number: cgoNumber, whitelist,
         destinatarios_resumen: destinatarios, global_activo: globalActivo,
         configured_at: new Date().toISOString(),
       }));
@@ -1245,11 +1248,20 @@ function MercatelyTab({ api }: { api: any }) {
                 value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)}
                 className="mt-1.5" data-testid="mercately-phone-input" />
             </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <Label className="text-sm font-semibold text-slate-700">Número CEO (alertas CFO)</Label>
               <Input type="tel" placeholder="+573009876543"
                 value={ceoNumber} onChange={e => setCeoNumber(e.target.value)}
                 className="mt-1.5" data-testid="mercately-ceo-input" />
+            </div>
+            <div>
+              <Label className="text-sm font-semibold text-slate-700">Número CGO (alertas operativas)</Label>
+              <Input type="tel" placeholder="+573009876543"
+                value={cgoNumber} onChange={e => setCgoNumber(e.target.value)}
+                className="mt-1.5" data-testid="mercately-cgo-input" />
             </div>
           </div>
 

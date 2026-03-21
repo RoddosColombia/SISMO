@@ -72,6 +72,7 @@ class MercatelyCredentialsRequest(BaseModel):
     phone_number: str = ""
     whitelist: list[str] = []
     ceo_number: str = ""
+    cgo_number: str = ""
     destinatarios_resumen: list[str] = []
     global_activo: bool = True
     horario_inicio: str = "08:00"

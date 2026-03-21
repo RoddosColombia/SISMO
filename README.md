@@ -106,29 +106,43 @@ La integración de Mercately permite enviar mensajes WhatsApp automáticamente e
 5. Pega el API Key en el campo correspondiente
 6. Haz clic en **Probar Conexión** para verificar que funciona
 
-### 2. Actualizar tu número de WhatsApp
+### 2. Configurar números de ejecutivos (CEO y CGO)
 
-Para recibir notificaciones en tu WhatsApp personal:
+Para recibir notificaciones de operaciones críticas:
 
+**CEO (Chief Executive Officer)** — Alertas financieras y críticas:
 1. Ve a **Configuración → Mercately** en SISMO
-2. En el campo "Mi teléfono", ingresa tu número en formato internacional: `57XXXXXXXXXX`
-   - Ejemplo: `573115551234` (Andrés)
-   - El número debe incluir código país (57 para Colombia)
-3. Guarda los cambios
-4. Prueba la conexión — recibirás un mensaje de confirmación
+2. Ingresa número WhatsApp en campo "Número CEO": `57XXXXXXXXXX`
+3. Recibirá: movimientos ambiguos + resumen semanal + alertas de Alegra caído
+
+**CGO (Chief Growth Officer)** — Alertas operativas:
+1. En el mismo campo de Configuración → Mercately
+2. Ingresa número WhatsApp en campo "Número CGO": `57XXXXXXXXXX`
+3. Recibirá: movimientos ambiguos + resumen semanal + alertas operativas
+
+**Mi teléfono RODDOS** — Soporte operativo interno:
+1. Campo "Número WhatsApp RODDOS"
+2. Número principal de la empresa para notificaciones internas
+
+Ejemplo:
+- RODDOS: `573001234567`
+- CEO: `573115551234` (Andrés)
+- CGO: `573159876543` (Gerente de Operaciones)
 
 ### 3. Casos de uso automáticos
 
 **A. Notificaciones de Movimientos Ambiguos (Clasificación Contable)**
 
-Cuando se carga un extracto bancario y hay movimientos con baja confianza en su clasificación contable:
+Cuando se carga un extracto bancario y hay movimientos con baja confianza:
 - El sistema intenta clasificarlos automáticamente
 - Si confianza < 70%, se solicita confirmación vía WhatsApp
-- Mensaje enviado a tu número configurado con:
+- **Destinatarios:** CEO + CGO + números en resumen semanal
+- Mensaje incluye:
   - Monto de la transacción
-  - Descripción
+  - Descripción del movimiento
   - Cuenta contable sugerida
   - % de confianza en la clasificación
+  - Solicitud de confirmación (SI/NO)
 
 Ejemplo:
 ```
@@ -149,11 +163,23 @@ Responde: SI o NO
 
 **B. Recordatorios de Cuotas (Loanbook)**
 
-El scheduler envía mensajes WhatsApp en estos momentos:
+El scheduler envía mensajes WhatsApp a clientes en estos momentos:
 - **Lunes 8am**: Recordatorio D-2 a clientes que pagan miércoles
 - **Miércoles 8am**: Recordatorio día de vencimiento
 - **Jueves 9am**: Alerta de mora D+1 (cuota no pagada)
 - **Sábado 9am**: Alerta de mora severa (+30 días)
+
+**C. Alertas de Operación del Sistema (CEO y CGO)**
+
+CEO y CGO reciben notificaciones en estos casos:
+
+| Evento | Destinatario | Horario | Descripción |
+|--------|-------------|---------|-------------|
+| Movimientos ambiguos sin clasificar | CEO + CGO | Inmediato | Solicitud de confirmación contable |
+| Resumen semanal de pendientes | CEO + CGO + otros | Viernes 17:00 | Síntesis de movimientos, cuotas, cartera |
+| Alegra caído > 30 min | CEO + CGO | Inmediato | Alerta crítica — servicio de contabilidad fuera |
+
+Ambos ejecutivos reciben simultáneamente para asegurar redundancia en casos críticos.
 
 ### 4. Probar la integración
 
