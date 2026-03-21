@@ -130,7 +130,7 @@ class BBVAParser:
             movimientos = []
             for _, row in df.iterrows():
                 try:
-                    fecha_str = pd.to_datetime(row[BBVAParser.COL_FECHA]).strftime("%Y-%m-%d")
+                    fecha_str = pd.to_datetime(row[BBVAParser.COL_FECHA], format='%d-%m-%Y').strftime("%Y-%m-%d")
                     descripcion = str(row[BBVAParser.COL_DESCRIPCION]).strip()
                     monto_raw = float(row[BBVAParser.COL_VALOR])
 
