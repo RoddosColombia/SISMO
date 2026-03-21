@@ -1029,3 +1029,140 @@ async def get_journals_by_banco(
     except Exception as e:
         logger.error(f"[AUDIT] Error consultando journals: {e}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+# ── Backfill desde Alegra ─────────────────────────────────────────────────────
+
+class BackfillRequest(BaseModel):
+    banco: str  # "bbva" o "bancolombia"
+    mes: str    # "YYYY-MM"
+
+
+@router.post("/backfill-desde-alegra")
+async def backfill_desde_alegra(req: BackfillRequest, current_user=Depends(require_admin)):
+    """
+    Reconstruye conciliacion_movimientos_procesados consultando journals en Alegra.
+
+    Lógica:
+    1. Consulta GET /journals filtrando por fecha (mes-01 a mes-31)
+    2. Para cada journal con "(bbva)" o "(bancolombia)" en observations:
+       - Extrae banco del texto
+       - Calcula hash: MD5(banco + fecha + observations + monto)
+       - Inserta en conciliacion_movimientos_procesados si no existe (upsert)
+    3. Retorna: total en Alegra, insertados en MongoDB, ya existían
+
+    Uso: POST /api/conciliacion/backfill-desde-alegra
+    Body: {"banco": "bbva", "mes": "2026-01"}
+    """
+    from alegra_service import AlegraService
+    import re
+
+    try:
+        # Validar formato mes
+        if not re.match(r"^\d{4}-\d{2}$", req.mes):
+            raise ValueError("Formato mes debe ser YYYY-MM")
+
+        year, month = req.mes.split("-")
+        fecha_inicio = f"{year}-{month}-01"
+        fecha_fin = f"{year}-{month}-31"
+
+        banco_normalized = req.banco.lower()
+        if banco_normalized not in ("bbva", "bancolombia"):
+            raise ValueError("banco debe ser 'bbva' o 'bancolombia'")
+
+        logger.info(f"[BACKFILL] Iniciando: {banco_normalized}/{req.mes}")
+
+        # Consultar journals en Alegra
+        service = AlegraService(db)
+
+        # GET /journals filtrando por rango de fechas
+        # Nota: Alegra API puede no soportar filtros directos, así que consultamos todos
+        # y filtramos en código
+        journals_response = await service.request("journals")
+
+        if not isinstance(journals_response, list):
+            journals_response = journals_response.get("items", []) if isinstance(journals_response, dict) else []
+
+        logger.info(f"[BACKFILL] Total journals en Alegra: {len(journals_response)}")
+
+        total_procesados = 0
+        total_insertados = 0
+        total_existentes = 0
+
+        # Procesar cada journal
+        for journal in journals_response:
+            fecha_journal = journal.get("date", "")
+            observations = journal.get("observations", "").lower()
+            journal_id = journal.get("id")
+            entries = journal.get("entries", [])
+
+            # Filtrar por rango de fecha
+            if not (fecha_inicio <= fecha_journal <= fecha_fin):
+                continue
+
+            # Buscar banco en observations
+            banco_encontrado = None
+            if "bbva" in observations:
+                banco_encontrado = "bbva"
+            elif "bancolombia" in observations:
+                banco_encontrado = "bancolombia"
+
+            # Si el banco no coincide con el solicitado, skip
+            if banco_encontrado != banco_normalized:
+                continue
+
+            total_procesados += 1
+
+            # Calcular monto total del journal (sum of debits)
+            monto_total = sum(int(e.get("debit", 0)) for e in entries)
+
+            # Calcular hash: MD5(banco + fecha + observations + monto)
+            hash_str = f"{banco_encontrado}{fecha_journal}{observations}{monto_total}"
+            hash_movimiento = hashlib.md5(hash_str.encode()).hexdigest()
+
+            # Upsert en MongoDB
+            result = await db.conciliacion_movimientos_procesados.update_one(
+                {"hash": hash_movimiento},
+                {
+                    "$set": {
+                        "hash": hash_movimiento,
+                        "banco": banco_encontrado,
+                        "fecha": fecha_journal,
+                        "descripcion": observations[:100],  # Truncar a 100 chars
+                        "monto": monto_total,
+                        "journal_id": str(journal_id),
+                        "procesado_at": datetime.now(timezone.utc).isoformat(),
+                        "backfill_source": "alegra",
+                    }
+                },
+                upsert=True,
+            )
+
+            if result.upserted_id:
+                total_insertados += 1
+                logger.info(f"[BACKFILL] Insertado: journal {journal_id} → hash {hash_movimiento[:8]}")
+            else:
+                total_existentes += 1
+                logger.info(f"[BACKFILL] Ya existía: journal {journal_id} → hash {hash_movimiento[:8]}")
+
+        logger.info(
+            f"[BACKFILL] Completado: {total_procesados} journals procesados, "
+            f"{total_insertados} insertados, {total_existentes} ya existían"
+        )
+
+        return {
+            "status": "success",
+            "banco": banco_normalized,
+            "mes": req.mes,
+            "total_journals_alegra": total_procesados,
+            "total_insertados": total_insertados,
+            "total_existentes": total_existentes,
+            "mensaje": f"Backfill completado: {total_insertados} nuevos + {total_existentes} existentes",
+        }
+
+    except ValueError as e:
+        logger.error(f"[BACKFILL] Error validación: {e}")
+        raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
+    except Exception as e:
+        logger.error(f"[BACKFILL] Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
