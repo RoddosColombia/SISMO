@@ -228,6 +228,78 @@ Si recibes un mensaje de prueba en tu WhatsApp, la integración está funcionand
 - Asegúrate de que el número tiene el código de país (57 para Colombia)
 - El número debe ser el mismo que está registrado en tu cuenta Mercately
 
+## Conciliación Bancaria Automática
+
+La conciliación automática procesa extractos bancarios y crea journals en Alegra:
+
+### Flujo de Procesamiento
+
+1. **Cargar extracto bancario** → POST `/api/conciliacion/cargar-extracto`
+   - Soporta BBVA, Bancolombia, Davivienda, Nequi
+   - El sistema clasifica automáticamente cada movimiento
+   - Confianza ≥ 70% → Crea journal en Alegra automáticamente
+   - Confianza < 70% → Guarda en pendientes para revisión manual
+
+2. **Crear journals en Alegra**
+   - El background task procesa cada movimiento clasificado
+   - POST `/journals` a Alegra con debit/credit
+   - GET verificación para confirmar creación
+   - Inserta registro en MongoDB `conciliacion_movimientos_procesados` con:
+     - `hash`: MD5(banco + fecha + descripcion + monto)
+     - `journal_id`: ID del journal en Alegra
+     - `procesado_at`: ISO timestamp
+
+3. **Movimientos ambiguos**
+   - Se guardan en `contabilidad_pendientes` para resolución manual
+   - Endpoint POST `/api/conciliacion/resolver/{id}` permite reclasificar
+
+### Reconstruir Audit Trail desde Alegra
+
+Si el audit trail en MongoDB se ve comprometido o vacío, usa el endpoint de backfill:
+
+**Endpoint:**
+```bash
+POST /api/conciliacion/backfill-desde-alegra
+Authorization: Bearer <jwt-token>
+```
+
+**Body:**
+```json
+{
+  "banco": "bbva",
+  "mes": "2026-01"
+}
+```
+
+**Respuesta:**
+```json
+{
+  "status": "success",
+  "banco": "bbva",
+  "mes": "2026-01",
+  "total_journals_alegra": 111,
+  "total_insertados": 105,
+  "total_existentes": 6,
+  "mensaje": "Backfill completado: 105 nuevos + 6 existentes"
+}
+```
+
+**Lógica:**
+- Consulta todos los journals en Alegra
+- Filtra por rango de fecha (mes-01 a mes-31)
+- Extrae banco del texto de observations
+- Calcula hash: MD5(banco + fecha + observations + monto)
+- Upsert en MongoDB si no existe ese hash
+- NO modifica journals existentes
+
+**Casos de uso:**
+- Recuperar datos después de una limpieza accidental de MongoDB
+- Validar completitud del audit trail
+- Reconstruir histórico de conciliación para un mes específico
+- Reconciliar discrepancias entre Alegra y MongoDB
+
+**Permisos:** Requiere rol de admin
+
 ## Colecciones MongoDB
 
 | Colección | Descripción |
@@ -236,6 +308,9 @@ Si recibes un mensaje de prueba en tu WhatsApp, la integración está funcionand
 | `inventario_motos` | 33 motos TVS con VINs, motores, estado y precio |
 | `cartera_pagos` | Registro histórico de pagos de cuotas |
 | `cartera_gestiones` | Gestiones de cobranza y PTPs |
+| `conciliacion_movimientos_procesados` | Audit trail: movimientos causados con journal_id |
+| `conciliacion_reintentos` | Movimientos pendiente reintento (error 503/429) |
+| `contabilidad_pendientes` | Movimientos ambiguos (confianza < 70%) esperando resolución manual |
 | `cfo_deudas` | Deudas no productivas (Auteco + operativas) |
 | `cfo_cache` | Caché de panel CFO (TTL 5 min, invalida en eventos) |
 | `cfo_configuracion` | Parámetros CFO: meta ventas, gastos fijos, nómina |
@@ -309,6 +384,16 @@ GET  /api/alegra/bills        Facturas de compra
 GET  /api/webhooks/status     Estado webhooks (activos/inactivos)
 POST /api/webhooks/setup      Intentar registro automático webhooks
 POST /webhooks/alegra         Receptor de webhooks Alegra (ruta pública)
+```
+
+### Conciliación Bancaria
+```
+POST /api/conciliacion/cargar-extracto        Cargar extracto bancario
+GET  /api/conciliacion/pendientes             Listar movimientos pendientes
+POST /api/conciliacion/resolver/{id}          Resolver movimiento ambiguo
+GET  /api/conciliacion/estado/{fecha}         Estado de conciliación
+GET  /api/conciliacion/journals-banco         Audit: journals por banco/mes
+POST /api/conciliacion/backfill-desde-alegra  Reconstruir audit trail desde Alegra
 ```
 
 ### Sistema
