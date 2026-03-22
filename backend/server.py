@@ -253,18 +253,6 @@ async def startup():
     start_scheduler()
     start_loanbook_scheduler()
 
-    # ── Inicializar plan_ingresos_roddos ──────────────────────────────────────
-    from routers.ingresos import PLAN_INGRESOS_RODDOS
-    now_str = datetime.now(timezone.utc).isoformat()
-    for entry in PLAN_INGRESOS_RODDOS:
-        await db.plan_ingresos_roddos.update_one(
-            {"tipo_ingreso": entry["tipo_ingreso"]},
-            {"$set": {**entry, "actualizado_en": now_str}},
-            upsert=True,
-        )
-    logger.info("plan_ingresos_roddos sincronizado: %d tipos", len(PLAN_INGRESOS_RODDOS))
-
-    # ── Índices CXC ───────────────────────────────────────────────────────────
     await db.cxc_socios.create_index([("socio", 1), ("estado", 1)])
     await db.cxc_socios.create_index([("fecha", 1)])
     await db.cxc_clientes.create_index([("nit_cliente", 1)])
