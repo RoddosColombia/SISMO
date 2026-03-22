@@ -59,28 +59,31 @@ class AlegraService:
             if now < expires_at:
                 return cached
 
-        # PRIORITY 1: Environment variables (production)
-        if ALEGRA_EMAIL and ALEGRA_TOKEN:
+        # PRIORITY 1: Environment variables (ALWAYS read fresh, never cached)
+        env_email = os.environ.get("ALEGRA_EMAIL", "").strip()
+        env_token = os.environ.get("ALEGRA_TOKEN", "").strip()
+
+        if env_email and env_token:
             result = {
-                "email": ALEGRA_EMAIL,
-                "token": ALEGRA_TOKEN,
+                "email": env_email,
+                "token": env_token,
                 "is_demo_mode": False,
                 "_source": "environment_variables"
             }
-            logger.info(f"[Alegra] Usando credenciales de producción desde variables de entorno")
+            logger.info(f"[Alegra] ✅ Credenciales PRODUCCIÓN desde variables de entorno")
             _settings_cache[cache_key] = (now + timedelta(seconds=_SETTINGS_TTL), result)
             return result
 
-        # PRIORITY 2: MongoDB collection
+        # PRIORITY 2: MongoDB collection (only if env vars not present)
         settings = await self.db.alegra_credentials.find_one({}, {"_id": 0})
         if settings and settings.get("email") and settings.get("token") and not settings.get("is_demo_mode"):
-            logger.info(f"[Alegra] Usando credenciales de MongoDB (producción)")
+            logger.info(f"[Alegra] ✅ Credenciales PRODUCCIÓN desde MongoDB")
             _settings_cache[cache_key] = (now + timedelta(seconds=_SETTINGS_TTL), settings)
             return settings
 
         # FALLBACK: Demo mode
         result = {"email": "", "token": "", "is_demo_mode": True, "_source": "fallback_demo"}
-        logger.warning(f"[Alegra] ⚠️ DEMO MODE ACTIVO - Credenciales no configuradas. Usar variables de entorno ALEGRA_EMAIL/ALEGRA_TOKEN")
+        logger.warning(f"[Alegra] ⚠️ DEMO MODE - Configure ALEGRA_EMAIL y ALEGRA_TOKEN en Render")
         _settings_cache[cache_key] = (now + timedelta(seconds=_SETTINGS_TTL), result)
         return result
 
