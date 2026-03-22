@@ -22,25 +22,76 @@ router = APIRouter(prefix="/nomina", tags=["nomina"])
 logger = logging.getLogger(__name__)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PLAN DE CUENTAS NÓMINA — RODDOS SAS
+# HELPER FUNCTIONS FOR ACCOUNT LOOKUPS
 # ══════════════════════════════════════════════════════════════════════════════
 
-PLAN_CUENTAS_NOMINA = {
-    "sueldos_base": 5462,  # Sueldos (cuenta de gasto)
-    "aportes_eps": 5465,   # Aportes a salud (si aplica)
-    "aportes_arl": 5466,   # Aportes a riesgos (si aplica)
-}
+async def obtener_cuenta_sueldos() -> int:
+    """
+    Get payroll account ID from MongoDB plan_cuentas_roddos.
+    Defaults to standard sueldos account.
+    """
+    cuenta = await db.plan_cuentas_roddos.find_one({
+        "tipo": "gasto",
+        "gasto_tipo": "sueldos",
+        "activo": True
+    })
 
-BANCOS_PAGO_NOMINA = {
-    "bancolombia": 5314,
-    "bancolombia 2029": 5314,
-    "bbva": 5318,
-    "davivienda": 5322,
-    "banco de bogota": 5321,
-}
+    if cuenta:
+        return cuenta["alegra_id"]
 
-DEFAULT_BANCO_PAGO = 5314  # Bancolombia 2029
-DEFAULT_CUENTA_SUELDOS = 5462
+    # Fallback search
+    cuenta = await db.plan_cuentas_roddos.find_one({
+        "tipo": "gasto",
+        "cuenta_nombre": {"$regex": "[Ss]ueldos", "$options": "i"},
+        "activo": True
+    })
+
+    if cuenta:
+        return cuenta["alegra_id"]
+
+    logger.warning("[F4] Cuenta sueldos no encontrada en plan_cuentas_roddos, usando fallback 5462")
+    return 5462
+
+
+async def obtener_cuenta_bancaria_nomina(banco_origen: str) -> int:
+    """
+    Get bank account ID from MongoDB plan_cuentas_roddos for payroll.
+    Falls back to Bancolombia if bank not found.
+    """
+    banco_key = banco_origen.lower().strip()
+
+    # Try exact match
+    cuenta = await db.plan_cuentas_roddos.find_one({
+        "tipo": "banco",
+        "banco_alias": {"$in": [banco_key, banco_origen]},
+        "activo": True
+    })
+
+    if cuenta:
+        return cuenta["alegra_id"]
+
+    # Try partial match
+    cuenta = await db.plan_cuentas_roddos.find_one({
+        "tipo": "banco",
+        "banco_alias": {"$regex": banco_key, "$options": "i"},
+        "activo": True
+    })
+
+    if cuenta:
+        return cuenta["alegra_id"]
+
+    # Default to Bancolombia
+    default_cuenta = await db.plan_cuentas_roddos.find_one({
+        "tipo": "banco",
+        "banco_nombre": {"$regex": "Bancolombia", "$options": "i"},
+        "activo": True
+    })
+
+    if default_cuenta:
+        return default_cuenta["alegra_id"]
+
+    logger.warning(f"[F4] Banco '{banco_origen}' no encontrado en plan_cuentas_roddos, usando fallback 5314")
+    return 5314
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -156,10 +207,9 @@ async def registrar_nomina(
         total_nomina = sum(emp.monto for emp in payload.empleados)
         logger.info(f"[F4] Total nómina: ${total_nomina:,.0f}")
 
-        # ── GET BANK ACCOUNT ID ───────────────────────────────────────────────
-        banco_key = payload.banco_pago.lower().strip()
-        bank_account_id = BANCOS_PAGO_NOMINA.get(banco_key, DEFAULT_BANCO_PAGO)
-        logger.info(f"[F4] Banco pago: {payload.banco_pago} → Cuenta ID {bank_account_id}")
+        # ── GET BANK ACCOUNT ID (from MongoDB plan_cuentas_roddos) ──────────────
+        bank_account_id = await obtener_cuenta_bancaria_nomina(payload.banco_pago)
+        logger.info(f"[F4] Banco pago: {payload.banco_pago} → Cuenta ID {bank_account_id} (desde plan_cuentas_roddos)")
 
         # ── SET UP ALEGRA SERVICE ─────────────────────────────────────────────
         service = AlegraService(db)
@@ -167,13 +217,17 @@ async def registrar_nomina(
         # ── CREATE JOURNAL IN ALEGRA ──────────────────────────────────────────
         fecha_nomina = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
+        # Get sueldos account from MongoDB
+        cuenta_sueldos = await obtener_cuenta_sueldos()
+        logger.info(f"[F4] Cuenta sueldos: ID {cuenta_sueldos} (desde plan_cuentas_roddos)")
+
         # Build entries: one DEBIT per employee + one CREDIT for bank
         entries = []
 
-        # DEBITS: One per employee on Sueldos account (5462)
+        # DEBITS: One per employee on Sueldos account
         for emp in payload.empleados:
             entries.append({
-                "id": DEFAULT_CUENTA_SUELDOS,
+                "id": cuenta_sueldos,
                 "debit": emp.monto,
                 "credit": 0
             })
@@ -349,10 +403,13 @@ async def get_nomina_historial(
 
 @router.get("/plan-cuentas")
 async def get_plan_cuentas(current_user=Depends(get_current_user)):
-    """Get payroll account plan."""
+    """Get payroll account plan from MongoDB."""
+    cuentas = await db.plan_cuentas_roddos.find({
+        "tipo": {"$in": ["gasto", "banco"]},
+        "activo": True
+    }).to_list(None)
+
     return {
-        "cuentas": PLAN_CUENTAS_NOMINA,
-        "bancos": BANCOS_PAGO_NOMINA,
-        "default_cuenta_sueldos": DEFAULT_CUENTA_SUELDOS,
-        "default_banco_pago": DEFAULT_BANCO_PAGO,
+        "cuentas": cuentas,
+        "total": len(cuentas),
     }
