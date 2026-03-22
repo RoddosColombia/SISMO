@@ -661,6 +661,30 @@ async def listar_pendientes(
     }
 
 
+@router.get("/procesados")
+async def listar_procesados(
+    limit: int = 50,
+    current_user=Depends(get_current_user),
+):
+    """
+    Lista los últimos movimientos procesados (journals creados en Alegra).
+
+    Retorna: fecha, descripcion, monto, banco, journal_id, procesado_at
+    Ordenado por procesado_at descendente (más recientes primero)
+    """
+    movimientos = await db.conciliacion_movimientos_procesados.find(
+        {},
+        {"_id": 0, "hash": 0}  # Excluir ID y hash
+    ).sort("procesado_at", -1).to_list(limit)
+
+    return {
+        "total": len(movimientos),
+        "limit": limit,
+        "campos": ["fecha", "descripcion", "monto", "banco", "journal_id", "procesado_at"],
+        "movimientos": movimientos,
+    }
+
+
 @router.post("/resolver/{movimiento_id}")
 async def resolver_movimiento(
     movimiento_id: str,
