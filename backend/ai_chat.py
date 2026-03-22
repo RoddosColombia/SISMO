@@ -5,9 +5,12 @@ import json
 import base64
 import csv
 import io
+import logging
 from datetime import datetime, timezone, timedelta
 from fastapi import HTTPException
 import anthropic
+
+logger = logging.getLogger(__name__)
 
 
 # ── Helpers para context builders (evitar NoneType format errors) ─────────────
@@ -175,6 +178,74 @@ COMPORTAMIENTO OBLIGATORIO:
 4. Presenta un resumen CLARO antes de ejecutar.
 5. Siempre incluye el bloque <action> con payload listo para ejecutar.
 6. Si falta un cliente en Alegra, solicita NIT y crea el contacto primero.
+
+═══════════════════════════════════════════════════
+BUILD 23 — F2 CHAT TRANSACCIONAL: GENERACIÓN AUTOMÁTICA DE ASIENTOS CONTABLES
+═══════════════════════════════════════════════════
+Cuando el usuario REGISTRA UN GASTO o INGRESO, genera automáticamente:
+
+1. DETECCIÓN DE INTENT: Si el usuario menciona: "pagamos", "registra", "gasto", "factura", "honorarios", "arriendo", etc.
+   → DEBES proponer INMEDIATAMENTE un asiento contable con entradas débito/crédito
+
+2. CÁLCULO AUTOMÁTICO DE RETENCIONES:
+   Según el tipo de gasto/proveedor:
+   • Arrendamiento inmuebles → ReteFuente 3.5% SIEMPRE
+   • Servicios generales → ReteFuente 4% (si monto ≥ $199.196)
+   • Honorarios Persona Natural → ReteFuente 10% SIEMPRE
+   • Honorarios Persona Jurídica → ReteFuente 11% SIEMPRE
+   • Compras → ReteFuente 2.5% (si monto ≥ $1.344.573)
+   • TODOS los gastos → ReteICA 0.414% en Bogotá
+
+   EXCEPCIONES CRÍTICAS:
+   • Auteco NIT 860024781 → NUNCA ReteFuente (es autoretenedor)
+   • Andrés (CC 80075452) o Iván (CC 80086601) → CXC Socios (ID 5491), NUNCA gasto operativo
+
+3. ESTRUCTURA DEL ASIENTO (debe SIEMPRE balancear débitos = créditos):
+   Ejemplo: "Pagamos $800.000 honorarios al abogado (PN)"
+
+   - Débito: Cuenta de gasto (ej: Honorarios 5470) = $800.000
+   - Crédito: ReteFuente (ej: Ret. Honorarios 236505) = $80.000 (10%)
+   - Crédito: ReteICA (ej: Ret. ICA 236560) = $3.312 (0.414%)
+   - Crédito: Banco/Proveedores (ej: Banco 1105) = $716.688 (neto)
+   ═════════════════
+   TOTAL DÉBITO = TOTAL CRÉDITO ✓
+
+4. FORMATO DE PROPUESTA PARA EL USUARIO:
+   "Voy a registrar en Alegra:
+   - Débito: [Cuenta] $ABC (por qué se debita)
+   - Crédito: [Cuenta] $XYZ (por qué se acredita)
+   - Crédito: [Cuenta] $ABC (por qué se acredita)
+
+   ¿Confirmas que proceda?"
+
+5. GENERACIÓN DEL BLOQUE <action>:
+   <action>
+   {
+     "action_type": "crear_causacion",
+     "payload": {
+       "date": "YYYY-MM-DD",
+       "observations": "Descripción clara del asiento",
+       "entries": [
+         {"id": ID_CUENTA_DEBITO, "debit": MONTO_DEBITO, "credit": 0},
+         {"id": ID_CUENTA_CREDITO, "debit": 0, "credit": MONTO_CREDITO},
+         ...
+       ],
+       "_metadata": {
+         "proveedor": "Nombre proveedor",
+         "tipo_retencion": "tipo",
+         "original_description": "descripción original"
+       }
+     }
+   }
+   </action>
+
+   ⚠️ REGLAS CRÍTICAS:
+   • entries array DEBE tener mínimo 2 elementos
+   • Los "id" DEBEN ser IDs numéricos de Alegra (están en el contexto CUENTAS_CONTABLES_ALEGRA)
+   • NUNCA inventes IDs — usa SIEMPRE los que están en el contexto
+   • débitos DEBEN igualar créditos (error si no balancean)
+   • date formato YYYY-MM-DD
+   • observations es la descripción del comprobante
 
 ═══════════════════════════════════════════════════
 TARIFAS VIGENTES Colombia 2025 (UVT = $49.799):
@@ -3346,6 +3417,109 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
                 "result": None,
                 "message": f"Error al verificar {endpoint_v} en Alegra: {e.detail}",
             }
+
+    # ── Special case: crear_causacion (F2 — Chat Transaccional) ────────────────
+    if action_type == "crear_causacion":
+        # PHASE 2 — F2 Chat Transaccional: POST journal to /journals with verification
+        # Validar que payload tiene entries array válido
+        entries = payload.get("entries", [])
+        if not entries or len(entries) < 2:
+            return {
+                "success": False,
+                "error": "❌ Asiento requiere mínimo 2 líneas (débito y crédito)"
+            }
+
+        # Validar que débitos = créditos
+        total_debito = sum(float(e.get("debit", 0) or 0) for e in entries)
+        total_credito = sum(float(e.get("credit", 0) or 0) for e in entries)
+        diferencia = abs(total_debito - total_credito)
+
+        # Tolerancia: 1 COP por redondeo
+        if diferencia > 1:
+            return {
+                "success": False,
+                "error": f"❌ Desbalance en asiento: Débitos (${total_debito:,.0f}) ≠ Créditos (${total_credito:,.0f})"
+            }
+
+        # Validar que date está presente y es válido
+        fecha = payload.get("date", "")
+        if not fecha:
+            from datetime import datetime as _dt
+            fecha = _dt.now().isoformat()[:10]  # YYYY-MM-DD
+            payload["date"] = fecha
+
+        # Validar que observations (descripción) está presente
+        if not payload.get("observations", ""):
+            return {
+                "success": False,
+                "error": "❌ Asiento requiere descripción en el campo 'observations'"
+            }
+
+        logger.info(
+            f"[F2] Crear causacion: {len(entries)} líneas, "
+            f"débitos=${total_debito:,.0f}, créditos=${total_credito:,.0f}"
+        )
+
+        # POST a Alegra via request_with_verify() para garantizar HTTP 200
+        try:
+            result = await service.request_with_verify("journals", "POST", payload)
+        except Exception as e:
+            logger.error(f"[F2] POST a /journals falló: {str(e)}")
+            return {
+                "success": False,
+                "error": f"❌ Error al crear asiento en Alegra: {str(e)}"
+            }
+
+        # Verificar que request_with_verify() retornó _verificado: True
+        if not result.get("_verificado"):
+            error_msg = result.get("_error_verificacion", "Verificación fallida sin detalles")
+            logger.error(f"[F2] Verificación de journal falló: {error_msg}")
+            return {
+                "success": False,
+                "error": f"❌ Asiento creado pero no verificado en Alegra: {error_msg}"
+            }
+
+        # Extraer alegra_id (el ID real del journal)
+        alegra_id = result.get("id")
+        if not alegra_id:
+            logger.error(f"[F2] Alegra no retornó un ID válido en la respuesta: {result}")
+            return {
+                "success": False,
+                "error": "❌ Alegra no retornó un ID del journal creado"
+            }
+
+        logger.info(f"[F2] ✅ Journal creado en Alegra: ID={alegra_id}")
+
+        # Llamar post_action_sync() para sincronizar MongoDB
+        try:
+            sync_result = await post_action_sync(
+                "crear_causacion",
+                result,
+                payload,
+                db,
+                user,
+                metadata=internal_metadata
+            )
+        except Exception as e:
+            logger.error(f"[F2] post_action_sync falló (no fatal): {str(e)}")
+            sync_result = {"sync_messages": [f"⚠️ Asiento creado pero sincronización parcial: {str(e)}"]}
+
+        # Llamar invalidar_cache_cfo() para limpiar caché CFO
+        try:
+            from routers.cfo import invalidar_cache_cfo
+            await invalidar_cache_cfo()
+            logger.info("[F2] CFO cache invalidada")
+        except Exception as e:
+            logger.warning(f"[F2] No se pudo invalidar CFO cache (no fatal): {str(e)}")
+
+        return {
+            "success": True,
+            "id": alegra_id,
+            "journal_number": result.get("number", ""),
+            "message": f"✅ Asiento creado en Alegra con ID: {alegra_id}",
+            "result": result,
+            "sync": sync_result,
+        }
 
     # ── Special case: anular_causacion ────────────────────────────────────────
     if action_type == "anular_causacion":

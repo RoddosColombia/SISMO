@@ -1671,3 +1671,147 @@ Responde: SI o NO"""
             "cuenta_credito_final": movimiento.cuenta_credito_final,
             "notas_resolucion": movimiento.notas_resolucion,
         }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# BUILD 23 — F2 CHAT TRANSACCIONAL: FUNCIONES HELPER PARA GENERACIÓN DE ASIENTOS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def calcular_retenciones(
+    tipo_proveedor: str = "PN",        # PN | PJ
+    tipo_gasto: str = "servicios",     # arrendamiento | honorarios | servicios | compras | transporte
+    monto_bruto: float = 0,
+    es_autoretenedor: bool = False,
+    aplica_iva: bool = False,
+    aplica_reteica: bool = False,
+) -> dict:
+    """
+    Calcula automáticamente ReteFuente y ReteICA según el tipo de gasto.
+
+    Args:
+        tipo_proveedor: "PN" (Persona Natural) | "PJ" (Persona Jurídica)
+        tipo_gasto: tipo de gasto a clasificar
+        monto_bruto: monto sin retenciones
+        es_autoretenedor: si el proveedor es autoretenedor (ej: Auteco)
+        aplica_iva: si aplica IVA sobre el monto
+        aplica_reteica: si aplica ReteICA en Bogotá
+
+    Returns:
+        dict con estructura:
+        {
+            "base": float,
+            "iva_valor": float,
+            "retefuente_valor": float,
+            "retefuente_pct": float,
+            "retefuente_tipo": str,
+            "reteica_valor": float,
+            "reteica_pct": float,
+            "total_retenciones": float,
+            "neto_a_pagar": float,
+            "advertencias": list
+        }
+    """
+    UVT_2025 = 49799
+    UMBRAL_SERVICIOS = 4 * UVT_2025  # $199.196
+    UMBRAL_COMPRAS = 27 * UVT_2025   # $1.344.573
+    RETEICA_INDUSTRIA = 0.00414       # 0.414% para comercio de motos (RODDOS)
+
+    # Inicializar valores
+    base = monto_bruto
+    iva_valor = 0
+    retefuente_valor = 0
+    retefuente_pct = 0
+    retefuente_tipo = ""
+    reteica_valor = 0
+    advertencias = []
+
+    # Calcular IVA si aplica
+    if aplica_iva:
+        iva_valor = monto_bruto * 0.19
+        base = monto_bruto + iva_valor
+
+    # Determinar ReteFuente según tipo de gasto
+    if not es_autoretenedor:
+        if tipo_gasto == "honorarios":
+            retefuente_pct = 0.11 if tipo_proveedor == "PJ" else 0.10
+            retefuente_tipo = f"honorarios_{tipo_proveedor.lower()}"
+            retefuente_valor = monto_bruto * retefuente_pct
+
+        elif tipo_gasto == "arrendamiento":
+            retefuente_pct = 0.035
+            retefuente_tipo = "arrendamiento"
+            retefuente_valor = monto_bruto * retefuente_pct
+
+        elif tipo_gasto == "servicios":
+            if monto_bruto >= UMBRAL_SERVICIOS:
+                retefuente_pct = 0.04
+                retefuente_tipo = "servicios"
+                retefuente_valor = monto_bruto * retefuente_pct
+            else:
+                advertencias.append(f"⚠️ Servicios < ${UMBRAL_SERVICIOS:,.0f}: ReteFuente no aplica")
+
+        elif tipo_gasto == "compras":
+            if monto_bruto >= UMBRAL_COMPRAS:
+                retefuente_pct = 0.025
+                retefuente_tipo = "compras"
+                retefuente_valor = monto_bruto * retefuente_pct
+            else:
+                advertencias.append(f"⚠️ Compras < ${UMBRAL_COMPRAS:,.0f}: ReteFuente no aplica")
+
+        elif tipo_gasto == "transporte":
+            if monto_bruto >= UMBRAL_SERVICIOS:
+                retefuente_pct = 0.035
+                retefuente_tipo = "transporte"
+                retefuente_valor = monto_bruto * retefuente_pct
+    else:
+        advertencias.append("⚠️ Proveedor es autoretenedor: ReteFuente no aplica")
+
+    # Calcular ReteICA si aplica (0.414% en Bogotá)
+    if aplica_reteica:
+        reteica_valor = monto_bruto * RETEICA_INDUSTRIA
+        reteica_pct = RETEICA_INDUSTRIA
+
+    total_retenciones = retefuente_valor + reteica_valor
+    neto_a_pagar = monto_bruto - total_retenciones
+
+    return {
+        "base": base,
+        "iva_valor": iva_valor,
+        "retefuente_valor": retefuente_valor,
+        "retefuente_pct": retefuente_pct,
+        "retefuente_tipo": retefuente_tipo,
+        "reteica_valor": reteica_valor,
+        "reteica_pct": reteica_pct,
+        "total_retenciones": total_retenciones,
+        "neto_a_pagar": neto_a_pagar,
+        "advertencias": advertencias,
+    }
+
+
+def formatear_retenciones_para_prompt(retenciones: dict) -> str:
+    """
+    Formatea el dict de retenciones en texto legible para mostrar al usuario.
+    """
+    lines = []
+
+    if retenciones.get("iva_valor", 0) > 0:
+        lines.append(f"  • IVA (19%): ${retenciones['iva_valor']:,.2f}")
+
+    if retenciones.get("retefuente_valor", 0) > 0:
+        tipo = retenciones.get("retefuente_tipo", "ReteFuente")
+        pct = retenciones.get("retefuente_pct", 0) * 100
+        lines.append(f"  • {tipo.title()} ({pct:.1f}%): ${retenciones['retefuente_valor']:,.2f}")
+
+    if retenciones.get("reteica_valor", 0) > 0:
+        pct = retenciones.get("reteica_pct", 0) * 1000
+        lines.append(f"  • ReteICA ({pct:.2f}‰): ${retenciones['reteica_valor']:,.2f}")
+
+    for adv in retenciones.get("advertencias", []):
+        lines.append(f"  • {adv}")
+
+    base_section = f"Base: ${retenciones.get('base', 0):,.2f}\n"
+    retenciones_section = "Retenciones:\n" + "\n".join(lines) if lines else ""
+    total_section = f"\nTotal Retenciones: ${retenciones.get('total_retenciones', 0):,.2f}"
+    neto_section = f"Neto a Pagar: ${retenciones.get('neto_a_pagar', 0):,.2f}"
+
+    return base_section + retenciones_section + total_section + "\n" + neto_section
