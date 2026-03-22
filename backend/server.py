@@ -32,6 +32,7 @@ from routers import ventas as ventas_router
 from routers import reports as reports_router
 from routers import contabilidad_pendientes as contabilidad_pendientes_router
 from routers import conciliacion as conciliacion_router
+from routers import auditoria as auditoria_router
 from routers import sync_manual as sync_manual_router
 from routers import diagnostico as diagnostico_router
 from services.scheduler import start_scheduler, stop_scheduler
@@ -326,6 +327,7 @@ app.include_router(cxc_router.router,        prefix=PREFIX)
 app.include_router(reports_router.router,                      prefix=PREFIX)
 app.include_router(contabilidad_pendientes_router.router,      prefix=PREFIX)
 app.include_router(conciliacion_router.router,                 prefix=PREFIX)
+app.include_router(auditoria_router.router,                    prefix=PREFIX)
 app.include_router(sync_manual_router.router,                  prefix=PREFIX)
 app.include_router(diagnostico_router.router,                  prefix=PREFIX)
 
