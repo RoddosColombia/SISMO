@@ -394,6 +394,92 @@ Cuando un cliente PAGA UNA CUOTA, registra automáticamente:
    }
 
 ═══════════════════════════════════════════════════
+BUILD 23 — F4 MÓDULO NÓMINA MENSUAL
+═══════════════════════════════════════════════════
+Cuando el usuario REGISTRA LA NÓMINA MENSUAL:
+
+1. FLUJO EXACTO (CRÍTICO):
+   a) Usuario informa: mes (YYYY-MM), empleados (lista de {nombre, monto}), banco_pago
+   b) ANTI-DUPLICADOS OBLIGATORIO:
+      - Verificar en nomina_registros si mes + empleados_hash ya existe
+      - Si existe → HTTP 409 "Nómina de {mes} ya registrada"
+      - CRÍTICO: Prevenir que la misma nómina se registre dos veces
+   c) Calcular total nómina = suma de todos los montos
+   d) Determinar ID banco pago (Bancolombia 5314, BBVA 5318, etc.)
+   e) Crear UN SOLO journal en Alegra con:
+      - MÚLTIPLES DÉBITOS: uno por empleado en cuenta Sueldos (ID 5462)
+      - UN CRÉDITO: total nómina en cuenta banco de pago
+   f) request_with_verify(): POST /journals → GET verificación → HTTP 200
+   g) SOLO si HTTP 200 confirmado:
+      - Insertar en nomina_registros con alegra_journal_id
+      - Publicar nomina.registrada event
+      - post_action_sync() + invalidar cfo_cache
+   h) Retornar: journal_id + total + mes
+
+2. DATOS REALES RODDOS (referencia):
+   Enero 2026: Alexa $3.220.000 + Luis $3.220.000 + Liz $1.472.000 = $7.912.000
+   Febrero 2026: Alexa $4.500.000 + Liz $2.200.000 = $6.700.000
+
+3. ESTRUCTURA DEL JOURNAL (ejemplo enero 2026):
+   Débito Sueldos (5462) — Alexa: $3.220.000
+   Débito Sueldos (5462) — Luis: $3.220.000
+   Débito Sueldos (5462) — Liz: $1.472.000
+   Crédito Bancolombia (5314): $7.912.000
+   ═════════════════
+   TOTAL DÉBITO = TOTAL CRÉDITO ✓
+
+4. ANTI-DUPLICADOS CRÍTICO:
+   ❌ NUNCA permitir registrar la misma nómina de un mes dos veces
+   ❌ Hash: SHA256 de nombres de empleados ordenados alfabéticamente
+   ✓ Si intenta duplicada → HTTP 409 "ya registrada"
+   ✓ Esto distorsionaría el P&L si se permitiera duplicación
+
+5. GENERACIÓN DEL BLOQUE <action>:
+   <action>
+   {
+     "action_type": "registrar_nomina",
+     "payload": {
+       "mes": "2026-01",
+       "empleados": [
+         {"nombre": "Alexa", "monto": 3220000},
+         {"nombre": "Luis", "monto": 3220000},
+         {"nombre": "Liz", "monto": 1472000}
+       ],
+       "banco_pago": "Bancolombia",
+       "observaciones": "Nómina enero 2026"
+     }
+   }
+   </action>
+
+6. RESPUESTA ESPERADA (si todo OK):
+   {
+     "success": true,
+     "journal_id": "JE-2026-007890",
+     "mes": "2026-01",
+     "num_empleados": 3,
+     "total_nomina": 7912000,
+     "banco_pago": "Bancolombia",
+     "mensaje": "✅ Nómina 2026-01 registrada. Journal: JE-2026-007890. Total: $7.912.000 (3 empleados)"
+   }
+
+7. RESPUESTA SI YA EXISTE (HTTP 409):
+   {
+     "status_code": 409,
+     "detail": "Nómina de 2026-01 ya registrada. Journal: JE-2026-007890"
+   }
+
+8. EVENTO PUBLICADO EN roddos_events:
+   {
+     "event_type": "nomina.registrada",
+     "mes": "2026-01",
+     "num_empleados": 3,
+     "total_nomina": 7912000,
+     "alegra_journal_id": "JE-2026-007890",
+     "banco_pago": "Bancolombia",
+     "fecha": "2026-03-22T14:30:00Z"
+   }
+
+═══════════════════════════════════════════════════
 TARIFAS VIGENTES Colombia 2025 (UVT = $49.799):
 ═══════════════════════════════════════════════════
 • IVA general: 19% | Bienes básicos: 5% | Excluidos: 0%
@@ -3469,6 +3555,7 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
         "crear_causacion": ("journals", "POST"),
         "registrar_pago": ("payments", "POST"),
         "registrar_pago_cartera": ("cartera/registrar-pago", "POST"),
+        "registrar_nomina": ("nomina/registrar", "POST"),
         "crear_contacto": ("contacts", "POST"),
         "crear_nota_credito": ("credit-notes", "POST"),
         "crear_nota_debito": ("debit-notes", "POST"),
@@ -3805,6 +3892,81 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
             "message": (
                 f"✅ Pago cuota #{cuota_numero} registrado en Alegra. "
                 f"Journal: {journal_id}. Saldo pendiente: ${saldo_pendiente:,.0f}"
+            ),
+            "result": result,
+        }
+
+    # ── Special case: registrar_nomina (F4 — Módulo Nómina Mensual) ───────────
+    if action_type == "registrar_nomina":
+        # PHASE 2 — F4: POST to /nomina/registrar endpoint
+        # Validar campos obligatorios
+        if not payload.get("mes") or not payload.get("mes").strip():
+            return {
+                "success": False,
+                "error": "❌ mes es obligatorio (formato YYYY-MM, ej: 2026-01)"
+            }
+        if not payload.get("empleados") or len(payload.get("empleados", [])) == 0:
+            return {
+                "success": False,
+                "error": "❌ empleados list no puede estar vacía"
+            }
+
+        logger.info(
+            f"[F4] Registrar nómina {payload.get('mes')}: "
+            f"{len(payload.get('empleados', []))} empleados"
+        )
+
+        # Call the /nomina/registrar endpoint directly
+        try:
+            result = await service.request("nomina/registrar", "POST", payload)
+        except Exception as e:
+            logger.error(f"[F4] POST a /nomina/registrar falló: {str(e)}")
+            # Check if it's a 409 (duplicate)
+            if "409" in str(e) or "ya registrada" in str(e):
+                return {
+                    "success": False,
+                    "error": f"⚠️ Nómina de {payload.get('mes')} ya existe en el sistema"
+                }
+            return {
+                "success": False,
+                "error": f"❌ Error registrando nómina: {str(e)}"
+            }
+
+        # Verificar que la respuesta tiene success: True
+        if not result.get("success"):
+            logger.error(f"[F4] Endpoint retornó success=False: {result.get('error', 'Error desconocido')}")
+            return {
+                "success": False,
+                "error": f"❌ Error registrando nómina: {result.get('error', result.get('mensaje'))}"
+            }
+
+        # Extraer IDs
+        journal_id = result.get("journal_id")
+        mes = result.get("mes")
+        num_empleados = result.get("num_empleados")
+        total_nomina = result.get("total_nomina")
+
+        if not journal_id:
+            logger.error(f"[F4] Respuesta no contiene journal_id: {result}")
+            return {
+                "success": False,
+                "error": "❌ Nómina registrada pero sin journal_id de Alegra"
+            }
+
+        logger.info(
+            f"[F4] ✅ Nómina {mes} registrada: Journal {journal_id}, "
+            f"Total ${total_nomina:,.0f} ({num_empleados} empleados)"
+        )
+
+        return {
+            "success": True,
+            "journal_id": journal_id,
+            "mes": mes,
+            "num_empleados": num_empleados,
+            "total_nomina": total_nomina,
+            "message": (
+                f"✅ Nómina {mes} registrada en Alegra. "
+                f"Journal: {journal_id}. Total: ${total_nomina:,.0f} ({num_empleados} empleados)"
             ),
             "result": result,
         }
