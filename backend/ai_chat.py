@@ -565,6 +565,66 @@ Cuando usuario menciona gasto de Andrés o Iván:
      }
 
 ═══════════════════════════════════════════════════
+BUILD 23 — F9 INGRESOS NO OPERACIONALES
+═══════════════════════════════════════════════════
+CRITICAL RULE: ALL account IDs must come from MongoDB collections:
+  - plan_cuentas_roddos (banco accounts)
+  - plan_ingresos_roddos (income accounts)
+  NEVER hardcode IDs like 5314, 5318, 5455, etc.
+
+Non-operational income types:
+  • Intereses (Interest income)
+  • Otros_Ingresos (Other non-operational)
+  • Arrendamientos (Rental income)
+  • Dividendos (Dividend income)
+  • Etc. (configured in plan_ingresos_roddos)
+
+1. REGISTRAR INGRESO NO OPERACIONAL:
+   Usuario: "Recibimos $2M de intereses en el banco"
+   → POST journal en Alegra:
+      DÉBITO: Banco (donde llegó el dinero)
+      CRÉDITO: Ingreso (account from plan_ingresos_roddos)
+   → request_with_verify() HTTP 200
+   → Solo si HTTP 200: insertar en ingresos_no_operacionales
+
+   <action>
+   {
+     "action_type": "registrar_ingreso_no_operacional",
+     "payload": {
+       "tipo_ingreso": "Intereses_Financieros",
+       "monto": 2000000,
+       "banco_destino": "Bancolombia",
+       "descripcion": "Intereses generados en cuenta corriente",
+       "referencia": "Período enero 2026",
+       "fecha": "2026-03-22"
+     }
+   }
+   </action>
+
+2. RESPUESTA REGISTRAR INGRESO:
+   {
+     "success": true,
+     "journal_id": "JE-2026-012345",
+     "tipo_ingreso": "Intereses_Financieros",
+     "monto": 2000000,
+     "banco_destino": "Bancolombia",
+     "income_account_id": 5455,
+     "bank_account_id": 5314,
+     "fecha_ingreso": "2026-03-22",
+     "mensaje": "✅ Ingreso no operacional registrado. Tipo: Intereses. Monto: $2.000.000. Journal: JE-2026-012345"
+   }
+
+3. EVENTOS PUBLICADOS:
+   - ingreso.no_operacional.registrado:
+     {
+       "event_type": "ingreso.no_operacional.registrado",
+       "tipo_ingreso": "Intereses_Financieros",
+       "monto": 2000000,
+       "banco_destino": "Bancolombia",
+       "alegra_journal_id": "JE-2026-012345"
+     }
+
+═══════════════════════════════════════════════════
 TARIFAS VIGENTES Colombia 2025 (UVT = $49.799):
 ═══════════════════════════════════════════════════
 • IVA general: 19% | Bienes básicos: 5% | Excluidos: 0%
@@ -3643,6 +3703,7 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
         "registrar_nomina": ("nomina/registrar", "POST"),
         "registrar_abono_socio": ("cxc/socios/abono", "POST"),
         "consultar_saldo_socio": ("cxc/socios/saldo", "GET"),
+        "registrar_ingreso_no_operacional": ("ingresos/no-operacional", "POST"),
         "crear_contacto": ("contacts", "POST"),
         "crear_nota_credito": ("credit-notes", "POST"),
         "crear_nota_debito": ("debit-notes", "POST"),
@@ -4146,6 +4207,72 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
             "message": (
                 f"✅ Abono de ${result.get('monto_abono'):,.0f} registrado para "
                 f"{result.get('nombre_socio')}. Saldo: ${result.get('saldo_nuevo'):,.0f}. "
+                f"Journal: {journal_id}"
+            ),
+            "result": result,
+        }
+
+    # ── Special case: registrar_ingreso_no_operacional (F9 — Non-op Income) ────
+    if action_type == "registrar_ingreso_no_operacional":
+        # PHASE 2 — F9: POST /ingresos/no-operacional endpoint
+        if not payload.get("tipo_ingreso") or not payload.get("tipo_ingreso").strip():
+            return {
+                "success": False,
+                "error": "❌ tipo_ingreso es obligatorio"
+            }
+        if payload.get("monto", 0) <= 0:
+            return {
+                "success": False,
+                "error": "❌ monto debe ser > 0"
+            }
+        if not payload.get("banco_destino") or not payload.get("banco_destino").strip():
+            return {
+                "success": False,
+                "error": "❌ banco_destino es obligatorio"
+            }
+
+        logger.info(
+            f"[F9] Registrar ingreso no operacional: {payload.get('tipo_ingreso')} - "
+            f"${payload.get('monto'):,.0f}"
+        )
+
+        try:
+            result = await service.request("ingresos/no-operacional", "POST", payload)
+        except Exception as e:
+            logger.error(f"[F9] POST /ingresos/no-operacional falló: {str(e)}")
+            return {
+                "success": False,
+                "error": f"❌ Error registrando ingreso: {str(e)}"
+            }
+
+        # Verify response
+        if not result.get("success"):
+            logger.error(f"[F9] Endpoint retornó success=False: {result.get('error')}")
+            return {
+                "success": False,
+                "error": f"❌ Error registrando ingreso: {result.get('error')}"
+            }
+
+        journal_id = result.get("journal_id")
+        if not journal_id:
+            logger.error(f"[F9] Respuesta sin journal_id: {result}")
+            return {
+                "success": False,
+                "error": "❌ Ingreso registrado pero sin journal_id"
+            }
+
+        logger.info(f"[F9] ✅ Ingreso no operacional registrado: Journal {journal_id}")
+
+        return {
+            "success": True,
+            "journal_id": journal_id,
+            "tipo_ingreso": result.get("tipo_ingreso"),
+            "monto": result.get("monto"),
+            "banco_destino": result.get("banco_destino"),
+            "message": (
+                f"✅ Ingreso no operacional registrado. "
+                f"Tipo: {result.get('tipo_ingreso')}. "
+                f"Monto: ${result.get('monto'):,.0f}. "
                 f"Journal: {journal_id}"
             ),
             "result": result,

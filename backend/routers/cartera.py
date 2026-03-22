@@ -21,49 +21,80 @@ router = APIRouter(prefix="/cartera", tags=["cartera"])
 logger = logging.getLogger(__name__)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PLAN DE INGRESOS FINANCIEROS — RODDOS SAS
+# HELPER FUNCTIONS FOR ACCOUNT LOOKUPS
 # ══════════════════════════════════════════════════════════════════════════════
 
-PLAN_INGRESOS_RODDOS = [
-    {
-        "tipo_ingreso": "Intereses_Financieros_Cartera",
-        "cuenta_nombre": "Intereses (Actividades Financieras)",
-        "cuenta_codigo": "415020",
-        "alegra_id": 5455,
-        "activo": True,
-        "descripcion": "Ingresos por cuotas de cartera a crédito",
-    },
-    {
-        "tipo_ingreso": "Otros_Ingresos_Cartera",
-        "cuenta_nombre": "Otros ingresos (no operacionales)",
-        "cuenta_codigo": "42",
-        "alegra_id": 5436,
-        "activo": True,
-        "descripcion": "Otros ingresos por cartera",
-    },
-]
+async def obtener_cuenta_bancaria(banco_origen: str) -> int:
+    """
+    Get bank account ID from MongoDB plan_cuentas_roddos.
+    Falls back to Bancolombia if bank not found.
+    """
+    banco_key = banco_origen.lower().strip()
 
-# ══════════════════════════════════════════════════════════════════════════════
-# CUENTAS BANCARIAS — RODDOS SAS
-# ══════════════════════════════════════════════════════════════════════════════
+    # Try exact match in plan_cuentas_roddos
+    cuenta = await db.plan_cuentas_roddos.find_one({
+        "tipo": "banco",
+        "banco_alias": {"$in": [banco_key, banco_origen]},
+        "activo": True
+    })
 
-BANCOS_MAP = {
-    "bancolombia": 5314,
-    "bancolombia 2029": 5314,
-    "bancolombia 2540": 5315,
-    "bbva": 5318,
-    "bbva 0210": 5318,
-    "bbva 0212": 5319,
-    "banco de bogota": 5321,
-    "bdebogota": 5321,
-    "davivienda": 5322,
-    "davivienda 1234": 5322,
-    "nequi": 5314,  # Default to Bancolombia
-    "efectivo": 1110,  # Caja General
-}
+    if cuenta:
+        return cuenta["alegra_id"]
 
-DEFAULT_BANCO_ID = 5314  # Bancolombia 2029
-DEFAULT_INCOME_ACCOUNT_ID = 5455  # Intereses Financieros
+    # If not found, try partial match
+    cuenta = await db.plan_cuentas_roddos.find_one({
+        "tipo": "banco",
+        "banco_alias": {"$regex": banco_key, "$options": "i"},
+        "activo": True
+    })
+
+    if cuenta:
+        return cuenta["alegra_id"]
+
+    # Default to Bancolombia if not found
+    default_cuenta = await db.plan_cuentas_roddos.find_one({
+        "tipo": "banco",
+        "banco_nombre": {"$regex": "Bancolombia", "$options": "i"},
+        "activo": True
+    })
+
+    if default_cuenta:
+        return default_cuenta["alegra_id"]
+
+    # Fallback: return 5314 (should never reach this)
+    logger.warning(f"[F7] Banco '{banco_origen}' no encontrado en plan_cuentas_roddos, usando fallback 5314")
+    return 5314
+
+
+async def obtener_cuenta_ingreso(tipo_ingreso: str = "Intereses_Financieros_Cartera") -> int:
+    """
+    Get income account ID from MongoDB plan_ingresos_roddos.
+    Defaults to Intereses Financieros.
+    """
+    cuenta = await db.plan_ingresos_roddos.find_one({
+        "tipo_ingreso": tipo_ingreso,
+        "activo": True
+    })
+
+    if cuenta:
+        return cuenta["alegra_id"]
+
+    # Fallback: search for any active income account
+    cuenta = await db.plan_ingresos_roddos.find_one({
+        "tipo_ingreso": {"$in": [
+            "Intereses_Financieros_Cartera",
+            "Intereses_Financieros",
+            "Ingresos_Financieros"
+        ]},
+        "activo": True
+    })
+
+    if cuenta:
+        return cuenta["alegra_id"]
+
+    # Last resort fallback: return 5455 (should never reach this)
+    logger.warning(f"[F7] Tipo ingreso '{tipo_ingreso}' no encontrado en plan_ingresos_roddos, usando fallback 5455")
+    return 5455
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -156,25 +187,13 @@ async def registrar_pago_cartera(
             f"Pago registrado: ${payload.monto_pago}"
         )
 
-        # ── GET INCOME ACCOUNT ID ─────────────────────────────────────────────
-        # Default: Intereses Financieros (5455)
-        income_account_id = DEFAULT_INCOME_ACCOUNT_ID
-        income_account_name = "Intereses Financieros - Cartera"
+        # ── GET INCOME ACCOUNT ID (from MongoDB plan_ingresos_roddos) ─────────
+        income_account_id = await obtener_cuenta_ingreso("Intereses_Financieros_Cartera")
+        logger.info(f"[F7] Cuenta de ingreso: ID {income_account_id} (desde plan_ingresos_roddos)")
 
-        # Try to find matching plan entry (in case future plans change)
-        for plan_entry in PLAN_INGRESOS_RODDOS:
-            if plan_entry.get("activo"):
-                income_account_id = plan_entry.get("alegra_id", 5455)
-                income_account_name = plan_entry.get("cuenta_nombre", income_account_name)
-                break
-
-        logger.info(f"[F7] Cuenta de ingreso: {income_account_name} (ID: {income_account_id})")
-
-        # ── GET BANK ACCOUNT ID ───────────────────────────────────────────────
-        banco_key = payload.banco_origen.lower().strip()
-        bank_account_id = BANCOS_MAP.get(banco_key, DEFAULT_BANCO_ID)
-
-        logger.info(f"[F7] Banco: {payload.banco_origen} → Cuenta ID {bank_account_id}")
+        # ── GET BANK ACCOUNT ID (from MongoDB plan_cuentas_roddos) ──────────────
+        bank_account_id = await obtener_cuenta_bancaria(payload.banco_origen)
+        logger.info(f"[F7] Banco: {payload.banco_origen} → Cuenta ID {bank_account_id} (desde plan_cuentas_roddos)")
 
         # ── SET UP ALEGRA SERVICE ─────────────────────────────────────────────
         service = AlegraService(db)
@@ -358,18 +377,22 @@ async def registrar_pago_cartera(
 
 @router.get("/plan-ingresos")
 async def get_plan_ingresos(current_user=Depends(get_current_user)):
-    """Get financial income account mappings."""
+    """Get financial income account mappings from MongoDB."""
+    planes = await db.plan_ingresos_roddos.find({"activo": True}).to_list(None)
     return {
-        "plan_ingresos": PLAN_INGRESOS_RODDOS,
-        "default_income_account_id": DEFAULT_INCOME_ACCOUNT_ID,
+        "plan_ingresos": planes,
+        "total": len(planes),
     }
 
 
 @router.get("/bancos")
 async def get_bancos(current_user=Depends(get_current_user)):
-    """Get bank account mappings."""
+    """Get bank account mappings from MongoDB."""
+    bancos = await db.plan_cuentas_roddos.find({
+        "tipo": "banco",
+        "activo": True
+    }).to_list(None)
     return {
-        "bancos": BANCOS_MAP,
-        "default_banco_id": DEFAULT_BANCO_ID,
-        "default_banco_name": "Bancolombia 2029",
+        "bancos": bancos,
+        "total": len(bancos),
     }

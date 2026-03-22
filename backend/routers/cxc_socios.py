@@ -29,17 +29,87 @@ DIRECTORIO_SOCIOS = [
         "nombre": "Andrés Sanjuan",
         "cedula": "80075452",
         "rol": "Socio/Propietario",
-        "cuenta_cxc_alegra_id": 5491,  # CXC Socios
         "activo": True,
     },
     {
         "nombre": "Iván Echeverri",
         "cedula": "80086601",
         "rol": "Socio/Propietario",
-        "cuenta_cxc_alegra_id": 5491,  # CXC Socios
         "activo": True,
     },
 ]
+
+# ══════════════════════════════════════════════════════════════════════════════
+# HELPER FUNCTIONS FOR ACCOUNT LOOKUPS
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def obtener_cuenta_cxc_socios() -> int:
+    """
+    Get CXC Socios account ID from MongoDB plan_cuentas_roddos.
+    Defaults to standard CXC Socios account.
+    """
+    cuenta = await db.plan_cuentas_roddos.find_one({
+        "tipo": "cxc",
+        "cxc_tipo": "socios",
+        "activo": True
+    })
+
+    if cuenta:
+        return cuenta["alegra_id"]
+
+    # Fallback search
+    cuenta = await db.plan_cuentas_roddos.find_one({
+        "tipo": "cxc",
+        "cuenta_nombre": {"$regex": "[Ss]ocios", "$options": "i"},
+        "activo": True
+    })
+
+    if cuenta:
+        return cuenta["alegra_id"]
+
+    logger.warning("[F8] Cuenta CXC Socios no encontrada en plan_cuentas_roddos, usando fallback 5491")
+    return 5491
+
+
+async def obtener_cuenta_bancaria_cxc(banco_origen: str) -> int:
+    """
+    Get bank account ID from MongoDB plan_cuentas_roddos for CXC operations.
+    Falls back to Bancolombia if bank not found.
+    """
+    banco_key = banco_origen.lower().strip()
+
+    # Try exact match
+    cuenta = await db.plan_cuentas_roddos.find_one({
+        "tipo": "banco",
+        "banco_alias": {"$in": [banco_key, banco_origen]},
+        "activo": True
+    })
+
+    if cuenta:
+        return cuenta["alegra_id"]
+
+    # Try partial match
+    cuenta = await db.plan_cuentas_roddos.find_one({
+        "tipo": "banco",
+        "banco_alias": {"$regex": banco_key, "$options": "i"},
+        "activo": True
+    })
+
+    if cuenta:
+        return cuenta["alegra_id"]
+
+    # Default to Bancolombia
+    default_cuenta = await db.plan_cuentas_roddos.find_one({
+        "tipo": "banco",
+        "banco_nombre": {"$regex": "Bancolombia", "$options": "i"},
+        "activo": True
+    })
+
+    if default_cuenta:
+        return default_cuenta["alegra_id"]
+
+    logger.warning(f"[F8] Banco '{banco_origen}' no encontrado en plan_cuentas_roddos, usando fallback 5314")
+    return 5314
 
 # ══════════════════════════════════════════════════════════════════════════════
 # REQUEST SCHEMAS
@@ -184,24 +254,17 @@ async def registrar_abono_socio(
         # ── SET UP ALEGRA SERVICE ─────────────────────────────────────────────
         service = AlegraService(db)
 
-        # ── DETERMINE BANK ACCOUNT ────────────────────────────────────────────
-        # Default to Bancolombia if not specified
+        # ── DETERMINE BANK ACCOUNT (from MongoDB plan_cuentas_roddos) ─────────
         banco_origin = payload.banco_origen or "Bancolombia"
-        if banco_origin.lower() in ["bancolombia", "bancolombia 2029"]:
-            bank_account_id = 5314
-        elif banco_origin.lower() in ["bbva", "bbva 0210"]:
-            bank_account_id = 5318
-        elif banco_origin.lower() in ["davivienda"]:
-            bank_account_id = 5322
-        elif banco_origin.lower() in ["banco de bogota", "bdebogota"]:
-            bank_account_id = 5321
-        else:
-            bank_account_id = 5314  # Default
-
-        logger.info(f"[F8] Banco origen: {banco_origin} → Cuenta ID {bank_account_id}")
+        bank_account_id = await obtener_cuenta_bancaria_cxc(banco_origin)
+        logger.info(f"[F8] Banco origen: {banco_origin} → Cuenta ID {bank_account_id} (desde plan_cuentas_roddos)")
 
         # ── CREATE JOURNAL IN ALEGRA ──────────────────────────────────────────
         fecha_abono = payload.fecha or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+        # Get CXC Socios account from MongoDB
+        cuenta_cxc_socios = await obtener_cuenta_cxc_socios()
+        logger.info(f"[F8] Cuenta CXC Socios: ID {cuenta_cxc_socios} (desde plan_cuentas_roddos)")
 
         journal_payload = {
             "date": fecha_abono,
@@ -217,7 +280,7 @@ async def registrar_abono_socio(
                     "credit": 0
                 },
                 {
-                    "id": socio["cuenta_cxc_alegra_id"],
+                    "id": cuenta_cxc_socios,
                     "debit": 0,
                     "credit": payload.monto_abono
                 }
@@ -379,4 +442,18 @@ async def get_directorio_socios(current_user=Depends(get_current_user)):
     return {
         "socios": DIRECTORIO_SOCIOS,
         "total": len([s for s in DIRECTORIO_SOCIOS if s["activo"]]),
+    }
+
+
+@router.get("/plan-cuentas")
+async def get_plan_cuentas_cxc(current_user=Depends(get_current_user)):
+    """Get CXC Socios and bank account mappings from MongoDB."""
+    cuentas = await db.plan_cuentas_roddos.find({
+        "tipo": {"$in": ["cxc", "banco"]},
+        "activo": True
+    }).to_list(None)
+
+    return {
+        "cuentas": cuentas,
+        "total": len(cuentas),
     }
