@@ -497,11 +497,9 @@ async def health_check():
         result["agent_memory"] = f"error: {str(e)[:60]}"
 
     # Alegra
-    try:
-        creds = await db.alegra_credentials.find_one({}, {"_id": 0, "token": 1})
-        result["alegra"] = "conectado" if creds and creds.get("token") else "sin credenciales"
-    except Exception as e:
-        result["alegra"] = f"error: {str(e)[:60]}"
+    alegra_email = os.environ.get("ALEGRA_EMAIL", "").strip()
+    alegra_token = os.environ.get("ALEGRA_TOKEN", "").strip()
+    result["alegra"] = "conectado" if alegra_email and alegra_token else "sin credenciales"
 
     # Anthropic (EMERGENT_LLM_KEY)
     llm_key = os.environ.get("EMERGENT_LLM_KEY", "")
