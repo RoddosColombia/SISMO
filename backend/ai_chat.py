@@ -480,6 +480,91 @@ Cuando el usuario REGISTRA LA NÓMINA MENSUAL:
    }
 
 ═══════════════════════════════════════════════════
+BUILD 23 — F8 CXC SOCIOS EN TIEMPO REAL
+═══════════════════════════════════════════════════
+REGLA CRÍTICA — Gasto de Socio ≠ Gasto Operativo
+
+Socios de RODDOS:
+  • Andrés Sanjuan — CC 80075452
+  • Iván Echeverri — CC 80086601
+
+Cuando usuario menciona gasto de Andrés o Iván:
+→ SIEMPRE preguntar: "¿Es gasto personal o del negocio?"
+  - Personal → CXC Socios (cuenta 5491), NUNCA gasto operativo
+  - Operativo → Registrar como gasto normal
+
+1. CONSULTAR SALDO EN TIEMPO REAL:
+   Usuario: "¿Cuánto me debe Andrés?"
+   → Sistema: GET /cxc/socios/saldo?cedula=80075452
+   → Respuesta: ${saldo_pendiente}, lista de movimientos, último abono
+
+   <action>
+   {
+     "action_type": "consultar_saldo_socio",
+     "payload": {
+       "cedula_socio": "80075452"
+     }
+   }
+   </action>
+
+2. REGISTRAR ABONO (cuando socio devuelve dinero):
+   Usuario: "Andrés pagó $500.000"
+   → POST journal en Alegra:
+      DÉBITO: Banco (donde llegó el dinero)
+      CRÉDITO: CXC Socios (reduce la deuda del socio)
+   → request_with_verify() HTTP 200
+   → Solo si HTTP 200: actualizar saldo en MongoDB
+
+   <action>
+   {
+     "action_type": "registrar_abono_socio",
+     "payload": {
+       "cedula_socio": "80075452",
+       "monto_abono": 500000,
+       "metodo_pago": "transferencia",
+       "banco_origen": "Bancolombia",
+       "observaciones": "Pago socio",
+       "fecha": "2026-03-22"
+     }
+   }
+   </action>
+
+3. RESPUESTA CONSULTA SALDO:
+   {
+     "success": true,
+     "socio": {"nombre": "Andrés Sanjuan", "cedula": "80075452"},
+     "saldo_pendiente": 2500000,
+     "num_movimientos": 5,
+     "movimientos": [...],
+     "ultimo_movimiento": {"tipo": "abono", "monto": 500000, "fecha": "2026-03-20"}
+   }
+
+4. RESPUESTA REGISTRAR ABONO:
+   {
+     "success": true,
+     "journal_id": "JE-2026-008765",
+     "cedula_socio": "80075452",
+     "nombre_socio": "Andrés Sanjuan",
+     "monto_abono": 500000,
+     "saldo_anterior": 3000000,
+     "saldo_nuevo": 2500000,
+     "mensaje": "✅ Abono de $500.000 registrado para Andrés. Saldo: $2.500.000"
+   }
+
+5. EVENTOS PUBLICADOS:
+   - cxc.socio.abono: Cuando se registra un abono
+     {
+       "event_type": "cxc.socio.abono",
+       "cedula_socio": "80075452",
+       "nombre_socio": "Andrés Sanjuan",
+       "monto_abono": 500000,
+       "saldo_anterior": 3000000,
+       "saldo_nuevo": 2500000,
+       "alegra_journal_id": "JE-2026-008765",
+       "metodo_pago": "transferencia"
+     }
+
+═══════════════════════════════════════════════════
 TARIFAS VIGENTES Colombia 2025 (UVT = $49.799):
 ═══════════════════════════════════════════════════
 • IVA general: 19% | Bienes básicos: 5% | Excluidos: 0%
@@ -3556,6 +3641,8 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
         "registrar_pago": ("payments", "POST"),
         "registrar_pago_cartera": ("cartera/registrar-pago", "POST"),
         "registrar_nomina": ("nomina/registrar", "POST"),
+        "registrar_abono_socio": ("cxc/socios/abono", "POST"),
+        "consultar_saldo_socio": ("cxc/socios/saldo", "GET"),
         "crear_contacto": ("contacts", "POST"),
         "crear_nota_credito": ("credit-notes", "POST"),
         "crear_nota_debito": ("debit-notes", "POST"),
@@ -3967,6 +4054,99 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
             "message": (
                 f"✅ Nómina {mes} registrada en Alegra. "
                 f"Journal: {journal_id}. Total: ${total_nomina:,.0f} ({num_empleados} empleados)"
+            ),
+            "result": result,
+        }
+
+    # ── Special case: consultar_saldo_socio (F8 — CXC Socios en Tiempo Real) ──
+    if action_type == "consultar_saldo_socio":
+        # PHASE 2 — F8: GET /cxc/socios/saldo endpoint
+        cedula = payload.get("cedula_socio", "").strip() if payload.get("cedula_socio") else None
+
+        logger.info(f"[F8] Consultar saldo socio: {cedula or 'todos'}")
+
+        try:
+            result = await service.request(
+                f"cxc/socios/saldo?cedula={cedula}" if cedula else "cxc/socios/saldo",
+                "GET"
+            )
+        except Exception as e:
+            logger.error(f"[F8] GET /cxc/socios/saldo falló: {str(e)}")
+            return {
+                "success": False,
+                "error": f"❌ Error consultando saldo: {str(e)}"
+            }
+
+        # Verify response
+        if not result or "saldo_pendiente" not in result and "socios" not in result:
+            logger.error(f"[F8] Respuesta inválida: {result}")
+            return {
+                "success": False,
+                "error": "❌ Respuesta inválida al consultar saldo"
+            }
+
+        logger.info(f"[F8] ✅ Saldo consultado exitosamente")
+
+        return {
+            "success": True,
+            "result": result,
+            "message": f"✅ Saldo consultado en tiempo real",
+        }
+
+    # ── Special case: registrar_abono_socio (F8 — CXC Socios) ─────────────────
+    if action_type == "registrar_abono_socio":
+        # PHASE 2 — F8: POST /cxc/socios/abono endpoint
+        if not payload.get("cedula_socio") or not payload.get("cedula_socio").strip():
+            return {
+                "success": False,
+                "error": "❌ cedula_socio es obligatoria"
+            }
+        if payload.get("monto_abono", 0) <= 0:
+            return {
+                "success": False,
+                "error": "❌ monto_abono debe ser > 0"
+            }
+
+        logger.info(f"[F8] Registrar abono socio: ${payload.get('monto_abono')}")
+
+        try:
+            result = await service.request("cxc/socios/abono", "POST", payload)
+        except Exception as e:
+            logger.error(f"[F8] POST /cxc/socios/abono falló: {str(e)}")
+            return {
+                "success": False,
+                "error": f"❌ Error registrando abono: {str(e)}"
+            }
+
+        # Verify response
+        if not result.get("success"):
+            logger.error(f"[F8] Endpoint retornó success=False: {result.get('error')}")
+            return {
+                "success": False,
+                "error": f"❌ Error registrando abono: {result.get('error')}"
+            }
+
+        journal_id = result.get("journal_id")
+        if not journal_id:
+            logger.error(f"[F8] Respuesta sin journal_id: {result}")
+            return {
+                "success": False,
+                "error": "❌ Abono registrado pero sin journal_id"
+            }
+
+        logger.info(f"[F8] ✅ Abono registrado: Journal {journal_id}")
+
+        return {
+            "success": True,
+            "journal_id": journal_id,
+            "cedula_socio": result.get("cedula_socio"),
+            "nombre_socio": result.get("nombre_socio"),
+            "monto_abono": result.get("monto_abono"),
+            "saldo_nuevo": result.get("saldo_nuevo"),
+            "message": (
+                f"✅ Abono de ${result.get('monto_abono'):,.0f} registrado para "
+                f"{result.get('nombre_socio')}. Saldo: ${result.get('saldo_nuevo'):,.0f}. "
+                f"Journal: {journal_id}"
             ),
             "result": result,
         }
