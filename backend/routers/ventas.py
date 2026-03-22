@@ -2,10 +2,14 @@
 import logging
 from datetime import datetime, timezone
 from typing import Optional
+from pydantic import BaseModel
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from database import db
 from dependencies import get_current_user
+from alegra_service import AlegraService
+from post_action_sync import post_action_sync
+from routers.cfo import invalidar_cache_cfo
 
 router = APIRouter(prefix="/ventas", tags=["ventas"])
 logger = logging.getLogger(__name__)
@@ -197,3 +201,350 @@ async def get_ventas_dashboard(
             "tendencia": "sube" if delta > 0 else "baja" if delta < 0 else "igual",
         },
     }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# BUILD 23 — F6: FACTURACIÓN VENTA MOTOS
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class CrearFacturaVentaRequest(BaseModel):
+    """Request schema for creating motorcycle sales invoice."""
+    cliente_nombre: str
+    cliente_nit: str
+    cliente_telefono: str
+    moto_chasis: str
+    moto_motor: str
+    plan: str  # P39S | P52S | P78S | Contado
+    precio_venta: float
+    cuota_inicial: float
+    valor_cuota: float
+    modo_pago: str  # semanal | quincenal | mensual
+    fecha_venta: Optional[str] = None
+
+
+@router.post("/crear-factura")
+async def crear_factura_venta(
+    payload: CrearFacturaVentaRequest,
+    current_user=Depends(get_current_user),
+):
+    """
+    CREATE motorcycle sales invoice → Alegra + inventory update + loanbook creation.
+
+    Mandatory validations:
+    - VIN and motor REQUIRED (HTTP 400 if missing)
+    - Mutex: moto must be "Disponible" (HTTP 400 if already sold)
+    - Client creation/lookup in Alegra
+    - Product creation/lookup in Alegra
+    - Invoice creation via POST /invoices with request_with_verify()
+    - Inventory update: estado → "Vendida"
+    - Loanbook creation: LB-{año}-{n:04d} in "pendiente_entrega"
+    - roddos_events publication
+    - post_action_sync() + invalidar_cache_cfo()
+    """
+    try:
+        # ── VALIDATIONS ───────────────────────────────────────────────────────────
+        # Mandatory: VIN and motor
+        if not payload.moto_chasis or not payload.moto_chasis.strip():
+            raise HTTPException(status_code=400, detail="VIN obligatorio para crear factura")
+        if not payload.moto_motor or not payload.moto_motor.strip():
+            raise HTTPException(status_code=400, detail="Motor obligatorio para crear factura")
+
+        # Mandatory: client info
+        if not payload.cliente_nombre or not payload.cliente_nombre.strip():
+            raise HTTPException(status_code=400, detail="Nombre del cliente obligatorio")
+        if not payload.cliente_nit or not payload.cliente_nit.strip():
+            raise HTTPException(status_code=400, detail="NIT del cliente obligatorio")
+        if not payload.cliente_telefono or not payload.cliente_telefono.strip():
+            raise HTTPException(status_code=400, detail="Teléfono del cliente obligatorio")
+
+        # Plan validation
+        valid_plans = ["P39S", "P52S", "P78S", "Contado"]
+        if payload.plan not in valid_plans:
+            raise HTTPException(status_code=400, detail=f"Plan debe ser uno de: {valid_plans}")
+
+        # Price validations
+        if payload.precio_venta <= 0:
+            raise HTTPException(status_code=400, detail="Precio de venta debe ser > 0")
+        if payload.cuota_inicial < 0 or payload.cuota_inicial > payload.precio_venta:
+            raise HTTPException(status_code=400, detail="Cuota inicial inválida")
+
+        # ── MUTEX: Check moto exists and is Disponible ─────────────────────────────
+        moto = await db.inventario_motos.find_one({"chasis": payload.moto_chasis.strip()})
+        if not moto:
+            raise HTTPException(status_code=400, detail=f"Moto VIN {payload.moto_chasis} no encontrada en inventario")
+
+        if moto.get("estado") != "Disponible":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Moto en estado '{moto.get('estado')}' — no se puede vender. Debe estar Disponible."
+            )
+
+        # ── Set up Alegra service ─────────────────────────────────────────────────
+        service = AlegraService(db)
+
+        # ── CREATE/LOOKUP CLIENT in Alegra ───────────────────────────────────────
+        logger.info(f"[F6] Buscando cliente NIT {payload.cliente_nit} en Alegra...")
+        try:
+            client_lookup = await service.request(f"contacts/{payload.cliente_nit}", "GET")
+            client_id = client_lookup.get("id")
+            logger.info(f"[F6] Cliente encontrado en Alegra: ID {client_id}")
+        except Exception as e:
+            logger.info(f"[F6] Cliente no existe en Alegra, creando... ({str(e)[:50]})")
+            client_payload = {
+                "name": payload.cliente_nombre,
+                "identification": payload.cliente_nit,
+                "phone": payload.cliente_telefono,
+                "type": "person"
+            }
+            client_response = await service.request("contacts", "POST", client_payload)
+            client_id = client_response.get("id")
+            if not client_id:
+                raise HTTPException(status_code=500, detail="No se pudo crear cliente en Alegra")
+            logger.info(f"[F6] Cliente creado en Alegra: ID {client_id}")
+
+        # ── GET TAX ID (19% IVA) ──────────────────────────────────────────────────
+        logger.info("[F6] Obteniendo Tax ID para IVA 19%...")
+        tax_id = None
+        try:
+            taxes_response = await service.request("taxes", "GET")
+            taxes = taxes_response if isinstance(taxes_response, list) else taxes_response.get("taxes", [])
+            # Filter for 19% tax
+            iva_19_taxes = [t for t in taxes if t.get("percentage") == 19 or t.get("name", "").lower().find("19") >= 0]
+            if iva_19_taxes:
+                tax_id = iva_19_taxes[0].get("id")
+                logger.info(f"[F6] Tax ID encontrado: {tax_id}")
+            else:
+                logger.warning("[F6] No se encontró tax ID 19%, omitiendo de ítem")
+        except Exception as e:
+            logger.warning(f"[F6] Error obteniendo taxes: {str(e)[:100]}, continuando sin tax_id")
+
+        # ── CREATE/LOOKUP PRODUCT in Alegra ───────────────────────────────────────
+        modelo = moto.get("modelo", "Moto").upper()
+        version = moto.get("version", "").upper()
+        color = moto.get("color", "").strip()
+
+        # Product name: "[Modelo] [Color]"
+        product_name = f"{modelo} {version} {color}".strip() if version and color else f"{modelo} {color}".strip()
+
+        # Product description: "[Modelo] [Color] - VIN: [chasis] / Motor: [motor]"
+        product_description = f"[{modelo}] [{color}] - VIN: {payload.moto_chasis.strip()} / Motor: {payload.moto_motor.strip()}"
+
+        logger.info(f"[F6] Buscando producto '{product_name}' en Alegra...")
+        product_id = None
+        try:
+            products_response = await service.request("products", "GET")
+            products = products_response if isinstance(products_response, list) else products_response.get("products", [])
+            # Search for product by name
+            matching_products = [p for p in products if p.get("name", "").lower() == product_name.lower()]
+            if matching_products:
+                product_id = matching_products[0].get("id")
+                logger.info(f"[F6] Producto encontrado en Alegra: ID {product_id}")
+        except Exception as e:
+            logger.info(f"[F6] Error buscando productos: {str(e)[:50]}")
+
+        # Create product if not found
+        if not product_id:
+            logger.info(f"[F6] Producto no existe, creando...")
+            product_payload = {
+                "name": product_name,
+                "description": product_description,
+                "price": payload.precio_venta
+            }
+            product_response = await service.request("products", "POST", product_payload)
+            product_id = product_response.get("id")
+            if not product_id:
+                raise HTTPException(status_code=500, detail="No se pudo crear producto en Alegra")
+            logger.info(f"[F6] Producto creado en Alegra: ID {product_id}")
+
+        # ── CREATE INVOICE in Alegra ──────────────────────────────────────────────
+        fecha_venta = payload.fecha_venta or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+        # Build item with tax
+        item = {
+            "id": product_id,
+            "name": product_name,
+            "description": product_description,
+            "price": payload.precio_venta,
+            "quantity": 1
+        }
+        if tax_id:
+            item["tax"] = [{"id": tax_id, "percentage": 19}]
+
+        # Determine due date and payment form
+        if payload.plan == "Contado":
+            due_date = fecha_venta
+            payment_form = "CASH"
+        else:
+            # For credit plans, set due date 30 days from now
+            from datetime import timedelta
+            future_date = datetime.fromisoformat(fecha_venta) + timedelta(days=30)
+            due_date = future_date.strftime("%Y-%m-%d")
+            payment_form = "CREDIT"
+
+        invoice_payload = {
+            "date": fecha_venta,
+            "dueDate": due_date,
+            "client": {"id": client_id},
+            "items": [item],
+            "paymentForm": payment_form,
+            "observations": f"Venta a {payload.cliente_nombre}. Plan {payload.plan} - VIN: {payload.moto_chasis}"
+        }
+
+        logger.info(f"[F6] Creando factura en Alegra para cliente {client_id}...")
+        invoice_response = await service.request_with_verify("invoices", "POST", invoice_payload)
+
+        if not invoice_response.get("id"):
+            raise HTTPException(status_code=500, detail="No se pudo crear factura en Alegra")
+
+        invoice_id = invoice_response.get("id")
+        invoice_number = invoice_response.get("number", invoice_id)
+        logger.info(f"[F6] Factura creada en Alegra: {invoice_number} (ID: {invoice_id})")
+
+        # ── UPDATE INVENTORY: moto estado → "Vendida" ─────────────────────────────
+        logger.info(f"[F6] Actualizando inventario: VIN {payload.moto_chasis} → Vendida")
+        await db.inventario_motos.update_one(
+            {"chasis": payload.moto_chasis.strip()},
+            {
+                "$set": {
+                    "estado": "Vendida",
+                    "fecha_venta": fecha_venta,
+                    "propietario": payload.cliente_nombre,
+                    "factura_alegra_id": invoice_id,
+                    "factura_numero": invoice_number,
+                }
+            }
+        )
+
+        # ── CREATE LOANBOOK ───────────────────────────────────────────────────────
+        logger.info("[F6] Creando loanbook...")
+
+        # Sequential numbering: count documents + 1, format LB-{año}-{n:04d}
+        num_loanbooks = await db.loanbook.count_documents({})
+        loanbook_num = num_loanbooks + 1
+        current_year = datetime.now(timezone.utc).year
+        loanbook_id = f"LB-{current_year}-{loanbook_num:04d}"
+        loanbook_codigo = f"LB{loanbook_num:04d}"
+
+        # Generate cuotas
+        cuotas = []
+
+        # Cuota inicial
+        cuota_inicial = {
+            "numero": 0,
+            "valor": payload.cuota_inicial,
+            "tipo": "inicial",
+            "estado": "pendiente",
+            "fecha_vencimiento": fecha_venta,
+            "metodo_pago": payload.modo_pago
+        }
+        cuotas.append(cuota_inicial)
+
+        # Cuotas ordinarias (if plan != Contado)
+        if payload.plan != "Contado":
+            plan_num_cuotas = {
+                "P39S": 39,
+                "P52S": 52,
+                "P78S": 78,
+            }
+            num_cuotas = plan_num_cuotas.get(payload.plan, 0)
+
+            if num_cuotas > 0 and payload.valor_cuota > 0:
+                for i in range(1, num_cuotas + 1):
+                    cuota = {
+                        "numero": i,
+                        "valor": payload.valor_cuota,
+                        "tipo": "ordinaria",
+                        "estado": "pendiente",
+                        "fecha_vencimiento": None,  # Will be set during delivery registration
+                        "metodo_pago": payload.modo_pago
+                    }
+                    cuotas.append(cuota)
+
+        # Create loanbook document
+        loanbook_doc = {
+            "id": loanbook_id,
+            "codigo": loanbook_codigo,
+            "cliente_nombre": payload.cliente_nombre,
+            "cliente_nit": payload.cliente_nit,
+            "cliente_telefono": payload.cliente_telefono,
+            "moto_chasis": payload.moto_chasis.strip(),
+            "moto_motor": payload.moto_motor.strip(),
+            "moto_descripcion": product_name,
+            "plan": payload.plan,
+            "fecha_factura": fecha_venta,
+            "fecha_entrega": None,  # Set only during physical delivery registration
+            "precio_venta": payload.precio_venta,
+            "cuota_inicial": payload.cuota_inicial,
+            "valor_cuota": payload.valor_cuota,
+            "modo_pago": payload.modo_pago,
+            "factura_alegra_id": invoice_id,
+            "factura_numero": invoice_number,
+            "estado": "pendiente_entrega",
+            "datos_completos": True,
+            "cuotas": cuotas,
+            "dpd_actual": 0,
+            "gestiones": [],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        await db.loanbook.insert_one(loanbook_doc)
+        logger.info(f"[F6] Loanbook creado: {loanbook_id}")
+
+        # ── PUBLISH EVENT ─────────────────────────────────────────────────────────
+        logger.info("[F6] Publicando evento factura.venta.creada...")
+        event_doc = {
+            "event_type": "factura.venta.creada",
+            "factura_alegra_id": invoice_id,
+            "factura_numero": invoice_number,
+            "loanbook_id": loanbook_id,
+            "cliente_nombre": payload.cliente_nombre,
+            "cliente_nit": payload.cliente_nit,
+            "moto_chasis": payload.moto_chasis.strip(),
+            "moto_motor": payload.moto_motor.strip(),
+            "precio_venta": payload.precio_venta,
+            "plan": payload.plan,
+            "fecha": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.roddos_events.insert_one(event_doc)
+
+        # ── POST-ACTION SYNC & CACHE INVALIDATION ─────────────────────────────────
+        logger.info("[F6] Sincronizando con post_action_sync()...")
+        await post_action_sync(
+            "crear_factura_venta",
+            {"id": invoice_id, "number": invoice_number, "loanbook_id": loanbook_id},
+            invoice_payload,
+            db,
+            current_user,
+            metadata={"loanbook_id": loanbook_id, "moto_chasis": payload.moto_chasis}
+        )
+
+        logger.info("[F6] Invalidando CFO cache...")
+        try:
+            await invalidar_cache_cfo()
+        except Exception as e:
+            logger.warning(f"[F6] Error invalidando CFO cache: {str(e)[:100]}")
+
+        # ── RESPONSE ──────────────────────────────────────────────────────────────
+        logger.info(f"[F6] ✅ Factura creada exitosamente: {invoice_number}")
+
+        return {
+            "success": True,
+            "factura_alegra_id": invoice_id,
+            "factura_numero": invoice_number,
+            "loanbook_id": loanbook_id,
+            "mensaje": f"✅ Factura creada en Alegra: {invoice_number}. Loanbook: {loanbook_id}",
+            "datos": {
+                "cliente_nombre": payload.cliente_nombre,
+                "moto_chasis": payload.moto_chasis,
+                "precio_venta": payload.precio_venta,
+                "plan": payload.plan,
+                "cuota_inicial": payload.cuota_inicial,
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[F6] Error creando factura: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error creando factura: {str(e)[:200]}")

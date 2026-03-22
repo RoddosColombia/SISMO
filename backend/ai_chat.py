@@ -248,6 +248,69 @@ Cuando el usuario REGISTRA UN GASTO o INGRESO, genera automáticamente:
    • observations es la descripción del comprobante
 
 ═══════════════════════════════════════════════════
+BUILD 23 — F6 FACTURACIÓN VENTA MOTOS
+═══════════════════════════════════════════════════
+Cuando el usuario VENDE una MOTO, ejecuta automáticamente:
+
+1. VALIDACIONES OBLIGATORIAS (HTTP 400 si fallan):
+   • VIN (moto_chasis) NO vacío → "VIN obligatorio para crear factura"
+   • Motor (moto_motor) NO vacío → "Motor obligatorio para crear factura"
+   • Cliente nombre, NIT, teléfono obligatorios
+   • Moto debe estar en estado "Disponible" en inventario → "no se puede vender"
+   • Plan debe ser: P39S | P52S | P78S | Contado
+
+2. CREACIÓN DE FACTURA EN ALEGRA:
+   Descripción del ítem EXACTA (CRÍTICO):
+   "[Modelo] [Color] - VIN: [chasis] / Motor: [motor]"
+
+   Ejemplos:
+   ✓ "[TVS Raider 125] [Negro] - VIN: 9FL25AF31VDB95058 / Motor: BF3AT18C2356"
+   ✓ "[TVS Sport 100] [Rojo] - VIN: 9ABC12DEF3456GH78 / Motor: SPORT001"
+   ✗ NUNCA: "Raider negra" (incompleto, sin VIN/motor)
+
+3. ESTADOS Y TRANSICIONES:
+   • Inventario: Disponible → Vendida
+   • Loanbook: "pendiente_entrega" (hasta que se registre entrega física)
+   • fecha_entrega: null (se establece en Momento 2: Entrega)
+
+4. GENERACIÓN DEL BLOQUE <action>:
+   <action>
+   {
+     "action_type": "crear_factura_venta",
+     "payload": {
+       "cliente_nombre": "Juan Pérez",
+       "cliente_nit": "1023456789",
+       "cliente_telefono": "3001234567",
+       "moto_chasis": "9FL25AF31VDB95058",
+       "moto_motor": "BF3AT18C2356",
+       "plan": "P39S",
+       "precio_venta": 9000000,
+       "cuota_inicial": 1500000,
+       "valor_cuota": 192307.69,
+       "modo_pago": "semanal",
+       "fecha_venta": "2026-03-22"
+     }
+   }
+   </action>
+
+5. RESPUESTA ESPERADA (si todo OK):
+   {
+     "success": true,
+     "factura_alegra_id": "JE-2026-001234",
+     "factura_numero": "CE-2026-001234",
+     "loanbook_id": "LB-2026-0042",
+     "mensaje": "✅ Factura creada en Alegra: CE-2026-001234. Loanbook: LB-2026-0042"
+   }
+
+6. CUOTAS GENERADAS AUTOMÁTICAMENTE:
+   • Cuota 0 (inicial): valor_cuota_inicial, estado pendiente, fecha_vencimiento = fecha_venta
+   • Cuotas 1-N: valor_cuota, estado pendiente, fecha_vencimiento null
+     - P39S: 39 cuotas ordinarias
+     - P52S: 52 cuotas ordinarias
+     - P78S: 78 cuotas ordinarias
+     - Contado: 0 cuotas ordinarias (solo cuota inicial = precio_venta)
+
+═══════════════════════════════════════════════════
 TARIFAS VIGENTES Colombia 2025 (UVT = $49.799):
 ═══════════════════════════════════════════════════
 • IVA general: 19% | Bienes básicos: 5% | Excluidos: 0%
@@ -3529,6 +3592,68 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
             "message": f"✅ Asiento creado en Alegra con ID: {alegra_id}",
             "result": result,
             "sync": sync_result,
+        }
+
+    # ── Special case: crear_factura_venta (F6 — Facturación Venta Motos) ────────
+    if action_type == "crear_factura_venta":
+        # PHASE 2 — F6: POST to /ventas/crear-factura endpoint (already calls request_with_verify)
+        # Validar campos obligatorios
+        if not payload.get("moto_chasis") or not payload.get("moto_chasis").strip():
+            return {
+                "success": False,
+                "error": "❌ VIN (moto_chasis) es obligatorio para crear factura"
+            }
+        if not payload.get("moto_motor") or not payload.get("moto_motor").strip():
+            return {
+                "success": False,
+                "error": "❌ Motor (moto_motor) es obligatorio para crear factura"
+            }
+
+        logger.info(
+            f"[F6] Crear factura venta: VIN {payload.get('moto_chasis')}, "
+            f"cliente {payload.get('cliente_nombre')}, plan {payload.get('plan')}"
+        )
+
+        # Call the /ventas/crear-factura endpoint directly
+        try:
+            # The endpoint is POST /api/ventas/crear-factura, but via service it's just /ventas/crear-factura
+            result = await service.request("ventas/crear-factura", "POST", payload)
+        except Exception as e:
+            logger.error(f"[F6] POST a /ventas/crear-factura falló: {str(e)}")
+            return {
+                "success": False,
+                "error": f"❌ Error al crear factura venta: {str(e)}"
+            }
+
+        # Verificar que la respuesta tiene success: True
+        if not result.get("success"):
+            logger.error(f"[F6] Endpoint retornó success=False: {result.get('error', 'Error desconocido')}")
+            return {
+                "success": False,
+                "error": f"❌ Error creando factura: {result.get('error', result.get('mensaje'))}"
+            }
+
+        # Extraer IDs
+        invoice_id = result.get("factura_alegra_id")
+        loanbook_id = result.get("loanbook_id")
+        invoice_number = result.get("factura_numero")
+
+        if not invoice_id or not loanbook_id:
+            logger.error(f"[F6] Respuesta no contiene IDs válidos: {result}")
+            return {
+                "success": False,
+                "error": "❌ Factura creada pero sin IDs válidos"
+            }
+
+        logger.info(f"[F6] ✅ Factura creada: {invoice_number} (ID: {invoice_id}), Loanbook: {loanbook_id}")
+
+        return {
+            "success": True,
+            "factura_alegra_id": invoice_id,
+            "factura_numero": invoice_number,
+            "loanbook_id": loanbook_id,
+            "message": f"✅ Factura creada en Alegra: {invoice_number}. Loanbook: {loanbook_id}",
+            "result": result,
         }
 
     # ── Special case: anular_causacion ────────────────────────────────────────
