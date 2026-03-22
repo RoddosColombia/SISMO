@@ -313,11 +313,15 @@ async def registrar_ingreso_no_operacional(
 @router.get("/plan-ingresos")
 async def get_plan_ingresos(current_user=Depends(get_current_user)):
     """Get non-operational income account mappings from MongoDB."""
-    planes = await db.plan_ingresos_roddos.find({"activo": True}).to_list(None)
-    return {
-        "plan_ingresos": planes,
-        "total": len(planes),
-    }
+    try:
+        planes = await db.plan_ingresos_roddos.find({}, {"_id": 0, "tipo_ingreso": 1, "alegra_id": 1, "cuenta_nombre": 1}).to_list(None)
+        return {
+            "plan_ingresos": planes or [],
+            "total": len(planes) if planes else 0,
+        }
+    except Exception as e:
+        logger.error(f"[F9] Error: {str(e)}")
+        return {"plan_ingresos": [], "total": 0}
 
 
 @router.get("/bancos")
