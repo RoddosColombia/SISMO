@@ -157,16 +157,20 @@ async def _procesar_extracto_background(
                 if exitoso:
                     _jobs_estado[job_id]["causados"] += 1
                     logger.info(f"[✅ Job {job_id}] Journal {journal_id} creado para {mov.descripcion}")
-                    # Guardar hash del movimiento como procesado
-                    await db.conciliacion_movimientos_procesados.insert_one({
-                        "hash": hash_movimiento,
-                        "banco": banco,
-                        "fecha": mov.fecha,
-                        "descripcion": mov.descripcion,
-                        "monto": mov.monto,
-                        "journal_id": journal_id,
-                        "procesado_at": datetime.now(timezone.utc).isoformat(),
-                    })
+                    # Guardar hash del movimiento como procesado (upsert para evitar duplicados)
+                    await db.conciliacion_movimientos_procesados.update_one(
+                        {"hash": hash_movimiento},
+                        {"$set": {
+                            "hash": hash_movimiento,
+                            "banco": banco,
+                            "fecha": mov.fecha,
+                            "descripcion": mov.descripcion,
+                            "monto": mov.monto,
+                            "journal_id": journal_id,
+                            "procesado_at": datetime.now(timezone.utc).isoformat(),
+                        }},
+                        upsert=True
+                    )
                     # Guardar en roddos_events
                     await db.roddos_events.insert_one({
                         "event_type": "extracto_bancario.causado",
@@ -252,16 +256,20 @@ async def _procesar_extracto_background(
         # Si causados == 0, NO marcar como procesado para permitir reintento
         # ─────────────────────────────────────────────────────────────────────────────
         if _jobs_estado[job_id]["causados"] > 0:
-            await db.conciliacion_extractos_procesados.insert_one({
-                "hash": hash_extracto,
-                "banco": banco.lower(),
-                "fecha": fecha,
-                "procesado_at": datetime.now(timezone.utc).isoformat(),
-                "journals_creados": _jobs_estado[job_id]["causados"],
-                "movimientos_pendientes": _jobs_estado[job_id]["pendientes"],
-                "usuario": usuario_id,
-                "job_id": job_id,
-            })
+            await db.conciliacion_extractos_procesados.update_one(
+                {"hash": hash_extracto},
+                {"$set": {
+                    "hash": hash_extracto,
+                    "banco": banco.lower(),
+                    "fecha": fecha,
+                    "procesado_at": datetime.now(timezone.utc).isoformat(),
+                    "journals_creados": _jobs_estado[job_id]["causados"],
+                    "movimientos_pendientes": _jobs_estado[job_id]["pendientes"],
+                    "usuario": usuario_id,
+                    "job_id": job_id,
+                }},
+                upsert=True
+            )
             logger.info(
                 f"[✅ PROCESADO] Job {job_id}: Extracto {banco} "
                 f"({_jobs_estado[job_id]['causados']} journals creados)"
@@ -449,15 +457,19 @@ async def cargar_extracto(
         # Si causados == 0, NO marcar como procesado para permitir reintento
         # ─────────────────────────────────────────────────────────────────────────────
         if causados > 0:
-            await db.conciliacion_extractos_procesados.insert_one({
-                "hash": hash_extracto,
-                "banco": banco.lower(),
-                "fecha": fecha,
-                "procesado_at": datetime.now(timezone.utc).isoformat(),
-                "journals_creados": causados,
-                "movimientos_pendientes": pendientes_count,
-                "usuario": current_user,
-            })
+            await db.conciliacion_extractos_procesados.update_one(
+                {"hash": hash_extracto},
+                {"$set": {
+                    "hash": hash_extracto,
+                    "banco": banco.lower(),
+                    "fecha": fecha,
+                    "procesado_at": datetime.now(timezone.utc).isoformat(),
+                    "journals_creados": causados,
+                    "movimientos_pendientes": pendientes_count,
+                    "usuario": current_user,
+                }},
+                upsert=True
+            )
             logger.info(f"[✅ PROCESADO] Extracto {banco} ({causados} journals creados)")
         else:
             logger.warning(

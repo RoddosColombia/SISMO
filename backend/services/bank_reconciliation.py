@@ -552,20 +552,24 @@ class BankReconciliationEngine:
 
                 self.logger.info(f"[BG] ✅ Journal {journal_id} verificado en Alegra")
 
-            # Guardar en MongoDB después de verificación exitosa
+            # Guardar en MongoDB después de verificación exitosa (upsert para evitar duplicados)
             hash_movimiento = hashlib.md5(
                 f"{movimiento.banco.value}{movimiento.fecha}{movimiento.descripcion}{str(movimiento.monto)}".encode()
             ).hexdigest()
 
-            await self.db.conciliacion_movimientos_procesados.insert_one({
-                "hash": hash_movimiento,
-                "banco": movimiento.banco.value,
-                "fecha": movimiento.fecha,
-                "descripcion": movimiento.descripcion,
-                "monto": movimiento.monto,
-                "journal_id": journal_id,
-                "procesado_at": datetime.now(timezone.utc).isoformat(),
-            })
+            await self.db.conciliacion_movimientos_procesados.update_one(
+                {"hash": hash_movimiento},
+                {"$set": {
+                    "hash": hash_movimiento,
+                    "banco": movimiento.banco.value,
+                    "fecha": movimiento.fecha,
+                    "descripcion": movimiento.descripcion,
+                    "monto": movimiento.monto,
+                    "journal_id": journal_id,
+                    "procesado_at": datetime.now(timezone.utc).isoformat(),
+                }},
+                upsert=True
+            )
             self.logger.info(f"[MONGO] Movimiento guardado en BD: journal_id {journal_id}")
 
             return True, journal_id, None
