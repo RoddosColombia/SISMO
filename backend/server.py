@@ -21,6 +21,7 @@ from routers import cfo_chat as cfo_chat_router
 from routers import mercately as mercately_router, crm as crm_router
 from routers import dian as dian_router
 from routers import ingresos as ingresos_router
+from routers import cartera as cartera_router
 from routers import cxc as cxc_router
 from routers import proveedores_config as proveedores_router
 from routers import scheduler as scheduler_router
@@ -323,6 +324,7 @@ app.include_router(gastos_router.router,     prefix=PREFIX)
 app.include_router(ventas_router.router,     prefix=PREFIX)
 app.include_router(dian_router.router,       prefix=PREFIX)
 app.include_router(ingresos_router.router,   prefix=PREFIX)
+app.include_router(cartera_router.router,    prefix=PREFIX)
 app.include_router(cxc_router.router,        prefix=PREFIX)
 app.include_router(reports_router.router,                      prefix=PREFIX)
 app.include_router(contabilidad_pendientes_router.router,      prefix=PREFIX)
