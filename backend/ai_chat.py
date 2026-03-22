@@ -3220,14 +3220,24 @@ async def process_chat(
     # ── End pre-LLM bypass ───────────────────────────────────────────────────
 
     # Call Claude with full history context
+    # Prompt caching enabled via cache_control (reduces token consumption ~90% on subsequent calls)
     _chat_client = anthropic.AsyncAnthropic(api_key=api_key)
     _system_parts = [m["content"] for m in initial_messages if m.get("role") == "system"]
     _chat_msgs = [m for m in initial_messages if m.get("role") in ("user", "assistant")]
     _chat_msgs.append({"role": "user", "content": user_message})
+
+    _system_text = "\n\n".join(_system_parts) if _system_parts else system_prompt
+
     _chat_resp = await _chat_client.messages.create(
         model="claude-sonnet-4-5-20250929",
         max_tokens=4096,
-        system="\n\n".join(_system_parts) if _system_parts else system_prompt,
+        system=[
+            {
+                "type": "text",
+                "text": _system_text,
+                "cache_control": {"type": "ephemeral"}
+            }
+        ],
         messages=_chat_msgs,
     )
     response_text = _chat_resp.content[0].text
