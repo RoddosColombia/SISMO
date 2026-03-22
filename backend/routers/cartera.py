@@ -1,0 +1,375 @@
+"""cartera.py — BUILD 23 — F7: Ingresos por Cuotas de Cartera
+
+Endpoints:
+  POST /api/cartera/registrar-pago      — Create income journal in Alegra for quota payment
+  GET  /api/cartera/plan-ingresos       — Financial income account mappings
+  GET  /api/cartera/bancos              — Bank account mappings
+"""
+import logging
+from datetime import datetime, timezone
+from typing import Optional
+from pydantic import BaseModel
+
+from fastapi import APIRouter, Depends, HTTPException
+from database import db
+from dependencies import get_current_user
+from alegra_service import AlegraService
+from post_action_sync import post_action_sync
+from routers.cfo import invalidar_cache_cfo
+
+router = APIRouter(prefix="/cartera", tags=["cartera"])
+logger = logging.getLogger(__name__)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PLAN DE INGRESOS FINANCIEROS — RODDOS SAS
+# ══════════════════════════════════════════════════════════════════════════════
+
+PLAN_INGRESOS_RODDOS = [
+    {
+        "tipo_ingreso": "Intereses_Financieros_Cartera",
+        "cuenta_nombre": "Intereses (Actividades Financieras)",
+        "cuenta_codigo": "415020",
+        "alegra_id": 5455,
+        "activo": True,
+        "descripcion": "Ingresos por cuotas de cartera a crédito",
+    },
+    {
+        "tipo_ingreso": "Otros_Ingresos_Cartera",
+        "cuenta_nombre": "Otros ingresos (no operacionales)",
+        "cuenta_codigo": "42",
+        "alegra_id": 5436,
+        "activo": True,
+        "descripcion": "Otros ingresos por cartera",
+    },
+]
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CUENTAS BANCARIAS — RODDOS SAS
+# ══════════════════════════════════════════════════════════════════════════════
+
+BANCOS_MAP = {
+    "bancolombia": 5314,
+    "bancolombia 2029": 5314,
+    "bancolombia 2540": 5315,
+    "bbva": 5318,
+    "bbva 0210": 5318,
+    "bbva 0212": 5319,
+    "banco de bogota": 5321,
+    "bdebogota": 5321,
+    "davivienda": 5322,
+    "davivienda 1234": 5322,
+    "nequi": 5314,  # Default to Bancolombia
+    "efectivo": 1110,  # Caja General
+}
+
+DEFAULT_BANCO_ID = 5314  # Bancolombia 2029
+DEFAULT_INCOME_ACCOUNT_ID = 5455  # Intereses Financieros
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REQUEST SCHEMAS
+# ══════════════════════════════════════════════════════════════════════════════
+
+class RegistrarPagoRequest(BaseModel):
+    """Request schema for registering a quota payment."""
+    loanbook_id: str              # LB-2026-0042
+    cliente_nombre: str            # Cliente nombre
+    monto_pago: float             # Amount paid
+    numero_cuota: Optional[int]   # Cuota número (if known)
+    metodo_pago: str              # "transferencia" | "efectivo" | "nequi" | "otro"
+    banco_origen: str             # "Bancolombia" | "BBVA" | etc.
+    referencia_pago: Optional[str] = None  # Transaction ID / reference
+    observaciones: Optional[str] = None    # Extra notes
+    fecha_pago: Optional[str] = None      # Default: today
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ENDPOINTS
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.post("/registrar-pago")
+async def registrar_pago_cartera(
+    payload: RegistrarPagoRequest,
+    current_user=Depends(get_current_user),
+):
+    """
+    Register a quota payment → Create income journal in Alegra.
+
+    CRITICAL FLOW:
+    1. Validate: monto_pago > 0, loanbook_id valid
+    2. Find loanbook + oldest pending cuota
+    3. Get income account ID from plan_ingresos_roddos
+    4. Create journal in Alegra via POST /journals with request_with_verify()
+    5. ONLY if HTTP 200 confirmed:
+       - Mark cuota as "pagada"
+       - Update loanbook.saldo_pendiente
+       - Insert cartera_pagos record
+       - Publish pago.cuota.registrado event
+       - Invalidate CFO cache
+    6. CRITICAL: If Alegra fails → DO NOT modify loanbook
+    """
+    try:
+        # ── VALIDATIONS ───────────────────────────────────────────────────────
+        if not payload.loanbook_id or not payload.loanbook_id.strip():
+            raise HTTPException(status_code=400, detail="loanbook_id obligatorio")
+
+        if payload.monto_pago <= 0:
+            raise HTTPException(status_code=400, detail="monto_pago debe ser > 0")
+
+        if not payload.cliente_nombre or not payload.cliente_nombre.strip():
+            raise HTTPException(status_code=400, detail="cliente_nombre obligatorio")
+
+        if not payload.metodo_pago or not payload.metodo_pago.strip():
+            raise HTTPException(status_code=400, detail="metodo_pago obligatorio")
+
+        if not payload.banco_origen or not payload.banco_origen.strip():
+            raise HTTPException(status_code=400, detail="banco_origen obligatorio")
+
+        # ── FIND LOANBOOK ─────────────────────────────────────────────────────
+        logger.info(f"[F7] Buscando loanbook {payload.loanbook_id}...")
+        loanbook = await db.loanbook.find_one({"id": payload.loanbook_id.strip()})
+
+        if not loanbook:
+            raise HTTPException(status_code=400, detail=f"Loanbook {payload.loanbook_id} no encontrado")
+
+        # ── FIND OLDEST PENDING CUOTA ─────────────────────────────────────────
+        cuotas = loanbook.get("cuotas", [])
+        pending_cuotas = [c for c in cuotas if c.get("estado") == "pendiente"]
+
+        if not pending_cuotas:
+            raise HTTPException(status_code=400, detail="No hay cuotas pendientes en este loanbook")
+
+        # Find oldest pending cuota (lowest numero)
+        cuota_a_pagar = min(pending_cuotas, key=lambda c: c.get("numero", 999))
+        cuota_numero = cuota_a_pagar.get("numero")
+        cuota_valor = cuota_a_pagar.get("valor", 0)
+
+        # Validate payment amount matches cuota value
+        if abs(payload.monto_pago - cuota_valor) > 1:
+            logger.warning(
+                f"[F7] Advertencia: monto_pago ${payload.monto_pago} ≠ cuota_valor ${cuota_valor}"
+            )
+            # Allow it but log warning
+
+        logger.info(
+            f"[F7] Cuota {cuota_numero} encontrada: ${cuota_valor}. "
+            f"Pago registrado: ${payload.monto_pago}"
+        )
+
+        # ── GET INCOME ACCOUNT ID ─────────────────────────────────────────────
+        # Default: Intereses Financieros (5455)
+        income_account_id = DEFAULT_INCOME_ACCOUNT_ID
+        income_account_name = "Intereses Financieros - Cartera"
+
+        # Try to find matching plan entry (in case future plans change)
+        for plan_entry in PLAN_INGRESOS_RODDOS:
+            if plan_entry.get("activo"):
+                income_account_id = plan_entry.get("alegra_id", 5455)
+                income_account_name = plan_entry.get("cuenta_nombre", income_account_name)
+                break
+
+        logger.info(f"[F7] Cuenta de ingreso: {income_account_name} (ID: {income_account_id})")
+
+        # ── GET BANK ACCOUNT ID ───────────────────────────────────────────────
+        banco_key = payload.banco_origen.lower().strip()
+        bank_account_id = BANCOS_MAP.get(banco_key, DEFAULT_BANCO_ID)
+
+        logger.info(f"[F7] Banco: {payload.banco_origen} → Cuenta ID {bank_account_id}")
+
+        # ── SET UP ALEGRA SERVICE ─────────────────────────────────────────────
+        service = AlegraService(db)
+
+        # ── CREATE JOURNAL IN ALEGRA ──────────────────────────────────────────
+        fecha_pago = payload.fecha_pago or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+        journal_payload = {
+            "date": fecha_pago,
+            "observations": (
+                f"Pago cuota #{cuota_numero} - {payload.cliente_nombre}. "
+                f"Referencia: {payload.referencia_pago or 'N/A'}. "
+                f"Método: {payload.metodo_pago}"
+            ),
+            "entries": [
+                {
+                    "id": bank_account_id,
+                    "debit": payload.monto_pago,
+                    "credit": 0
+                },
+                {
+                    "id": income_account_id,
+                    "debit": 0,
+                    "credit": payload.monto_pago
+                }
+            ],
+            "_metadata": {
+                "loanbook_id": payload.loanbook_id,
+                "cuota_numero": cuota_numero,
+                "cliente_nombre": payload.cliente_nombre,
+                "banco_origen": payload.banco_origen,
+                "metodo_pago": payload.metodo_pago,
+            }
+        }
+
+        logger.info(f"[F7] Creando journal en Alegra para pago ${payload.monto_pago}...")
+
+        try:
+            journal_response = await service.request_with_verify("journals", "POST", journal_payload)
+        except Exception as e:
+            logger.error(f"[F7] POST a /journals falló: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error creando journal en Alegra: {str(e)}"
+            )
+
+        # ── VERIFY HTTP 200 BEFORE MODIFYING LOANBOOK ─────────────────────────
+        if not journal_response.get("_verificado"):
+            error_msg = journal_response.get("_error_verificacion", "Verificación fallida sin detalles")
+            logger.error(f"[F7] Verificación de journal falló: {error_msg}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Journal creado pero no verificado en Alegra: {error_msg}"
+            )
+
+        # Extract journal ID
+        journal_id = journal_response.get("id")
+        if not journal_id:
+            logger.error(f"[F7] Alegra no retornó un ID válido: {journal_response}")
+            raise HTTPException(status_code=500, detail="Alegra no retornó ID del journal")
+
+        logger.info(f"[F7] ✅ Journal creado en Alegra: ID={journal_id}")
+
+        # ── ONLY NOW: MODIFY LOANBOOK (HTTP 200 CONFIRMED) ──────────────────
+        logger.info(f"[F7] Marcando cuota {cuota_numero} como pagada...")
+
+        # Update cuota state
+        for idx, c in enumerate(cuotas):
+            if c.get("numero") == cuota_numero:
+                cuotas[idx]["estado"] = "pagada"
+                cuotas[idx]["fecha_pago"] = fecha_pago
+                cuotas[idx]["alegra_journal_id"] = journal_id
+                break
+
+        # Calculate new saldo_pendiente
+        saldo_pendiente = loanbook.get("saldo_pendiente", loanbook.get("precio_venta", 0))
+        saldo_pendiente -= payload.monto_pago
+
+        # Update loanbook
+        await db.loanbook.update_one(
+            {"id": payload.loanbook_id.strip()},
+            {
+                "$set": {
+                    "cuotas": cuotas,
+                    "saldo_pendiente": saldo_pendiente,
+                    "ultima_cuota_pagada": cuota_numero,
+                    "fecha_ultimo_pago": fecha_pago,
+                }
+            }
+        )
+
+        logger.info(
+            f"[F7] Loanbook actualizado: cuota {cuota_numero} marcada pagada, "
+            f"saldo_pendiente = ${saldo_pendiente}"
+        )
+
+        # ── INSERT INTO cartera_pagos ────────────────────────────────────────
+        pago_record = {
+            "id": f"PAGO-{journal_id}",
+            "loanbook_id": payload.loanbook_id.strip(),
+            "cuota_numero": cuota_numero,
+            "cliente_nombre": payload.cliente_nombre,
+            "monto_pago": payload.monto_pago,
+            "metodo_pago": payload.metodo_pago,
+            "banco_origen": payload.banco_origen,
+            "referencia_pago": payload.referencia_pago or "",
+            "alegra_journal_id": journal_id,
+            "fecha_pago": fecha_pago,
+            "fecha_registro": datetime.now(timezone.utc).isoformat(),
+            "observaciones": payload.observaciones or "",
+        }
+
+        await db.cartera_pagos.insert_one(pago_record)
+        logger.info(f"[F7] Registro insertado en cartera_pagos: {pago_record['id']}")
+
+        # ── PUBLISH EVENT ────────────────────────────────────────────────────
+        logger.info("[F7] Publicando evento pago.cuota.registrado...")
+        event_doc = {
+            "event_type": "pago.cuota.registrado",
+            "loanbook_id": payload.loanbook_id.strip(),
+            "cuota_numero": cuota_numero,
+            "monto_pago": payload.monto_pago,
+            "cliente_nombre": payload.cliente_nombre,
+            "alegra_journal_id": journal_id,
+            "saldo_pendiente": saldo_pendiente,
+            "metodo_pago": payload.metodo_pago,
+            "fecha_pago": fecha_pago,
+            "fecha": datetime.now(timezone.utc).isoformat(),
+        }
+
+        await db.roddos_events.insert_one(event_doc)
+
+        # ── POST-ACTION SYNC & CACHE INVALIDATION ───────────────────────────
+        logger.info("[F7] Sincronizando con post_action_sync()...")
+        try:
+            await post_action_sync(
+                "registrar_pago_cartera",
+                {"id": journal_id, "loanbook_id": payload.loanbook_id},
+                journal_payload,
+                db,
+                current_user,
+                metadata={
+                    "loanbook_id": payload.loanbook_id,
+                    "cuota_numero": cuota_numero,
+                    "saldo_pendiente": saldo_pendiente,
+                }
+            )
+        except Exception as e:
+            logger.warning(f"[F7] post_action_sync falló (no fatal): {str(e)[:100]}")
+
+        logger.info("[F7] Invalidando CFO cache...")
+        try:
+            await invalidar_cache_cfo()
+        except Exception as e:
+            logger.warning(f"[F7] Error invalidando CFO cache: {str(e)[:100]}")
+
+        # ── RESPONSE ──────────────────────────────────────────────────────────
+        logger.info(f"[F7] ✅ Pago registrado exitosamente. Journal: {journal_id}")
+
+        return {
+            "success": True,
+            "journal_id": journal_id,
+            "loanbook_id": payload.loanbook_id,
+            "cuota_numero": cuota_numero,
+            "monto_pago": payload.monto_pago,
+            "saldo_pendiente": saldo_pendiente,
+            "fecha_pago": fecha_pago,
+            "mensaje": (
+                f"✅ Pago cuota #{cuota_numero} registrado. "
+                f"Journal en Alegra: {journal_id}. "
+                f"Saldo pendiente: ${saldo_pendiente:,.0f}"
+            ),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[F7] Error registrando pago: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error registrando pago: {str(e)[:200]}")
+
+
+@router.get("/plan-ingresos")
+async def get_plan_ingresos(current_user=Depends(get_current_user)):
+    """Get financial income account mappings."""
+    return {
+        "plan_ingresos": PLAN_INGRESOS_RODDOS,
+        "default_income_account_id": DEFAULT_INCOME_ACCOUNT_ID,
+    }
+
+
+@router.get("/bancos")
+async def get_bancos(current_user=Depends(get_current_user)):
+    """Get bank account mappings."""
+    return {
+        "bancos": BANCOS_MAP,
+        "default_banco_id": DEFAULT_BANCO_ID,
+        "default_banco_name": "Bancolombia 2029",
+    }

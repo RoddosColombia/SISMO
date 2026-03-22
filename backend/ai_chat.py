@@ -311,6 +311,89 @@ Cuando el usuario VENDE una MOTO, ejecuta automáticamente:
      - Contado: 0 cuotas ordinarias (solo cuota inicial = precio_venta)
 
 ═══════════════════════════════════════════════════
+BUILD 23 — F7 INGRESOS POR CUOTAS DE CARTERA
+═══════════════════════════════════════════════════
+Cuando un cliente PAGA UNA CUOTA, registra automáticamente:
+
+1. FLUJO EXACTO (CRÍTICO — no cambiar):
+   a) Usuario informa: monto_pago, cliente, método, banco
+   b) Sistema identifica loanbook + cuota pendiente MÁS ANTIGUA
+   c) Consultar plan_ingresos_roddos → ID cuenta ingreso financiero
+   d) POST /journals en Alegra:
+      DÉBITO: Banco (cuenta correcta según método_pago)
+      CRÉDITO: Ingresos Financieros Cartera (ID 5455 default)
+   e) request_with_verify(): GET verificación → HTTP 200
+   f) SOLO si HTTP 200 confirmado:
+      - loanbook.cuotas[n].estado = "pagada"
+      - loanbook.cuotas[n].fecha_pago = fecha real
+      - loanbook.saldo_pendiente -= monto_pago
+      - Insertar cartera_pagos con alegra_journal_id
+      - Publicar pago.cuota.registrado event
+      - Invalidar CFO cache
+   g) Retornar: journal_id + saldo_pendiente actualizado
+
+2. REGLA CRÍTICA — GARANTÍA DE CONSISTENCIA:
+   ❌ SI Alegra falla (POST falló, verificación falló, HTTP ≠ 200):
+      → NO modificar loanbook
+      → NO marcar cuota pagada
+      → Retornar error explícito
+   ✅ SOLO marcar pagada cuando Alegra confirma HTTP 200
+
+3. CUENTAS BANCARIAS (según método_pago):
+   • Bancolombia: ID 5314 (default para "transferencia" sin especificar banco)
+   • BBVA: ID 5318
+   • Davivienda: ID 5322
+   • Banco de Bogotá: ID 5321
+   • Nequi: ID 5314 (default, llega a Bancolombia)
+   • Efectivo: ID 1110 (Caja General)
+
+4. CUENTAS DE INGRESO (desde plan_ingresos_roddos):
+   • Intereses Financieros Cartera: ID 5455 (DEFAULT)
+   • Otros Ingresos No Operacionales: ID 5436
+
+5. GENERACIÓN DEL BLOQUE <action>:
+   <action>
+   {
+     "action_type": "registrar_pago_cartera",
+     "payload": {
+       "loanbook_id": "LB-2026-0042",
+       "cliente_nombre": "Juan Pérez",
+       "monto_pago": 192307.69,
+       "numero_cuota": 1,
+       "metodo_pago": "transferencia",
+       "banco_origen": "Bancolombia",
+       "referencia_pago": "REF-123456",
+       "observaciones": "Pago recibido",
+       "fecha_pago": "2026-03-22"
+     }
+   }
+   </action>
+
+6. RESPUESTA ESPERADA (si todo OK):
+   {
+     "success": true,
+     "journal_id": "JE-2026-005678",
+     "loanbook_id": "LB-2026-0042",
+     "cuota_numero": 1,
+     "saldo_pendiente": 7307692.31,
+     "fecha_pago": "2026-03-22",
+     "mensaje": "✅ Pago cuota #1 registrado. Journal: JE-2026-005678. Saldo: $7.307.692"
+   }
+
+7. EVENTO PUBLICADO EN roddos_events:
+   {
+     "event_type": "pago.cuota.registrado",
+     "loanbook_id": "LB-2026-0042",
+     "cuota_numero": 1,
+     "monto_pago": 192307.69,
+     "cliente_nombre": "Juan Pérez",
+     "alegra_journal_id": "JE-2026-005678",
+     "saldo_pendiente": 7307692.31,
+     "metodo_pago": "transferencia",
+     "fecha_pago": "2026-03-22"
+   }
+
+═══════════════════════════════════════════════════
 TARIFAS VIGENTES Colombia 2025 (UVT = $49.799):
 ═══════════════════════════════════════════════════
 • IVA general: 19% | Bienes básicos: 5% | Excluidos: 0%
@@ -3385,6 +3468,7 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
         "registrar_factura_compra": ("bills", "POST"),
         "crear_causacion": ("journals", "POST"),
         "registrar_pago": ("payments", "POST"),
+        "registrar_pago_cartera": ("cartera/registrar-pago", "POST"),
         "crear_contacto": ("contacts", "POST"),
         "crear_nota_credito": ("credit-notes", "POST"),
         "crear_nota_debito": ("debit-notes", "POST"),
@@ -3653,6 +3737,75 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
             "factura_numero": invoice_number,
             "loanbook_id": loanbook_id,
             "message": f"✅ Factura creada en Alegra: {invoice_number}. Loanbook: {loanbook_id}",
+            "result": result,
+        }
+
+    # ── Special case: registrar_pago_cartera (F7 — Ingresos por Cuotas) ────────
+    if action_type == "registrar_pago_cartera":
+        # PHASE 2 — F7: POST to /cartera/registrar-pago endpoint
+        # Validar campos obligatorios
+        if not payload.get("loanbook_id") or not payload.get("loanbook_id").strip():
+            return {
+                "success": False,
+                "error": "❌ loanbook_id es obligatorio para registrar pago"
+            }
+        if payload.get("monto_pago", 0) <= 0:
+            return {
+                "success": False,
+                "error": "❌ monto_pago debe ser > 0"
+            }
+
+        logger.info(
+            f"[F7] Registrar pago cartera: Loanbook {payload.get('loanbook_id')}, "
+            f"monto ${payload.get('monto_pago')}"
+        )
+
+        # Call the /cartera/registrar-pago endpoint directly
+        try:
+            result = await service.request("cartera/registrar-pago", "POST", payload)
+        except Exception as e:
+            logger.error(f"[F7] POST a /cartera/registrar-pago falló: {str(e)}")
+            return {
+                "success": False,
+                "error": f"❌ Error registrando pago: {str(e)}"
+            }
+
+        # Verificar que la respuesta tiene success: True
+        if not result.get("success"):
+            logger.error(f"[F7] Endpoint retornó success=False: {result.get('error', 'Error desconocido')}")
+            return {
+                "success": False,
+                "error": f"❌ Error registrando pago: {result.get('error', result.get('mensaje'))}"
+            }
+
+        # Extraer IDs
+        journal_id = result.get("journal_id")
+        loanbook_id = result.get("loanbook_id")
+        cuota_numero = result.get("cuota_numero")
+        saldo_pendiente = result.get("saldo_pendiente")
+
+        if not journal_id:
+            logger.error(f"[F7] Respuesta no contiene journal_id: {result}")
+            return {
+                "success": False,
+                "error": "❌ Pago registrado pero sin journal_id de Alegra"
+            }
+
+        logger.info(
+            f"[F7] ✅ Pago registrado: Journal {journal_id}, "
+            f"Cuota #{cuota_numero}, Saldo: ${saldo_pendiente:,.0f}"
+        )
+
+        return {
+            "success": True,
+            "journal_id": journal_id,
+            "loanbook_id": loanbook_id,
+            "cuota_numero": cuota_numero,
+            "saldo_pendiente": saldo_pendiente,
+            "message": (
+                f"✅ Pago cuota #{cuota_numero} registrado en Alegra. "
+                f"Journal: {journal_id}. Saldo pendiente: ${saldo_pendiente:,.0f}"
+            ),
             "result": result,
         }
 
