@@ -24,6 +24,7 @@ from routers import ingresos as ingresos_router
 from routers import cartera as cartera_router
 from routers import nomina as nomina_router
 from routers import cxc as cxc_router
+from routers import cxc_socios as cxc_socios_router
 from routers import proveedores_config as proveedores_router
 from routers import scheduler as scheduler_router
 from routers import learning as learning_router
@@ -328,6 +329,7 @@ app.include_router(ingresos_router.router,   prefix=PREFIX)
 app.include_router(cartera_router.router,    prefix=PREFIX)
 app.include_router(nomina_router.router,     prefix=PREFIX)
 app.include_router(cxc_router.router,        prefix=PREFIX)
+app.include_router(cxc_socios_router.router, prefix=PREFIX)
 app.include_router(reports_router.router,                      prefix=PREFIX)
 app.include_router(contabilidad_pendientes_router.router,      prefix=PREFIX)
 app.include_router(conciliacion_router.router,                 prefix=PREFIX)
