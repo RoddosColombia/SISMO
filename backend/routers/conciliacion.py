@@ -61,7 +61,10 @@ async def _procesar_extracto_background(
     hash_extracto: str,
 ):
     """Procesa extracto en background para lotes grandes."""
+    import os
     logger.info(f"[🔄 Job {job_id}] INICIANDO procesamiento de extracto {banco}")
+    logger.info(f"[BG] Alegra email configurado: {bool(os.environ.get('ALEGRA_EMAIL'))}")
+    logger.info(f"[BG] Alegra token configurado: {bool(os.environ.get('ALEGRA_TOKEN'))}")
 
     # Inicializar estado
     job_state = {
@@ -107,6 +110,7 @@ async def _procesar_extracto_background(
 
         # Causar en Alegra
         logger.info(f"[💰 Job {job_id}] Causando {len(causables)} movimientos en Alegra...")
+        logger.info(f"[BG] Movimientos causables a procesar: {len(causables)}")
         for idx, mov in enumerate(causables, 1):
             logger.debug(f"[💰 Job {job_id}] [{idx}/{len(causables)}] Causando: {mov.descripcion} ${mov.monto:,.0f}")
 

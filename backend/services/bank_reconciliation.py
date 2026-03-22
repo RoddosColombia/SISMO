@@ -15,6 +15,7 @@ Flujo:
 """
 
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional, List, Tuple
@@ -395,16 +396,37 @@ class BankReconciliationEngine:
         Crea journal en Alegra para movimiento causable.
         Retorna: (exitoso, journal_id, error_msg)
 
+        NOTA: Esta función se ejecuta en un BackgroundTask (sin request context).
+        Por eso usa os.environ.get() directamente en lugar de AlegraService.
+
         Si Alegra retorna 503/429, guarda en conciliacion_reintentos
         para reintentarlo en el scheduler (cada 5 min).
         """
-        from alegra_service import AlegraService
-        from fastapi import HTTPException
         import hashlib
+        import base64
+        import httpx
+        from datetime import timedelta
 
         try:
-            service = AlegraService(self.db)
+            # [BG] Leer credenciales directamente del entorno
+            alegra_email = os.environ.get("ALEGRA_EMAIL", "")
+            alegra_token = os.environ.get("ALEGRA_TOKEN", "")
 
+            if not alegra_email or not alegra_token:
+                self.logger.error("[Alegra] Credenciales no configuradas (ALEGRA_EMAIL/ALEGRA_TOKEN vacías)")
+                return False, None, "Credenciales de Alegra no configuradas"
+
+            self.logger.info(f"[BG] Credenciales Alegra cargadas: email={alegra_email[:20]}...")
+
+            # Construir header de autenticación (Basic Auth)
+            creds = base64.b64encode(f"{alegra_email}:{alegra_token}".encode()).decode()
+            headers = {
+                "Authorization": f"Basic {creds}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            }
+
+            # Payload del journal
             payload = {
                 "date": movimiento.fecha,
                 "observations": f"{movimiento.descripcion} ({movimiento.banco.value})",
@@ -422,20 +444,77 @@ class BankReconciliationEngine:
                 ],
             }
 
-            # POST a Alegra
-            response = await service.request("journals", "POST", payload)
+            self.logger.info(f"[BG] Creando journal para {movimiento.descripcion} (monto={movimiento.monto})")
 
-            if not isinstance(response, dict) or not response.get("id"):
-                self.logger.error(f"Alegra no retornó ID válido: {response}")
-                return False, None, str(response)
+            # POST a Alegra (directamente con httpx)
+            base_url = "https://api.alegra.com/api/v1"
+            async with httpx.AsyncClient(timeout=30) as client:
+                # POST crear journal
+                post_url = f"{base_url}/journals"
+                self.logger.info(f"[BG] POST {post_url}")
+                response = await client.post(post_url, headers=headers, json=payload)
 
-            journal_id = str(response["id"])
+                if response.status_code >= 400:
+                    error_data = response.json() if response.content else {}
+                    self.logger.error(f"[Alegra] POST error {response.status_code}: {error_data}")
 
-            # GET de verificación
-            verify = await service.request(f"journals/{journal_id}")
-            if not verify or not verify.get("id"):
-                self.logger.error(f"GET verificación falló para journal {journal_id}")
-                return False, journal_id, "GET verification failed"
+                    # Si es 503 o 429, guardar para reintento
+                    if response.status_code in (429, 503):
+                        self.logger.warning(f"[Alegra] {response.status_code} temporal — guardando en reintentos")
+                        hash_movimiento = hashlib.md5(
+                            f"{movimiento.banco.value}{movimiento.fecha}{movimiento.descripcion}{str(movimiento.monto)}".encode()
+                        ).hexdigest()
+
+                        ahora = datetime.now(timezone.utc)
+                        proximo_intento = ahora + timedelta(minutes=5)
+
+                        await self.db.conciliacion_reintentos.update_one(
+                            {"movimiento_hash": hash_movimiento},
+                            {
+                                "$set": {
+                                    "movimiento_hash": hash_movimiento,
+                                    "banco": movimiento.banco.value,
+                                    "fecha": movimiento.fecha,
+                                    "descripcion": movimiento.descripcion,
+                                    "monto": movimiento.monto,
+                                    "cuenta_debito": movimiento.cuenta_debito_sugerida,
+                                    "cuenta_credito": movimiento.cuenta_credito_sugerida,
+                                    "proximo_intento": proximo_intento,
+                                    "estado": "pendiente_reintento",
+                                    "timestamp_ultimo_intento": ahora,
+                                },
+                                "$inc": {"intentos": 1}
+                            },
+                            upsert=True
+                        )
+                        return False, None, f"Almacenado en reintentos ({response.status_code})"
+
+                    # Otros errores HTTP
+                    return False, None, f"HTTP {response.status_code}: {error_data.get('message', 'Error desconocido')}"
+
+                result = response.json()
+                if not isinstance(result, dict) or not result.get("id"):
+                    self.logger.error(f"Alegra no retornó ID válido: {result}")
+                    return False, None, str(result)
+
+                journal_id = str(result["id"])
+                self.logger.info(f"[BG] Journal {journal_id} creado en Alegra")
+
+                # GET de verificación
+                get_url = f"{base_url}/journals/{journal_id}"
+                self.logger.info(f"[BG] GET {get_url} (verificación)")
+                verify_response = await client.get(get_url, headers=headers)
+
+                if verify_response.status_code >= 400:
+                    self.logger.warning(f"[Alegra] GET verificación falló {verify_response.status_code} — continuando")
+                    return False, journal_id, "GET verification failed"
+
+                verify = verify_response.json()
+                if not isinstance(verify, dict) or not verify.get("id"):
+                    self.logger.error(f"GET verificación retornó respuesta inválida: {verify}")
+                    return False, journal_id, "GET verification invalid"
+
+                self.logger.info(f"[BG] ✅ Journal {journal_id} verificado en Alegra")
 
             # Guardar en MongoDB después de verificación exitosa
             hash_movimiento = hashlib.md5(
@@ -453,52 +532,10 @@ class BankReconciliationEngine:
             })
             self.logger.info(f"[MONGO] Movimiento guardado en BD: journal_id {journal_id}")
 
-            self.logger.info(f"[Alegra] Journal {journal_id} creado para {movimiento.descripcion}")
             return True, journal_id, None
 
-        except HTTPException as e:
-            # Si es 503 o 429, guardar para reintento
-            if e.status_code in (429, 503):
-                self.logger.warning(
-                    f"[Alegra] {e.status_code} temporal — guardando en reintentos: {movimiento.descripcion}"
-                )
-
-                hash_movimiento = hashlib.md5(
-                    f"{movimiento.banco.value}{movimiento.fecha}{movimiento.descripcion}{str(movimiento.monto)}".encode()
-                ).hexdigest()
-
-                from datetime import timedelta
-                ahora = datetime.now(timezone.utc)
-                proximo_intento = ahora + timedelta(minutes=5)
-
-                await self.db.conciliacion_reintentos.update_one(
-                    {"movimiento_hash": hash_movimiento},
-                    {
-                        "$set": {
-                            "movimiento_hash": hash_movimiento,
-                            "banco": movimiento.banco.value,
-                            "fecha": movimiento.fecha,
-                            "descripcion": movimiento.descripcion,
-                            "monto": movimiento.monto,
-                            "cuenta_debito": movimiento.cuenta_debito_sugerida,
-                            "cuenta_credito": movimiento.cuenta_credito_sugerida,
-                            "proximo_intento": proximo_intento,
-                            "estado": "pendiente_reintento",
-                            "timestamp_ultimo_intento": ahora,
-                        },
-                        "$inc": {"intentos": 1}
-                    },
-                    upsert=True
-                )
-
-                return False, None, f"Almacenado en reintentos ({e.status_code})"
-
-            # Otros errores HTTP
-            self.logger.error(f"[Alegra] HTTP {e.status_code}: {e.detail}")
-            return False, None, str(e.detail)
-
         except Exception as e:
-            self.logger.error(f"[Alegra] Error creando journal: {e}")
+            self.logger.error(f"[Alegra] Error creando journal: {type(e).__name__}: {str(e)}")
             return False, None, str(e)
 
     async def guardar_movimiento_pendiente(
