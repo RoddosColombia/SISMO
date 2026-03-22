@@ -62,9 +62,13 @@ async def _procesar_extracto_background(
 ):
     """Procesa extracto en background para lotes grandes."""
     import os
-    logger.info(f"[🔄 Job {job_id}] INICIANDO procesamiento de extracto {banco}")
-    logger.info(f"[BG] Alegra email configurado: {bool(os.environ.get('ALEGRA_EMAIL'))}")
-    logger.info(f"[BG] Alegra token configurado: {bool(os.environ.get('ALEGRA_TOKEN'))}")
+
+    # LOGS INICIALES PARA DIAGNÓSTICO
+    logger.info(f"[BG-START] Job {job_id} iniciado")
+    logger.info(f"[BG-START] Banco: {banco}, Fecha: {fecha}")
+    logger.info(f"[BG-START] Archivo bytes: {len(archivo_bytes)}")
+    logger.info(f"[BG-START] Alegra email configurado: {bool(os.environ.get('ALEGRA_EMAIL'))}")
+    logger.info(f"[BG-START] Alegra token configurado: {bool(os.environ.get('ALEGRA_TOKEN'))}")
 
     # Inicializar estado
     job_state = {
@@ -95,11 +99,24 @@ async def _procesar_extracto_background(
             {"$set": {"total_movimientos": len(movimientos)}}
         )
         logger.info(f"[📄 Job {job_id}] ✅ {len(movimientos)} movimientos parseados")
+        logger.info(f"[BG-START] Total movimientos recibidos: {len(movimientos)}")
 
         # Clasificar
         logger.info(f"[🏷️  Job {job_id}] Clasificando movimientos...")
         causables, pendientes = await engine.clasificar_movimientos(movimientos)
         logger.info(f"[🏷️  Job {job_id}] ✅ {len(causables)} causables, {len(pendientes)} pendientes")
+
+        # LOG DE DETALLE POR MOVIMIENTO
+        for idx, mov in enumerate(movimientos, 1):
+            logger.info(
+                f"[BG-MOV] [{idx}] {mov.descripcion[:40]:<40} | "
+                f"proveedor={mov.proveedor:<20} | "
+                f"confianza={mov.confianza:.0%} | "
+                f"cuenta_d={mov.cuenta_debito_sugerida} | "
+                f"cuenta_c={mov.cuenta_credito_sugerida} | "
+                f"transferencia={mov.es_transferencia_interna} | "
+                f"razon={mov.razon_clasificacion[:30]}"
+            )
         await db.conciliacion_jobs.update_one(
             {"job_id": job_id},
             {"$set": {
@@ -189,6 +206,14 @@ async def _procesar_extracto_background(
                 {"job_id": job_id},
                 {"$inc": {"pendientes": 1}}
             )
+
+        # LOG FINAL DE RESUMEN
+        logger.info(
+            f"[BG-END] causables={len(causables)} pendientes={len(pendientes)} "
+            f"causados={_jobs_estado[job_id]['causados']} "
+            f"pendientes_guardados={_jobs_estado[job_id]['pendientes']} "
+            f"errores={_jobs_estado[job_id]['errores']}"
+        )
 
         # ─────────────────────────────────────────────────────────────────────────────
         # ANTI-DUPLICADOS: Solo guardar hash si se crearon journals (causados > 0)
@@ -1198,4 +1223,104 @@ async def backfill_desde_alegra(req: BackfillRequest, current_user=Depends(requi
         raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
     except Exception as e:
         logger.error(f"[BACKFILL] Error: {e}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DIAGNÓSTICO: Obtener logs de un job para debugging desde SISMO
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/job/{job_id}/logs", tags=["diagnóstico"])
+async def get_job_logs(
+    job_id: str,
+    current_user=Depends(get_current_user),
+):
+    """
+    Retorna los últimos 50 eventos/logs de un job para debugging.
+
+    Útil para ver qué pasó en el background task sin acceder al servidor.
+    """
+    try:
+        # Obtener estado del job
+        job_state = _jobs_estado.get(job_id)
+        if not job_state:
+            job_state = await db.conciliacion_jobs.find_one({"job_id": job_id})
+
+        if not job_state:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} no encontrado")
+
+        # Obtener eventos relacionados con el job (últimos 50)
+        events = await db.roddos_events.find({
+            "job_id": job_id
+        }).sort("_id", -1).limit(50).to_list(50)
+
+        # Obtener movimientos procesados (últimos 20)
+        movimientos_causados = await db.conciliacion_movimientos_procesados.find({
+            "job_id": job_id
+        }).sort("_id", -1).limit(20).to_list(20)
+
+        # Obtener movimientos pendientes (últimos 20)
+        movimientos_pendientes = await db.contabilidad_pendientes.find({
+            "estado": "pendiente_whatsapp"
+        }).sort("creado_at", -1).limit(20).to_list(20)
+
+        return {
+            "job_id": job_id,
+            "estado_actual": {
+                "status": job_state.get("status", "unknown"),
+                "banco": job_state.get("banco"),
+                "fecha": job_state.get("fecha"),
+                "causados": job_state.get("causados", 0),
+                "pendientes": job_state.get("pendientes", 0),
+                "errores": job_state.get("errores", 0),
+                "total_movimientos": job_state.get("total_movimientos", 0),
+                "timestamp_inicio": job_state.get("timestamp_inicio"),
+                "timestamp_fin": job_state.get("timestamp_fin"),
+            },
+            "eventos_recientes": [
+                {
+                    "timestamp": str(evt.get("timestamp", "N/A")),
+                    "tipo": evt.get("event_type", "N/A"),
+                    "banco": evt.get("banco"),
+                    "descripcion": evt.get("descripcion", ""),
+                    "confianza": evt.get("confianza"),
+                    "monto": evt.get("monto"),
+                    "journal_id": evt.get("journal_id"),
+                    "movimiento_id": evt.get("movimiento_id"),
+                }
+                for evt in events
+            ],
+            "movimientos_causados": [
+                {
+                    "journal_id": m.get("journal_id"),
+                    "fecha": m.get("fecha"),
+                    "descripcion": m.get("descripcion"),
+                    "monto": m.get("monto"),
+                    "banco": m.get("banco"),
+                    "procesado_at": m.get("procesado_at"),
+                }
+                for m in movimientos_causados
+            ],
+            "movimientos_pendientes": [
+                {
+                    "fecha": m.get("fecha"),
+                    "descripcion": m.get("descripcion"),
+                    "monto": m.get("monto"),
+                    "banco": m.get("banco"),
+                    "proveedor_extraido": m.get("proveedor_extraido"),
+                    "confianza_sugerida": m.get("confianza_sugerida"),
+                    "estado": m.get("estado"),
+                    "creado_at": m.get("creado_at"),
+                }
+                for m in movimientos_pendientes
+            ],
+            "total_eventos": len(events),
+            "total_causados_en_bd": len(movimientos_causados),
+            "total_pendientes_en_bd": len(movimientos_pendientes),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[LOGS] Error obteniendo logs del job {job_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
