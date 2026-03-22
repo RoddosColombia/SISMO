@@ -86,9 +86,9 @@ export default function Layout() {
     try {
       const res = await api.get("/notifications", { params: { unread_only: true } });
       setNotifications(res.data || []);
-    } catch (err: any) {
+    } catch (err) {
       // Silent for notifications — fallback to empty
-      console.warn("⚠️  Error fetching notifications:", err.message);
+      console.warn("⚠️  Error fetching notifications:", err?.message);
       setNotifications([]);
     }
   }, [api]);
@@ -100,9 +100,9 @@ export default function Layout() {
       const res = await api.get("/cfo/alertas");
       const activas = (res.data || []).filter((a) => a.estado === "nueva");
       setCfoAlertCount(activas.length);
-    } catch (err: any) {
+    } catch (err) {
       // Silent for alerts — fallback to 0
-      console.warn("⚠️  Error fetching CFO alerts:", err.message);
+      console.warn("⚠️  Error fetching CFO alerts:", err?.message);
       setCfoAlertCount(0);
     }
   }, [api]);
