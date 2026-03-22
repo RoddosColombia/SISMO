@@ -107,17 +107,27 @@ export default function CargarExtraacto() {
       toast.success("Extracto procesado correctamente");
     } catch (error: any) {
       console.error("❌ Error al procesar extracto:", error);
-      const errorMsg = error.response?.data?.detail || error.message || "Error procesando el extracto";
-      setComponentError(errorMsg);
+      let errorMsg = "Error procesando el extracto";
+
+      // Extraer mensaje de error de forma segura (evitar objetos)
+      if (error.response?.data?.detail) {
+        const detail = error.response.data.detail;
+        errorMsg = typeof detail === "string" ? detail : JSON.stringify(detail);
+      } else if (error.message) {
+        errorMsg = String(error.message);
+      }
+
+      const safeErrorMsg = String(errorMsg).substring(0, 500); // Limitar a 500 caracteres
+      setComponentError(safeErrorMsg);
       setResultado({
         status: "error",
         job_id: "",
         total_movimientos: 0,
         causados: 0,
         pendientes: 0,
-        error: errorMsg,
+        error: safeErrorMsg,
       });
-      toast.error(errorMsg);
+      toast.error(safeErrorMsg);
     } finally {
       setCargando(false);
     }
@@ -132,7 +142,7 @@ export default function CargarExtraacto() {
             <AlertCircle size={24} className="text-red-600 flex-shrink-0 mt-0.5" />
             <div className="flex-1">
               <h3 className="font-bold text-red-900">Error del componente</h3>
-              <p className="text-sm text-red-700 mt-1">{componentError}</p>
+              <p className="text-sm text-red-700 mt-1">{String(componentError)}</p>
               <p className="text-xs text-red-600 mt-2">Revisa la consola del navegador (F12) para más detalles.</p>
             </div>
             <button
@@ -257,43 +267,46 @@ export default function CargarExtraacto() {
       {/* Resultado */}
       {resultado && (
         <div className={`rounded-xl border p-6 ${
-          resultado.status === "success" ? "bg-green-50 border-green-200" :
-          resultado.status === "error" ? "bg-red-50 border-red-200" :
+          String(resultado.status) === "success" ? "bg-green-50 border-green-200" :
+          String(resultado.status) === "error" ? "bg-red-50 border-red-200" :
           "bg-blue-50 border-blue-200"
         }`}>
           {/* Safety: fallback if resultado is malformed */}
           {typeof resultado.status !== "string" && (
-            <div className="text-red-600 text-sm mb-4">Respuesta malformada del servidor</div>
+            <div className="text-red-600 text-sm mb-4">⚠️  Respuesta malformada del servidor: status no es string</div>
           )}
           <div className="flex items-start gap-3 mb-4">
-            {resultado.status === "success" && (
+            {String(resultado.status) === "success" && (
               <CheckCircle size={24} className="text-green-600 flex-shrink-0 mt-1" />
             )}
-            {resultado.status === "error" && (
+            {String(resultado.status) === "error" && (
               <AlertCircle size={24} className="text-red-600 flex-shrink-0 mt-1" />
             )}
-            {resultado.status === "processing" && (
+            {String(resultado.status) === "processing" && (
               <Loader2 size={24} className="text-blue-600 flex-shrink-0 mt-1 animate-spin" />
             )}
             <div className="flex-1">
               <h3 className="font-bold text-lg">
-                {resultado.status === "success" && "Extracto procesado correctamente"}
-                {resultado.status === "error" && "Error al procesar el extracto"}
-                {resultado.status === "processing" && "Procesando..."}
+                {String(resultado.status) === "success" && "Extracto procesado correctamente"}
+                {String(resultado.status) === "error" && "Error al procesar el extracto"}
+                {String(resultado.status) === "processing" && "Procesando..."}
               </h3>
               {resultado.error && (
-                <p className="text-sm text-red-700 mt-1">{resultado.error}</p>
+                <p className="text-sm text-red-700 mt-1">{String(resultado.error)}</p>
+              )}
+              {resultado.job_id && String(resultado.job_id).trim() && (
+                <p className="text-xs text-slate-600 mt-2">Job ID: {String(resultado.job_id)}</p>
               )}
             </div>
           </div>
 
-          {resultado.status !== "error" && (
+          {String(resultado.status) !== "error" && (
             <>
               {/* Estadísticas */}
               <div className="grid grid-cols-3 gap-4 mb-6">
                 <div className="bg-white rounded-lg p-4">
                   <p className="text-2xl font-bold text-slate-900">
-                    {resultado.total_movimientos}
+                    {Number(resultado.total_movimientos) || 0}
                   </p>
                   <p className="text-xs text-slate-600 uppercase tracking-wide">
                     Movimientos detectados
@@ -301,7 +314,7 @@ export default function CargarExtraacto() {
                 </div>
                 <div className="bg-white rounded-lg p-4">
                   <p className="text-2xl font-bold text-green-600">
-                    {resultado.causados}
+                    {Number(resultado.causados) || 0}
                   </p>
                   <p className="text-xs text-slate-600 uppercase tracking-wide">
                     Causados automáticamente
@@ -309,7 +322,7 @@ export default function CargarExtraacto() {
                 </div>
                 <div className="bg-white rounded-lg p-4">
                   <p className="text-2xl font-bold text-amber-600">
-                    {resultado.pendientes}
+                    {Number(resultado.pendientes) || 0}
                   </p>
                   <p className="text-xs text-slate-600 uppercase tracking-wide">
                     Pendientes de revisión
