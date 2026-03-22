@@ -20,11 +20,40 @@ from routers import cfo_estrategico as cfo_est_router
 from routers import cfo_chat as cfo_chat_router
 from routers import mercately as mercately_router, crm as crm_router
 from routers import dian as dian_router
-from routers import ingresos as ingresos_router
-from routers import cartera as cartera_router
-from routers import nomina as nomina_router
-from routers import cxc as cxc_router
-from routers import cxc_socios as cxc_socios_router
+try:
+    from routers import ingresos as ingresos_router
+    print("[OK] ingresos router loaded successfully")
+except Exception as e:
+    print(f"[ERROR] Failed to load ingresos router: {e}")
+    ingresos_router = None
+
+try:
+    from routers import cartera as cartera_router
+    print("[OK] cartera router loaded successfully")
+except Exception as e:
+    print(f"[ERROR] Failed to load cartera router: {e}")
+    cartera_router = None
+
+try:
+    from routers import nomina as nomina_router
+    print("[OK] nomina router loaded successfully")
+except Exception as e:
+    print(f"[ERROR] Failed to load nomina router: {e}")
+    nomina_router = None
+
+try:
+    from routers import cxc as cxc_router
+    print("[OK] cxc router loaded successfully")
+except Exception as e:
+    print(f"[ERROR] Failed to load cxc router: {e}")
+    cxc_router = None
+
+try:
+    from routers import cxc_socios as cxc_socios_router
+    print("[OK] cxc_socios router loaded successfully")
+except Exception as e:
+    print(f"[ERROR] Failed to load cxc_socios router: {e}")
+    cxc_socios_router = None
 from routers import proveedores_config as proveedores_router
 from routers import scheduler as scheduler_router
 from routers import learning as learning_router
@@ -325,11 +354,30 @@ app.include_router(proveedores_router.router, prefix=PREFIX)
 app.include_router(gastos_router.router,     prefix=PREFIX)
 app.include_router(ventas_router.router,     prefix=PREFIX)
 app.include_router(dian_router.router,       prefix=PREFIX)
-app.include_router(ingresos_router.router,   prefix=PREFIX)
-app.include_router(cartera_router.router,    prefix=PREFIX)
-app.include_router(nomina_router.router,     prefix=PREFIX)
-app.include_router(cxc_router.router,        prefix=PREFIX)
-app.include_router(cxc_socios_router.router, prefix=PREFIX)
+if ingresos_router:
+    app.include_router(ingresos_router.router,   prefix=PREFIX)
+else:
+    print("[WARN] ingresos_router not loaded, skipping registration")
+
+if cartera_router:
+    app.include_router(cartera_router.router,    prefix=PREFIX)
+else:
+    print("[WARN] cartera_router not loaded, skipping registration")
+
+if nomina_router:
+    app.include_router(nomina_router.router,     prefix=PREFIX)
+else:
+    print("[WARN] nomina_router not loaded, skipping registration")
+
+if cxc_router:
+    app.include_router(cxc_router.router,        prefix=PREFIX)
+else:
+    print("[WARN] cxc_router not loaded, skipping registration")
+
+if cxc_socios_router:
+    app.include_router(cxc_socios_router.router, prefix=PREFIX)
+else:
+    print("[WARN] cxc_socios_router not loaded, skipping registration")
 app.include_router(reports_router.router,                      prefix=PREFIX)
 app.include_router(contabilidad_pendientes_router.router,      prefix=PREFIX)
 app.include_router(conciliacion_router.router,                 prefix=PREFIX)
