@@ -82,7 +82,7 @@ export default function CargarExtraacto() {
     setComponentError(null);
     try {
       const formData = new FormData();
-      formData.append("file", archivo);
+      formData.append("archivo", archivo);
       formData.append("banco", banco);
       formData.append("fecha", fechaFin);
 
