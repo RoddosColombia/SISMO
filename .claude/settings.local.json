@@ -85,7 +85,10 @@
       "Bash(ls -la \"C:\\\\Users\\\\AndresSanJuan\\\\.claude\"\" 2>/dev/null || echo \"No .claude directory found\" && echo \"---\" && head -50 \"C:UsersAndresSanJuanroddos-workspaceSISMOREADME.md \")",
       "Bash(test -d \"$HOME/.claude\")",
       "Read(//c/Users/AndresSanJuan/roddos-workspace/SISMO/$HOME/**)",
-      "mcp__Claude_Preview__preview_start"
+      "mcp__Claude_Preview__preview_start",
+      "Bash(curl -s -X POST https://sismo-backend.onrender.com/api/auth/login -H \"Content-Type: application/json\" -d '{\"\"\"\"email\"\"\"\":\"\"\"\"contabilidad@roddos.com\"\"\"\",\"\"\"\"password\"\"\"\":\"\"\"\"Admin@RODDOS2025!\"\"\"\"}')",
+      "Bash(curl -i -s -X POST https://sismo-backend.onrender.com/api/auth/login -H \"Content-Type: application/json\" -d '{\"\"\"\"email\"\"\"\":\"\"\"\"test\"\"\"\",\"\"\"\"password\"\"\"\":\"\"\"\"test\"\"\"\"}')",
+      "Bash(grep -r \"PLAN_INGRESOS\\\\|plan_ingresos\" backend/routers/*.py)"
     ]
   }
 }
