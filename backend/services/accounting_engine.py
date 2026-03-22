@@ -15,6 +15,75 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
+
+# ══════════════════════════════════════════════════════════════════════════════
+# EXTRACTOR DE PROVEEDOR — Desde descripción bancaria
+# ══════════════════════════════════════════════════════════════════════════════
+
+def extract_proveedor(descripcion: str) -> str:
+    """
+    Extrae nombre del proveedor desde la descripción del movimiento bancario.
+
+    Patrones soportados:
+    - "PAGO PSE COMERC NOMBRE ..." → "NOMBRE"
+    - "TRANSFERENCIA A NOMBRE" → "NOMBRE"
+    - "COMPRA EN NOMBRE_COMERCIO" → "NOMBRE_COMERCIO"
+    - "NEQUI NOMBRE_PERSONA" → "NOMBRE_PERSONA"
+    - "CARGO POR NOMBRE_SERVICIO" → "NOMBRE_SERVICIO"
+
+    Si no se puede extraer → retorna descripcion[:30]
+
+    Args:
+        descripcion: Texto de la transacción bancaria
+
+    Returns:
+        Nombre del proveedor extraído o primeros 30 caracteres
+    """
+    desc = descripcion.upper().strip()
+
+    # Patrón 1: "PAGO PSE COMERC NOMBRE ..."
+    match = re.search(r'PAGO PSE COMERC\s+(\w+(?:\s+\w+)?)', desc)
+    if match:
+        return match.group(1).strip().lower()
+
+    # Patrón 2: "TRANSFERENCIA A NOMBRE"
+    match = re.search(r'TRANSFERENCIA A\s+(\w+(?:\s+\w+)*)', desc)
+    if match:
+        return match.group(1).strip().lower()
+
+    # Patrón 3: "COMPRA EN NOMBRE_COMERCIO"
+    match = re.search(r'COMPRA EN\s+(\w+(?:\s+\w+)?)', desc)
+    if match:
+        return match.group(1).strip().lower()
+
+    # Patrón 4: "NEQUI NOMBRE_PERSONA"
+    match = re.search(r'NEQUI\s+(\w+(?:\s+\w+)*)', desc)
+    if match:
+        return match.group(1).strip().lower()
+
+    # Patrón 5: "CARGO POR NOMBRE_SERVICIO"
+    match = re.search(r'CARGO POR\s+(\w+(?:\s+\w+)?)', desc)
+    if match:
+        return match.group(1).strip().lower()
+
+    # Patrón 6: Palabras clave seguidas de nombre
+    if "CUOTA PLAN CANAL" in desc:
+        return "plan_canal_bancolombia"
+    if "IVA CUOTA PLAN" in desc:
+        return "iva_cuota_plan"
+    if "CUOTA MANEJO TRJ" in desc:
+        return "cuota_manejo_tarjeta"
+    if "AJUSTE INTERES AHORROS" in desc:
+        return "interes_ahorros"
+    if "ABONO INTERES" in desc:
+        return "abono_interes"
+    if "RETIRO CAJERO" in desc:
+        return "retiro_cajero"
+
+    # Fallback: primeros 30 caracteres
+    return desc[:30].lower()
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # MATRIZ COMPLETA DE CUENTAS ALEGRA — IDs REALES VERIFICADOS
 # ══════════════════════════════════════════════════════════════════════════════
