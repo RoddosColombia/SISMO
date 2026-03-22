@@ -444,6 +444,16 @@ class BankReconciliationEngine:
 
             self.logger.info(f"[BG] Credenciales Alegra cargadas: email={alegra_email[:20]}...")
 
+            # ✅ VALIDACIÓN DE CUENTAS: Verificar que no sean None antes de crear payload
+            if movimiento.cuenta_debito_sugerida is None or movimiento.cuenta_credito_sugerida is None:
+                self.logger.error(
+                    f"[Alegra] VALIDACIÓN FALLIDA: "
+                    f"cuenta_debito={movimiento.cuenta_debito_sugerida}, "
+                    f"cuenta_credito={movimiento.cuenta_credito_sugerida}. "
+                    f"No se puede crear journal sin cuentas sugeridas."
+                )
+                return False, None, f"Cuentas sugeridas inválidas (debit={movimiento.cuenta_debito_sugerida}, credit={movimiento.cuenta_credito_sugerida})"
+
             # Construir header de autenticación (Basic Auth)
             creds = base64.b64encode(f"{alegra_email}:{alegra_token}".encode()).decode()
             headers = {

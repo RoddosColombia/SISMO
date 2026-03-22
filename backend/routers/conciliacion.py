@@ -80,6 +80,7 @@ async def _procesar_extracto_background(
         "causados": 0,
         "pendientes": 0,
         "errores": 0,
+        "ultimo_error": None,  # ← NUEVO: Capturar último error para diagnóstico
         "timestamp_inicio": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -131,59 +132,90 @@ async def _procesar_extracto_background(
         for idx, mov in enumerate(causables, 1):
             logger.debug(f"[💰 Job {job_id}] [{idx}/{len(causables)}] Causando: {mov.descripcion} ${mov.monto:,.0f}")
 
-            # ─────────────────────────────────────────────────────────────────────────────
-            # CAPA 2: ANTI-DUPLICADOS — Hash por movimiento individual
-            # ─────────────────────────────────────────────────────────────────────────────
-            hash_movimiento = hashlib.md5(
-                f"{banco}{mov.fecha}{mov.descripcion}{str(mov.monto)}".encode()
-            ).hexdigest()
+            # ╔═══════════════════════════════════════════════════════════════════════════════╗
+            # ║ ENVOLTORIO DE EXCEPCIÓN POR MOVIMIENTO — Atrapar cualquier error individual ║
+            # ╚═══════════════════════════════════════════════════════════════════════════════╝
+            try:
+                # ─────────────────────────────────────────────────────────────────────────────
+                # CAPA 2: ANTI-DUPLICADOS — Hash por movimiento individual
+                # ─────────────────────────────────────────────────────────────────────────────
+                hash_movimiento = hashlib.md5(
+                    f"{banco}{mov.fecha}{mov.descripcion}{str(mov.monto)}".encode()
+                ).hexdigest()
 
-            movimiento_duplicado = await db.conciliacion_movimientos_procesados.find_one({
-                "hash": hash_movimiento
-            })
-
-            if movimiento_duplicado:
-                logger.warning(f"[⚠️  DUPLICADO Job {job_id}] Movimiento {mov.descripcion} ya procesado, skipping")
-                continue
-
-            exitoso, journal_id, error = await engine.crear_journal_alegra(mov)
-            if exitoso:
-                _jobs_estado[job_id]["causados"] += 1
-                logger.info(f"[✅ Job {job_id}] Journal {journal_id} creado para {mov.descripcion}")
-                # Guardar hash del movimiento como procesado
-                await db.conciliacion_movimientos_procesados.insert_one({
-                    "hash": hash_movimiento,
-                    "banco": banco,
-                    "fecha": mov.fecha,
-                    "descripcion": mov.descripcion,
-                    "monto": mov.monto,
-                    "journal_id": journal_id,
-                    "procesado_at": datetime.now(timezone.utc).isoformat(),
+                movimiento_duplicado = await db.conciliacion_movimientos_procesados.find_one({
+                    "hash": hash_movimiento
                 })
-                # Guardar en roddos_events
-                await db.roddos_events.insert_one({
-                    "event_type": "extracto_bancario.causado",
-                    "banco": banco,
-                    "fecha_movimiento": mov.fecha,
-                    "descripcion": mov.descripcion,
-                    "monto": mov.monto,
-                    "journal_id": journal_id,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "job_id": job_id,
-                })
+
+                if movimiento_duplicado:
+                    logger.warning(f"[⚠️  DUPLICADO Job {job_id}] Movimiento {mov.descripcion} ya procesado, skipping")
+                    continue
+
+                # ✅ LLAMADA A CREAR JOURNAL — Resultado retorna (exitoso, journal_id, error)
+                exitoso, journal_id, error = await engine.crear_journal_alegra(mov)
+
+                if exitoso:
+                    _jobs_estado[job_id]["causados"] += 1
+                    logger.info(f"[✅ Job {job_id}] Journal {journal_id} creado para {mov.descripcion}")
+                    # Guardar hash del movimiento como procesado
+                    await db.conciliacion_movimientos_procesados.insert_one({
+                        "hash": hash_movimiento,
+                        "banco": banco,
+                        "fecha": mov.fecha,
+                        "descripcion": mov.descripcion,
+                        "monto": mov.monto,
+                        "journal_id": journal_id,
+                        "procesado_at": datetime.now(timezone.utc).isoformat(),
+                    })
+                    # Guardar en roddos_events
+                    await db.roddos_events.insert_one({
+                        "event_type": "extracto_bancario.causado",
+                        "banco": banco,
+                        "fecha_movimiento": mov.fecha,
+                        "descripcion": mov.descripcion,
+                        "monto": mov.monto,
+                        "journal_id": journal_id,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "job_id": job_id,
+                    })
+                    # Actualizar estado en MongoDB
+                    await db.conciliacion_jobs.update_one(
+                        {"job_id": job_id},
+                        {"$inc": {"causados": 1}}
+                    )
+                else:
+                    # ❌ crear_journal_alegra retornó False pero sin excepción
+                    _jobs_estado[job_id]["errores"] += 1
+                    _jobs_estado[job_id]["ultimo_error"] = f"[{mov.descripcion}] {error}"
+                    logger.error(f"[❌ Job {job_id}] Error causando {mov.descripcion}: {error}")
+                    # Actualizar errores en MongoDB
+                    await db.conciliacion_jobs.update_one(
+                        {"job_id": job_id},
+                        {
+                            "$inc": {"errores": 1},
+                            "$set": {"ultimo_error": f"[{mov.descripcion}] {error}"}
+                        }
+                    )
+
+            except Exception as e:
+                # ❌ EXCEPCIÓN NO PREVISTA EN CREAR JOURNAL O BD
+                _jobs_estado[job_id]["errores"] += 1
+                error_msg = f"{type(e).__name__}: {str(e)}"
+                _jobs_estado[job_id]["ultimo_error"] = f"[{mov.descripcion}] {error_msg}"
+                logger.error(
+                    f"[❌ EXCEPCIÓN Job {job_id}] Movimiento {mov.descripcion}: {error_msg}",
+                    exc_info=True
+                )
                 # Actualizar estado en MongoDB
                 await db.conciliacion_jobs.update_one(
                     {"job_id": job_id},
-                    {"$inc": {"causados": 1}}
+                    {
+                        "$inc": {"errores": 1},
+                        "$set": {"ultimo_error": f"[{mov.descripcion}] {error_msg}"}
+                    }
                 )
-            else:
-                _jobs_estado[job_id]["errores"] += 1
-                logger.error(f"[❌ Job {job_id}] Error causando {mov.descripcion}: {error}")
-                # Actualizar errores en MongoDB
-                await db.conciliacion_jobs.update_one(
-                    {"job_id": job_id},
-                    {"$inc": {"errores": 1}}
-                )
+                # Continuar con el siguiente movimiento en lugar de fallar todo el job
+                continue
 
         # Guardar pendientes
         logger.info(f"[⏳ Job {job_id}] Guardando {len(pendientes)} movimientos pendientes...")
@@ -259,6 +291,7 @@ async def _procesar_extracto_background(
         logger.error(f"[❌ Job {job_id}] ERROR CRÍTICO: {str(e)}", exc_info=True)
         _jobs_estado[job_id]["status"] = "failed"
         _jobs_estado[job_id]["error"] = str(e)
+        _jobs_estado[job_id]["ultimo_error"] = f"[ERROR_CRÍTICO] {type(e).__name__}: {str(e)}"
         _jobs_estado[job_id]["timestamp_fin"] = datetime.now(timezone.utc).isoformat()
         # Guardar error en MongoDB
         await db.conciliacion_jobs.update_one(
@@ -266,6 +299,7 @@ async def _procesar_extracto_background(
             {"$set": {
                 "status": "failed",
                 "error": str(e),
+                "ultimo_error": _jobs_estado[job_id]["ultimo_error"],
                 "timestamp_fin": _jobs_estado[job_id]["timestamp_fin"]
             }}
         )
@@ -1274,6 +1308,7 @@ async def get_job_logs(
                 "pendientes": job_state.get("pendientes", 0),
                 "errores": job_state.get("errores", 0),
                 "total_movimientos": job_state.get("total_movimientos", 0),
+                "ultimo_error": job_state.get("ultimo_error"),  # ← NUEVO
                 "timestamp_inicio": job_state.get("timestamp_inicio"),
                 "timestamp_fin": job_state.get("timestamp_fin"),
             },
