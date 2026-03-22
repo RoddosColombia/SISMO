@@ -51,6 +51,7 @@ class MovimientoBancario:
     banco: Banco
     cuenta_banco_id: int         # ID de Alegra de la cuenta del banco
     referencia_original: str    # Campo original del extracto (para auditoría)
+    proveedor: str = ""         # Nombre del proveedor/comercio (extraído de descripción)
 
     # Clasificación (se llena después)
     cuenta_debito_sugerida: Optional[int] = None
@@ -58,6 +59,7 @@ class MovimientoBancario:
     confianza: float = 0.0
     razon_clasificacion: str = ""
     requiere_confirmacion: bool = False
+    es_transferencia_interna: bool = False  # Si es True, no contabilizar (traslado entre cuentas)
 
 
 class BancolombiParser:
@@ -114,6 +116,10 @@ class BancolombiParser:
                     tipo = TipoMovimiento.INGRESO if monto_raw > 0 else TipoMovimiento.EGRESO
                     monto = abs(monto_raw)
 
+                    # Extraer proveedor desde descripción
+                    from services.accounting_engine import extract_proveedor
+                    proveedor = extract_proveedor(descripcion)
+
                     movimientos.append(MovimientoBancario(
                         fecha=fecha_str,
                         descripcion=descripcion,
@@ -122,6 +128,7 @@ class BancolombiParser:
                         banco=Banco.BANCOLOMBIA,
                         cuenta_banco_id=BancolombiParser.CUENTA_ALEGRA,
                         referencia_original=f"{fecha_str}|{descripcion}|{monto_raw}",
+                        proveedor=proveedor,
                     ))
                 except (ValueError, KeyError, TypeError) as e:
                     logger.warning(f"[Bancolombia] Error parseando fila: {e}")
@@ -183,6 +190,10 @@ class BBVAParser:
                     tipo = TipoMovimiento.INGRESO if monto_raw > 0 else TipoMovimiento.EGRESO
                     monto = abs(monto_raw)
 
+                    # Extraer proveedor desde descripción
+                    from services.accounting_engine import extract_proveedor
+                    proveedor = extract_proveedor(descripcion)
+
                     movimientos.append(MovimientoBancario(
                         fecha=fecha_str,
                         descripcion=descripcion,
@@ -191,6 +202,7 @@ class BBVAParser:
                         banco=Banco.BBVA,
                         cuenta_banco_id=BBVAParser.CUENTA_ALEGRA,
                         referencia_original=f"{fecha_str}|{descripcion}|{monto_raw}",
+                        proveedor=proveedor,
                     ))
                 except (ValueError, KeyError) as e:
                     logger.warning(f"[BBVA] Error parseando fila: {e}")
@@ -233,6 +245,10 @@ class DaviviendaParser:
                     # Mapear tipo
                     tipo = TipoMovimiento.INGRESO if tipo_orig == "C" else TipoMovimiento.EGRESO
 
+                    # Extraer proveedor desde descripción
+                    from services.accounting_engine import extract_proveedor
+                    proveedor = extract_proveedor(descripcion)
+
                     movimientos.append(MovimientoBancario(
                         fecha=fecha_str,
                         descripcion=descripcion,
@@ -241,6 +257,7 @@ class DaviviendaParser:
                         banco=Banco.DAVIVIENDA,
                         cuenta_banco_id=DaviviendaParser.CUENTA_ALEGRA,
                         referencia_original=f"{fecha_str}|{descripcion}|{monto}|{tipo_orig}",
+                        proveedor=proveedor,
                     ))
                 except (ValueError, KeyError) as e:
                     logger.warning(f"[Davivienda] Error parseando fila: {e}")
@@ -283,6 +300,10 @@ class NequiParser:
                     # Mapear tipo
                     tipo = TipoMovimiento.INGRESO if "ingreso" in tipo_orig else TipoMovimiento.EGRESO
 
+                    # Extraer proveedor desde descripción
+                    from services.accounting_engine import extract_proveedor
+                    proveedor = extract_proveedor(descripcion)
+
                     movimientos.append(MovimientoBancario(
                         fecha=fecha_str,
                         descripcion=descripcion,
@@ -291,6 +312,7 @@ class NequiParser:
                         banco=Banco.NEQUI,
                         cuenta_banco_id=NequiParser.CUENTA_ALEGRA,
                         referencia_original=f"{fecha_str}|{descripcion}|{monto}|{tipo_orig}",
+                        proveedor=proveedor,
                     ))
                 except (ValueError, KeyError) as e:
                     logger.warning(f"[Nequi] Error parseando fila: {e}")
@@ -354,7 +376,7 @@ class BankReconciliationEngine:
                 # Egreso: clasificar el gasto
                 clasificacion = clasificar_movimiento(
                     descripcion=mov.descripcion,
-                    proveedor="",
+                    proveedor=mov.proveedor,
                     monto=mov.monto,
                     banco_origen=mov.cuenta_banco_id,
                 )
@@ -364,7 +386,7 @@ class BankReconciliationEngine:
                 # Ingreso: clasificar el ingreso
                 clasificacion = clasificar_movimiento(
                     descripcion=mov.descripcion,
-                    proveedor="",
+                    proveedor=mov.proveedor,
                     monto=mov.monto,
                     banco_origen=mov.cuenta_banco_id,
                 )
@@ -374,12 +396,16 @@ class BankReconciliationEngine:
             mov.confianza = clasificacion.confianza
             mov.razon_clasificacion = clasificacion.razon
             mov.requiere_confirmacion = clasificacion.requiere_confirmacion
+            mov.es_transferencia_interna = clasificacion.es_transferencia_interna
 
             # Separar por confianza
-            if mov.confianza >= 0.70 and not mov.requiere_confirmacion:
-                causables.append(mov)
+            # Si es transferencia interna → no contabilizar, solo registrar
+            if mov.es_transferencia_interna:
+                pendientes.append(mov)  # Registrar como traslado sin contabilizar
+            elif mov.confianza >= 0.70 and not mov.requiere_confirmacion:
+                causables.append(mov)  # Causable automático
             else:
-                pendientes.append(mov)
+                pendientes.append(mov)  # Requiere confirmación manual vía WhatsApp
 
             self.logger.info(
                 f"[Clasificar] {mov.banco.value} {mov.descripcion[:30]} "
@@ -542,7 +568,11 @@ class BankReconciliationEngine:
         self,
         movimiento: MovimientoBancario,
     ) -> str:
-        """Guarda movimiento en contabilidad_pendientes para resolución manual."""
+        """
+        Guarda movimiento en contabilidad_pendientes para revisión manual vía WhatsApp.
+
+        Estructura completa para que el Agente Contador pueda clasificar con contexto.
+        """
         doc = {
             "id": f"mov_{movimiento.banco.value}_{datetime.now(timezone.utc).timestamp()}",
             "fecha": movimiento.fecha,
@@ -552,18 +582,32 @@ class BankReconciliationEngine:
             "banco": movimiento.banco.value,
             "cuenta_banco_id": movimiento.cuenta_banco_id,
             "referencia_original": movimiento.referencia_original,
+
+            # Información del proveedor extraído (para WhatsApp)
+            "proveedor_extraido": movimiento.proveedor,
+
+            # Sugerencia del motor matricial (aunque baja confianza)
             "cuenta_debito_sugerida": movimiento.cuenta_debito_sugerida,
             "cuenta_credito_sugerida": movimiento.cuenta_credito_sugerida,
-            "confianza": movimiento.confianza,
-            "razon": movimiento.razon_clasificacion,
+            "confianza_sugerida": movimiento.confianza,
+            "razon_baja_confianza": movimiento.razon_clasificacion,
+
+            # Campos de control
             "requiere_confirmacion": movimiento.requiere_confirmacion,
-            "estado": "esperando_contexto",
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "es_transferencia_interna": getattr(movimiento, 'es_transferencia_interna', False),
+            "estado": "pendiente_whatsapp",  # Cola para Agente Contador vía WhatsApp
+            "creado_at": datetime.now(timezone.utc).isoformat(),
+            "actualizado_at": datetime.now(timezone.utc).isoformat(),
+            "resuelto_por": None,
+            "resolucion_fecha": None,
+            "cuenta_final": None,
         }
 
         result = await self.db.contabilidad_pendientes.insert_one(doc)
         mov_id = result.inserted_id
 
-        self.logger.info(f"[Pendientes] Movimiento {mov_id} guardado para resolución")
+        self.logger.info(
+            f"[Pendientes WhatsApp] {movimiento.banco.value} {movimiento.descripcion[:30]} "
+            f"→ confianza={movimiento.confianza:.0%} (< 0.70)"
+        )
         return str(mov_id)
