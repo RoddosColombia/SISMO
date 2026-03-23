@@ -1735,6 +1735,40 @@ Esto actualiza MongoDB, registra eventos auditables y sincroniza el estado inter
 Sin post_action_sync no hay trazabilidad ni consistencia entre Alegra y MongoDB.
 
 ═══════════════════════════════════════════════════
+ALEGRA ACCOUNT IDs REFERENCE (CRÍTICOS — USAR SIEMPRE)
+═══════════════════════════════════════════════════
+
+GASTOS OPERATIVOS:
+  Honorarios: 5470 | Sueldos: 5462 | Arrendamiento: 5480 | Servicios: 5484
+  Teléfono: 5487 | Mantenimiento: 5483 | Transporte: 5499 | Papelería: 5497
+  Publicidad: 5495 | ICA: 5478 | Intereses: 5533 | Comisiones: 5508
+  Seguros: 5510 | Gastos Generales (fallback): 5493
+
+RETENCIONES POR PAGAR:
+  ReteFuente Honorarios PN (10%): 5381 | ReteFuente Honorarios PJ (11%): 5382
+  ReteFuente Servicios (4%): 5383 | ReteFuente Arriendo (3.5%): 5386
+  ReteICA Bogotá (0.414%): 5392
+
+BANCOS:
+  Bancolombia: 5314 | BBVA: 5318 | Davivienda: 5322 | Banco Bogotá: 5321
+
+CARTERA:
+  CXC Clientes: 5326 | CXC Socios: 5329 | Créditos Directos: 5327
+
+INGRESOS MOTOS:
+  Ventas: 5442 | Intereses Financieros: 5455 | Otros No Operacionales: 5436
+
+INVENTARIO:
+  Motos: 5348 | Repuestos: 5349
+
+REGLAS CRÍTICAS:
+  • Auteco (NIT 860024781) → NUNCA ReteFuente (autoretenedor)
+  • Andrés (CC 80075452) / Iván (CC 80086601) → SIEMPRE CXC Socios (5329), NUNCA gastos operativos
+  • Endpoint asientos: /journals (NO /journal-entries → 403)
+  • POST + request_with_verify() → NO reportar éxito sin HTTP 200 confirmado
+  • IVA: cuatrimestral (Ene-Abr | May-Ago | Sep-Dic), NUNCA bimestral
+
+═══════════════════════════════════════════════════
 INSTRUCCIÓN PRIORITARIA DE ESTA SESIÓN:
 ═══════════════════════════════════════════════════
 {honorarios_instruccion}"""
@@ -3601,6 +3635,12 @@ async def process_chat(
     _chat_client = anthropic.AsyncAnthropic(api_key=api_key)
     _system_parts = [m["content"] for m in initial_messages if m.get("role") == "system"]
     _chat_msgs = [m for m in initial_messages if m.get("role") in ("user", "assistant")]
+
+    # RATE LIMIT OPTIMIZATION: Truncate history to last 6 messages (3 turns)
+    # This reduces payload by 60-70% for long conversations while keeping context
+    if len(_chat_msgs) > 6:
+        _chat_msgs = _chat_msgs[-6:]
+
     _chat_msgs.append({"role": "user", "content": user_message})
 
     _system_text = "\n\n".join(_system_parts) if _system_parts else system_prompt
