@@ -253,18 +253,6 @@ async def startup():
     start_scheduler()
     start_loanbook_scheduler()
 
-    # ── Inicializar plan_ingresos_roddos ──────────────────────────────────────
-    from routers.ingresos import PLAN_INGRESOS_RODDOS
-    now_str = datetime.now(timezone.utc).isoformat()
-    for entry in PLAN_INGRESOS_RODDOS:
-        await db.plan_ingresos_roddos.update_one(
-            {"tipo_ingreso": entry["tipo_ingreso"]},
-            {"$set": {**entry, "actualizado_en": now_str}},
-            upsert=True,
-        )
-    logger.info("plan_ingresos_roddos sincronizado: %d tipos", len(PLAN_INGRESOS_RODDOS))
-
-    # ── Índices CXC ───────────────────────────────────────────────────────────
     await db.cxc_socios.create_index([("socio", 1), ("estado", 1)])
     await db.cxc_socios.create_index([("fecha", 1)])
     await db.cxc_clientes.create_index([("nit_cliente", 1)])
@@ -469,14 +457,66 @@ async def smoke_test():
     except Exception:
         result["alertas"].append("Alegra no accesible")
 
-    llm_key = os.environ.get("EMERGENT_LLM_KEY", "")
+    llm_key = os.environ.get("ANTHROPIC_API_KEY", "")
     result["anthropic_disponible"] = bool(llm_key)
     if not result["anthropic_disponible"]:
-        result["alertas"].append("EMERGENT_LLM_KEY no configurado")
+        result["alertas"].append("ANTHROPIC_API_KEY no configurado")
         if result["status"] == "ok":
             result["status"] = "degradado"
 
     return result
+
+@app.get("/api/debug-env")
+async def debug_env():
+    """Debug: show environment variable status."""
+    email = os.environ.get("ALEGRA_EMAIL", "").strip()
+    token = os.environ.get("ALEGRA_TOKEN", "").strip()
+    return {
+        "ALEGRA_EMAIL": "PRESENT" if email else "MISSING",
+        "ALEGRA_EMAIL_LENGTH": len(email),
+        "ALEGRA_TOKEN": "PRESENT" if token else "MISSING",
+        "ALEGRA_TOKEN_LENGTH": len(token),
+        "debug_note": "If both show MISSING, env vars are not configured in Render"
+    }
+
+@app.get("/api/debug-alegra")
+async def debug_alegra():
+    """Debug: Test AlegraService connection and fetch categories."""
+    try:
+        from alegra_service import AlegraService
+        service = AlegraService(db)
+
+        # Check if demo mode
+        is_demo = await service.is_demo_mode()
+        if is_demo:
+            return {
+                "status": "DEMO_MODE",
+                "message": "AlegraService is in demo mode - credentials not loaded"
+            }
+
+        # Get categories
+        categories = await service.get_accounts_from_categories()
+
+        if not categories:
+            return {
+                "status": "ERROR",
+                "message": "No categories returned from Alegra"
+            }
+
+        # Return results
+        return {
+            "status": "CONNECTED",
+            "total_categories": len(categories),
+            "first_three": [
+                {"name": c.get("name"), "id": c.get("id"), "type": c.get("type")}
+                for c in categories[:3]
+            ]
+        }
+    except Exception as e:
+        return {
+            "status": "ERROR",
+            "error": str(e)
+        }
 
 @app.get("/api/health")
 async def health_check():
@@ -509,14 +549,12 @@ async def health_check():
         result["agent_memory"] = f"error: {str(e)[:60]}"
 
     # Alegra
-    try:
-        creds = await db.alegra_credentials.find_one({}, {"_id": 0, "token": 1})
-        result["alegra"] = "conectado" if creds and creds.get("token") else "sin credenciales"
-    except Exception as e:
-        result["alegra"] = f"error: {str(e)[:60]}"
+    alegra_email = os.environ.get("ALEGRA_EMAIL", "").strip()
+    alegra_token = os.environ.get("ALEGRA_TOKEN", "").strip()
+    result["alegra"] = "conectado" if alegra_email and alegra_token else "sin credenciales"
 
-    # Anthropic (EMERGENT_LLM_KEY)
-    llm_key = os.environ.get("EMERGENT_LLM_KEY", "")
-    result["anthropic"] = "key presente" if llm_key else "error: EMERGENT_LLM_KEY no configurado"
+    # Anthropic (ANTHROPIC_API_KEY)
+    llm_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    result["anthropic"] = "key presente" if llm_key else "error: ANTHROPIC_API_KEY no configurado"
 
     return result

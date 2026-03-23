@@ -62,9 +62,9 @@ async def extract_motos_from_pdf(pdf_bytes: bytes, filename: str) -> list:
     if not text.strip():
         raise ValueError("No se pudo extraer texto del PDF. Verifique que no esté protegido.")
 
-    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
-        raise ValueError("EMERGENT_LLM_KEY no configurado")
+        raise ValueError("ANTHROPIC_API_KEY no configurado")
 
     client = anthropic.AsyncAnthropic(api_key=api_key)
     prompt = PARSE_PROMPT.format(text=text[:8000])

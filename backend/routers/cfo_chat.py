@@ -202,7 +202,7 @@ async def cfo_chat_message(body: CfoMessage, user=Depends(get_current_user)):
     messages.append({"role": "user", "content": body.message})
 
     # Call LLM
-    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
     try:
         _client = anthropic.AsyncAnthropic(api_key=api_key)
         _resp = await _client.messages.create(

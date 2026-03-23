@@ -1,0 +1,28 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Backend (FastAPI + Uvicorn)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "server:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8001",
+        "--reload"
+      ],
+      "port": 8001
+    },
+    {
+      "name": "Frontend (React + Craco)",
+      "runtimeExecutable": "yarn",
+      "runtimeArgs": [
+        "start"
+      ],
+      "port": 3000
+    }
+  ]
+}

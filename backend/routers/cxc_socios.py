@@ -457,3 +457,13 @@ async def get_plan_cuentas_cxc(current_user=Depends(get_current_user)):
         "cuentas": cuentas,
         "total": len(cuentas),
     }
+
+
+@router.get("/bancos")
+async def get_bancos_cxc(current_user=Depends(get_current_user)):
+    """Get bank accounts for CXC abonos."""
+    bancos = await db.plan_cuentas_roddos.find({"tipo": "banco", "activo": True}).to_list(None)
+    return {
+        "bancos": bancos or [],
+        "total": len(bancos) if bancos else 0,
+    }
