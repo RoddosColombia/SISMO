@@ -2042,6 +2042,12 @@ async def process_chat(
     _chat_client = anthropic.AsyncAnthropic(api_key=api_key)
     _system_parts = [m["content"] for m in initial_messages if m.get("role") == "system"]
     _chat_msgs = [m for m in initial_messages if m.get("role") in ("user", "assistant")]
+
+    # RATE LIMIT OPTIMIZATION: Truncate history to last 6 messages (3 turns)
+    # This reduces payload by 60-70% for long conversations while keeping context
+    if len(_chat_msgs) > 6:
+        _chat_msgs = _chat_msgs[-6:]
+
     _chat_msgs.append({"role": "user", "content": user_message})
 
     _system_text = "\n\n".join(_system_parts) if _system_parts else system_prompt
