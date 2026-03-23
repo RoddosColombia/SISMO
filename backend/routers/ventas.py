@@ -323,6 +323,7 @@ async def crear_factura_venta(
                     "type": tipo_id_alegra,
                     "number": payload.cliente_nit
                 },
+                "kindOfPerson": "PERSON_ENTITY",  # Alegra requires this field
                 "phonePrimary": payload.cliente_telefono,
                 "type": ["client"]
             }
