@@ -284,14 +284,32 @@ async def create_loan(req: LoanCreate, current_user=Depends(get_current_user)):
             )
     # ─────────────────────────────────────────────────────────────────────────
 
-    num_cuotas = PLAN_CUOTAS[req.plan]
+    num_cuotas_semanal = PLAN_CUOTAS[req.plan]
     valor_financiado = req.precio_venta - req.cuota_inicial
     codigo = await _get_next_codigo()
 
     # ── modo_pago y cálculo de cuota ──────────────────────────────────────────
-    modo_pago = req.modo_pago if req.modo_pago in MODOS_VALIDOS else "semanal"
+    modo_pago = req.modo_pago if req.modo_pago in MODOS_VALIDOS or req.modo_pago == "contado" else "semanal"
     cuota_base = int(req.cuota_base) if req.cuota_base else int(req.valor_cuota)
-    cuota_valor_calculado = calcular_cuota_valor(cuota_base, modo_pago)
+    cuota_valor_calculado = calcular_cuota_valor(cuota_base, modo_pago) if modo_pago != "contado" else 0
+
+    # Adjust num_cuotas based on modo_pago
+    if modo_pago == "contado" or req.plan == "Contado":
+        num_cuotas = 0
+    elif modo_pago == "semanal":
+        num_cuotas = num_cuotas_semanal
+    else:
+        # Look up from catalogo_planes
+        catalogo_plan = await db.catalogo_planes.find_one({"plan": req.plan}, {"_id": 0})
+        cuotas_key = f"cuotas_{modo_pago}"
+        if catalogo_plan and cuotas_key in catalogo_plan:
+            num_cuotas = catalogo_plan[cuotas_key]
+        else:
+            CUOTAS_FALLBACK = {
+                "quincenal": {"P39S": 20, "P52S": 26, "P78S": 39},
+                "mensual":   {"P39S": 9,  "P52S": 12, "P78S": 18},
+            }
+            num_cuotas = CUOTAS_FALLBACK.get(modo_pago, {}).get(req.plan, num_cuotas_semanal)
     # ─────────────────────────────────────────────────────────────────────────
 
     # Initial cuota (cuota 0)
@@ -540,7 +558,6 @@ async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depen
     # ─────────────────────────────────────────────────────────────────────────
 
     fecha_entrega = date.fromisoformat(req.fecha_entrega)
-    num_cuotas  = loan.get("num_cuotas", 0)
 
     # ── modo_pago: request overrides stored value ─────────────────────────────
     modo_pago = req.modo_pago or loan.get("modo_pago", "semanal")
@@ -549,6 +566,27 @@ async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depen
         modo_pago = "contado"
     elif modo_pago not in MODOS_VALIDOS:
         modo_pago = "semanal"
+
+    # ── num_cuotas: adjust based on modo_pago from catalog ──────────────────
+    # Default from stored plan (semanal count)
+    num_cuotas_semanal = loan.get("num_cuotas", 0) or PLAN_CUOTAS.get(plan, 0)
+    if is_contado:
+        num_cuotas = 0
+    elif modo_pago == "semanal":
+        num_cuotas = num_cuotas_semanal
+    else:
+        # Look up from catalogo_planes in MongoDB
+        catalogo_plan = await db.catalogo_planes.find_one({"plan": plan}, {"_id": 0})
+        cuotas_key = f"cuotas_{modo_pago}"
+        if catalogo_plan and cuotas_key in catalogo_plan:
+            num_cuotas = catalogo_plan[cuotas_key]
+        else:
+            # Fallback: P39S(20/9), P52S(26/12), P78S(39/18)
+            CUOTAS_FALLBACK = {
+                "quincenal": {"P39S": 20, "P52S": 26, "P78S": 39},
+                "mensual":   {"P39S": 9,  "P52S": 12, "P78S": 18},
+            }
+            num_cuotas = CUOTAS_FALLBACK.get(modo_pago, {}).get(plan, num_cuotas_semanal)
 
     # For non-contado: calculate schedule with Wednesday rule
     fecha_primer_pago = None if is_contado else _first_wednesday(fecha_entrega)
@@ -562,7 +600,7 @@ async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depen
     else:
         # Support both field names: valor_cuota (created via form) and cuota_valor (legacy/auto-created)
         valor_cuota_final = calcular_cuota_valor(int(cuota_base_stored), modo_pago)
-        valor_financiado = loan.get("valor_financiado") or (cuota_base_stored * num_cuotas)
+        valor_financiado = loan.get("valor_financiado") or (valor_cuota_final * num_cuotas)
     # ─────────────────────────────────────────────────────────────────────────
 
     # Build cuotas schedule
@@ -604,9 +642,11 @@ async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depen
         "fecha_entrega": req.fecha_entrega,
         "fecha_primer_pago": fecha_primer_pago.isoformat() if fecha_primer_pago else None,
         "modo_pago": modo_pago,
+        "num_cuotas": num_cuotas,
         "cuota_base": int(cuota_base_stored),
         "valor_cuota": valor_cuota_final,
         "cuota_valor": valor_cuota_final,   # alias de compatibilidad
+        "valor_financiado": valor_financiado,
         "cuotas": cuotas,
         "estado": estado_final,
         "datos_completos": True,
