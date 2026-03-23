@@ -298,7 +298,7 @@ async def crear_factura_venta(
             # Check if it's a mapping key or direct Alegra type
             if payload.tipo_identificacion.lower() in tipo_id_map:
                 tipo_id_alegra = tipo_id_map[payload.tipo_identificacion.lower()]
-            elif payload.tipo_identificacion.upper() in ["CC", "CE", "PPT", "PP"]:
+            elif payload.tipo_identificacion.upper() in ["CC", "CE", "PPT", "PP", "NIT"]:
                 tipo_id_alegra = payload.tipo_identificacion.upper()
             else:
                 # Invalid type, log warning and use default
@@ -315,12 +315,16 @@ async def crear_factura_venta(
             logger.info(f"[F6] Cliente encontrado en Alegra: ID {client_id}")
         except Exception as e:
             logger.info(f"[F6] Cliente no existe en Alegra, creando... ({str(e)[:50]})")
+            # Format per Alegra Colombia API: identificationObject with type + number
+            # Reference: ai_chat.py ALEGRA_API_FORMAT section
             client_payload = {
                 "name": payload.cliente_nombre,
-                "identification": payload.cliente_nit,
-                "tipo_identificacion": tipo_id_alegra,
-                "phone": payload.cliente_telefono,
-                "type": "person"
+                "identificationObject": {
+                    "type": tipo_id_alegra,
+                    "number": payload.cliente_nit
+                },
+                "phonePrimary": payload.cliente_telefono,
+                "type": ["client"]
             }
             client_response = await service.request("contacts", "POST", client_payload)
             client_id = client_response.get("id")
