@@ -127,8 +127,11 @@ def _compute_stats(loan: dict) -> dict:
     cuotas = _update_overdue(loan.get("cuotas", []))
     pagadas = sum(1 for c in cuotas if c["estado"] == "pagada")
     vencidas = sum(1 for c in cuotas if c["estado"] == "vencida")
-    total_cobrado = sum(c.get("valor_pagado", 0) for c in cuotas if c["estado"] == "pagada")
-    total_deuda = sum(c["valor"] for c in cuotas if c["estado"] in ("pendiente", "vencida", "parcial"))
+    total_cobrado = sum(c.get("valor_pagado", 0) for c in cuotas if c["estado"] in ("pagada", "parcial"))
+    total_deuda = sum(
+        (c["valor"] - (c.get("valor_pagado", 0) or 0)) for c in cuotas
+        if c["estado"] in ("pendiente", "vencida", "parcial")
+    )
     # Determine overall estado
     num_cuotas = loan.get("num_cuotas", 0)
     total_cuotas = num_cuotas + 1  # +1 for cuota inicial
@@ -160,11 +163,23 @@ async def _get_next_codigo():
 # ─── Default plan catalog (seeded on first read) ─────────────────────────────
 
 CATALOGO_DEFAULT = [
-    {"plan": "P39S", "num_cuotas": 39, "precio_venta": 3_500_000, "valor_cuota": 90_000, "modo_pago": "semanal"},
-    {"plan": "P52S", "num_cuotas": 52, "precio_venta": 4_500_000, "valor_cuota": 95_000, "modo_pago": "semanal"},
-    {"plan": "P78S", "num_cuotas": 78, "precio_venta": 5_500_000, "valor_cuota": 85_000, "modo_pago": "semanal"},
-    {"plan": "Contado", "num_cuotas": 0, "precio_venta": 0, "valor_cuota": 0, "modo_pago": "contado"},
-    {"tipo": "multiplicadores", "semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
+    {
+        "plan": "P39S", "precio_venta": 3_500_000, "modo_pago": "semanal",
+        "cuotas_semanal": 39, "cuotas_quincenal": 19, "cuotas_mensual": 9,
+        "multiplicadores": {"semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
+    },
+    {
+        "plan": "P52S", "precio_venta": 4_500_000, "modo_pago": "semanal",
+        "cuotas_semanal": 52, "cuotas_quincenal": 26, "cuotas_mensual": 12,
+        "multiplicadores": {"semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
+    },
+    {
+        "plan": "P78S", "precio_venta": 5_500_000, "modo_pago": "semanal",
+        "cuotas_semanal": 78, "cuotas_quincenal": 39, "cuotas_mensual": 18,
+        "multiplicadores": {"semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
+    },
+    {"plan": "Contado", "precio_venta": 0, "modo_pago": "contado",
+     "cuotas_semanal": 0, "cuotas_quincenal": 0, "cuotas_mensual": 0},
 ]
 
 
@@ -172,9 +187,12 @@ CATALOGO_DEFAULT = [
 
 @router.get("/catalogo-planes")
 async def get_catalogo_planes(current_user=Depends(get_current_user)):
-    """Return plan catalog from MongoDB. Seeds default values if empty."""
+    """Return plan catalog from MongoDB. Seeds/updates default values if missing fields."""
     planes = await db.catalogo_planes.find({}, {"_id": 0}).to_list(20)
-    if not planes:
+    # Re-seed if empty or old format (missing cuotas_quincenal)
+    needs_reseed = not planes or (planes and not any(p.get("cuotas_quincenal") for p in planes))
+    if needs_reseed:
+        await db.catalogo_planes.delete_many({})
         for p in CATALOGO_DEFAULT:
             await db.catalogo_planes.insert_one({**p})
         planes = await db.catalogo_planes.find({}, {"_id": 0}).to_list(20)
@@ -641,15 +659,20 @@ async def register_pago(loan_id: str, req: PagoRequest, current_user=Depends(get
         raise HTTPException(status_code=404, detail=f"Plan de crédito no encontrado (ID: {loan_id})")
 
     # BUILD 21: descriptive state validation
+    # Allow cuota inicial (numero == 0) even in pendiente_entrega
+    is_cuota_inicial = req.cuota_numero == 0
     if loan.get("estado") not in ("activo", "mora"):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"No puedes registrar el pago: el crédito está en estado '{loan.get('estado')}'."
-                + (" Confirma la entrega de la moto primero."
-                   if loan.get("estado") == "pendiente_entrega" else "")
-            ),
-        )
+        if loan.get("estado") == "pendiente_entrega" and is_cuota_inicial:
+            pass  # cuota inicial allowed before delivery
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"No puedes registrar el pago: el crédito está en estado '{loan.get('estado')}'."
+                    + (" Confirma la entrega de la moto primero."
+                       if loan.get("estado") == "pendiente_entrega" else "")
+                ),
+            )
 
     cuotas = loan.get("cuotas", [])
     cuota = next((c for c in cuotas if c["numero"] == req.cuota_numero), None)
@@ -706,10 +729,18 @@ async def register_pago(loan_id: str, req: PagoRequest, current_user=Depends(get
             detail=f"No se pudo conectar con Alegra: {str(e)}. Verifica tu conexión e intenta nuevamente."
         )
 
-    # Update cuota
-    cuota["estado"] = "pagada"
+    # Update cuota — determine if full or partial payment
+    abonado_previo = cuota.get("valor_pagado", 0) or 0
+    total_abonado = abonado_previo + req.valor_pagado
+    valor_cuota = cuota.get("valor", 0)
+    if total_abonado >= valor_cuota:
+        cuota["estado"] = "pagada"
+        cuota["valor_pagado"] = total_abonado
+    else:
+        cuota["estado"] = "parcial"
+        cuota["valor_pagado"] = total_abonado
+        cuota["saldo_cuota"] = valor_cuota - total_abonado
     cuota["fecha_pago"] = date.today().isoformat()
-    cuota["valor_pagado"] = req.valor_pagado
     cuota["alegra_payment_id"] = str(alegra_payment_id) if alegra_payment_id else None
     cuota["comprobante"] = comprobante_num
     cuota["notas"] = req.notas or ""

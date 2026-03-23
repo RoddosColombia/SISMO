@@ -443,18 +443,32 @@ const PagoModal: React.FC<{
   loan: Loan; cuota: Cuota; onClose: () => void; onSuccess: () => void;
 }> = ({ loan, cuota, onClose, onSuccess }) => {
   const { token } = useAuth();
-  const [form, setForm] = useState({ valor_pagado: cuota.valor, metodo_pago: "efectivo", notas: "" });
+  const saldoCuota = cuota.valor - ((cuota as any).valor_pagado || 0);
+  const [tipoPago, setTipoPago] = useState<"total" | "parcial">("total");
+  const [form, setForm] = useState({ valor_pagado: saldoCuota, metodo_pago: "efectivo", notas: "" });
   const [loading, setLoading] = useState(false);
+
+  // Reset valor_pagado when switching tipo
+  const handleTipoChange = (tipo: "total" | "parcial") => {
+    setTipoPago(tipo);
+    setForm(f => ({ ...f, valor_pagado: tipo === "total" ? saldoCuota : 0 }));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const val = parseFloat(String(form.valor_pagado));
+    if (!val || val <= 0) { toast.error("Ingresa un valor válido"); return; }
+    if (val > saldoCuota) { toast.error(`El valor no puede superar el saldo de ${fmt(saldoCuota)}`); return; }
     setLoading(true);
     try {
       await axios.post(`${API}/api/loanbook/${loan.id}/pago`,
-        { cuota_numero: cuota.numero, ...form, valor_pagado: parseFloat(String(form.valor_pagado)) },
+        { cuota_numero: cuota.numero, ...form, valor_pagado: val },
         { headers: { Authorization: `Bearer ${token}` } },
       );
-      toast.success(`Cuota ${cuota.numero} registrada exitosamente`);
+      const msg = val >= saldoCuota
+        ? `Cuota ${cuota.numero} pagada completamente`
+        : `Abono de ${fmt(val)} registrado — Saldo restante: ${fmt(saldoCuota - val)}`;
+      toast.success(msg);
       onSuccess();
     } catch (err: any) {
       toast.error(err.response?.data?.detail || "Error registrando el pago");
@@ -475,21 +489,48 @@ const PagoModal: React.FC<{
           <div className="bg-amber-50 rounded-lg p-3 text-sm">
             <p className="font-medium text-amber-800">Cliente: {loan.cliente_nombre}</p>
             <p className="text-amber-700">Vencimiento: {fdate(cuota.fecha_vencimiento)} · Valor: {fmt(cuota.valor)}</p>
+            {(cuota as any).valor_pagado > 0 && (
+              <p className="text-amber-600 mt-1">Abonado: {fmt((cuota as any).valor_pagado)} · Saldo: {fmt(saldoCuota)}</p>
+            )}
           </div>
+
+          {/* Toggle pago total / parcial */}
+          <div className="flex gap-2">
+            <button type="button" onClick={() => handleTipoChange("total")}
+              className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                tipoPago === "total" ? "bg-[#00A9E0] text-white border-[#00A9E0]" : "bg-white text-slate-600 border-slate-300 hover:bg-slate-50"
+              }`}>
+              Pago total
+            </button>
+            <button type="button" onClick={() => handleTipoChange("parcial")}
+              className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                tipoPago === "parcial" ? "bg-amber-500 text-white border-amber-500" : "bg-white text-slate-600 border-slate-300 hover:bg-slate-50"
+              }`}>
+              Pago parcial
+            </button>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Valor recibido</label>
-            <input type="number" value={form.valor_pagado}
-              onChange={e => setForm(f => ({ ...f, valor_pagado: parseFloat(e.target.value) }))}
+            <input type="number" value={form.valor_pagado || ""}
+              onChange={e => setForm(f => ({ ...f, valor_pagado: parseFloat(e.target.value) || 0 }))}
+              placeholder={tipoPago === "total" ? String(saldoCuota) : "Valor del abono"}
               className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#00A9E0] focus:border-transparent" required />
+            {tipoPago === "parcial" && form.valor_pagado > 0 && form.valor_pagado < saldoCuota && (
+              <p className="text-xs text-amber-600 mt-1">Saldo restante: {fmt(saldoCuota - form.valor_pagado)}</p>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Método de pago</label>
             <select value={form.metodo_pago} onChange={e => setForm(f => ({ ...f, metodo_pago: e.target.value }))}
               className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#00A9E0]">
               <option value="efectivo">Efectivo</option>
-              <option value="transferencia">Transferencia</option>
-              <option value="tarjeta">Tarjeta</option>
-              <option value="nequi">Nequi / Daviplata</option>
+              <option value="transferencia_bancolombia">Transferencia Bancolombia</option>
+              <option value="transferencia_bbva">Transferencia BBVA</option>
+              <option value="transferencia_davivienda">Transferencia Davivienda</option>
+              <option value="transferencia_bogota">Transferencia Banco Bogotá</option>
+              <option value="nequi">Nequi</option>
+              <option value="daviplata">Daviplata</option>
             </select>
           </div>
           <div>
@@ -500,8 +541,11 @@ const PagoModal: React.FC<{
           </div>
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
-            <button type="submit" disabled={loading} className="flex-1 px-4 py-2 bg-[#00A9E0] text-white rounded-lg text-sm font-medium hover:bg-[#0090c0] disabled:opacity-50">
-              {loading ? "Procesando..." : "Confirmar Pago"}
+            <button type="submit" disabled={loading}
+              className={`flex-1 px-4 py-2 text-white rounded-lg text-sm font-medium disabled:opacity-50 ${
+                tipoPago === "total" ? "bg-[#00A9E0] hover:bg-[#0090c0]" : "bg-amber-500 hover:bg-amber-600"
+              }`}>
+              {loading ? "Procesando..." : tipoPago === "total" ? "Confirmar Pago Total" : "Registrar Abono"}
             </button>
           </div>
         </form>
@@ -646,9 +690,12 @@ const EditLoanModal: React.FC<{
               <select value={form.modo_pago} onChange={e => {
                   const modo = e.target.value;
                   setForm(f => {
-                    const base = loan.valor_cuota || parseFloat(f.valor_cuota) || 0;
-                    const newCuota = modo !== "contado" && base > 0
-                      ? String(calcularValorCuota(base, modo))
+                    // Reverse to semanal base, then apply new multiplier
+                    const curMult = MULTIPLICADORES[f.modo_pago] || 1;
+                    const curVal = parseFloat(f.valor_cuota) || (loan.valor_cuota || 0);
+                    const semanalBase = curMult !== 0 ? Math.round(curVal / curMult) : curVal;
+                    const newCuota = modo !== "contado" && semanalBase > 0
+                      ? String(calcularValorCuota(semanalBase, modo))
                       : f.valor_cuota;
                     return { ...f, modo_pago: modo, valor_cuota: newCuota };
                   });
@@ -924,6 +971,7 @@ const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
     codigo: "", cliente_nombre: "", cliente_nit: "", tipo_identificacion: "CC",
     moto_descripcion: "", moto_chasis: "", plan: "P39S", fecha_factura: "",
     precio_venta: "", cuota_inicial: "", valor_cuota: "", modo_pago: "semanal",
+    num_cuotas: "39",
   });
   const [loading, setLoading] = useState(false);
   const [catalogo, setCatalogo] = useState<any[]>([]);
@@ -940,17 +988,25 @@ const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
     fetchCatalogo();
   }, [token]);
 
-  // Auto-fill precio_venta and valor_cuota when plan changes
+  // Helper: get cuotas count from catalog for given plan + modo
+  const getCuotasFromCatalog = (plan: string, modo: string) => {
+    const p = catalogo.find(c => c.plan === plan);
+    if (!p) return "";
+    const key = `cuotas_${modo}` as string;
+    return String(p[key] ?? p.cuotas_semanal ?? "");
+  };
+
+  // Auto-fill precio_venta when plan changes
   useEffect(() => {
     const planData = catalogo.find(p => p.plan === form.plan);
     if (planData) {
       setForm(f => ({
         ...f,
         precio_venta: planData.precio_venta ? String(planData.precio_venta) : f.precio_venta,
-        valor_cuota: planData.valor_cuota ? String(planData.valor_cuota) : f.valor_cuota,
-        modo_pago: planData.modo_pago || f.modo_pago,
+        num_cuotas: getCuotasFromCatalog(f.plan, f.modo_pago) || f.num_cuotas,
       }));
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.plan, catalogo]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1053,14 +1109,16 @@ const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
             <select value={form.modo_pago} onChange={e => {
                 const modo = e.target.value;
                 setForm(f => {
-                  const base = parseFloat(f.valor_cuota) || 0;
-                  // Recalculate only if switching between credit modes and we have a base from catalogo
-                  const planData = catalogo.find(p => p.plan === f.plan);
-                  const cuotaBase = planData?.valor_cuota || base;
-                  const newCuota = modo !== "contado" && cuotaBase > 0
-                    ? String(calcularValorCuota(cuotaBase, modo))
+                  // Get base semanal value from current valor_cuota (when semanal) or reverse-calc
+                  const curMult = MULTIPLICADORES[f.modo_pago] || 1;
+                  const curVal = parseFloat(f.valor_cuota) || 0;
+                  const semanalBase = curMult !== 0 ? Math.round(curVal / curMult) : curVal;
+                  const newCuota = modo !== "contado" && semanalBase > 0
+                    ? String(calcularValorCuota(semanalBase, modo))
                     : f.valor_cuota;
-                  return { ...f, modo_pago: modo, valor_cuota: newCuota };
+                  // Get num_cuotas from catalog
+                  const numCuotas = getCuotasFromCatalog(f.plan, modo) || f.num_cuotas;
+                  return { ...f, modo_pago: modo, valor_cuota: newCuota, num_cuotas: numCuotas };
                 });
               }}
               className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
@@ -1090,6 +1148,11 @@ const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
               </div>
             )}
           </div>
+          {!isContado && form.num_cuotas && (
+            <p className="text-xs text-slate-500">
+              {form.num_cuotas} cuotas de {fmt(parseFloat(form.valor_cuota) || 0)} ({form.modo_pago})
+            </p>
+          )}
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium">Cancelar</button>
             <button type="submit" disabled={loading} className="flex-1 px-4 py-2 bg-[#00A9E0] text-white rounded-lg text-sm font-medium hover:bg-[#0090c0] disabled:opacity-50">
