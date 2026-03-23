@@ -221,6 +221,7 @@ class CrearFacturaVentaRequest(BaseModel):
     valor_cuota: float
     modo_pago: str  # semanal | quincenal | mensual
     fecha_venta: Optional[str] = None
+    tipo_identificacion: Optional[str] = None  # CC | CE | PPT | PP; defaults to CC
 
 
 @router.post("/crear-factura")
@@ -283,6 +284,29 @@ async def crear_factura_venta(
         # ── Set up Alegra service ─────────────────────────────────────────────────
         service = AlegraService(db)
 
+        # ── Determine identification type ────────────────────────────────────────────
+        tipo_id_map = {
+            "colombiano": "CC",
+            "extranjero_venezolano": "PPT",
+            "extranjero_otro": "CE",
+            "pasaporte": "PP"
+        }
+
+        # Use provided tipo_identificacion, map if needed, default to CC
+        tipo_id_alegra = "CC"  # Default
+        if payload.tipo_identificacion:
+            # Check if it's a mapping key or direct Alegra type
+            if payload.tipo_identificacion.lower() in tipo_id_map:
+                tipo_id_alegra = tipo_id_map[payload.tipo_identificacion.lower()]
+            elif payload.tipo_identificacion.upper() in ["CC", "CE", "PPT", "PP"]:
+                tipo_id_alegra = payload.tipo_identificacion.upper()
+            else:
+                # Invalid type, log warning and use default
+                logger.warning(f"[F6] Tipo de ID no reconocido: {payload.tipo_identificacion}, usando CC por defecto")
+                tipo_id_alegra = "CC"
+
+        logger.info(f"[F6] Tipo de identificación: {tipo_id_alegra}")
+
         # ── CREATE/LOOKUP CLIENT in Alegra ───────────────────────────────────────
         logger.info(f"[F6] Buscando cliente NIT {payload.cliente_nit} en Alegra...")
         try:
@@ -294,7 +318,7 @@ async def crear_factura_venta(
             client_payload = {
                 "name": payload.cliente_nombre,
                 "identification": payload.cliente_nit,
-                "tipo_identificacion": "CC",
+                "tipo_identificacion": tipo_id_alegra,
                 "phone": payload.cliente_telefono,
                 "type": "person"
             }

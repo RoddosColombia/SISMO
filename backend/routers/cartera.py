@@ -159,17 +159,47 @@ async def registrar_pago_cartera(
         # ── FIND LOANBOOK ─────────────────────────────────────────────────────
         logger.info(f"[F7] Buscando loanbook {payload.loanbook_id}...")
 
-        # Mapeo código → UUID si necesario
+        # Búsqueda robusta: soportar múltiples formatos de ID
+        loanbook = None
         loanbook_query_id = payload.loanbook_id.strip()
-        if loanbook_query_id.startswith("LB-"):
-            doc = await db.loanbook.find_one({"id": loanbook_query_id})
-            if not doc:
-                doc = await db.loanbook.find_one({"codigo": loanbook_query_id})
-            if doc:
-                loanbook_query_id = str(doc["_id"])
-                logger.info(f"[F7] Mapeo código {payload.loanbook_id} → UUID {loanbook_query_id}")
 
+        # Intentar búsqueda por múltiples campos y formatos
+        # 1. Búsqueda exacta por "id"
         loanbook = await db.loanbook.find_one({"id": loanbook_query_id})
+
+        # 2. Si no encuentra, buscar por "codigo"
+        if not loanbook:
+            loanbook = await db.loanbook.find_one({"codigo": loanbook_query_id})
+            if loanbook:
+                logger.info(f"[F7] Encontrado por campo 'codigo': {loanbook_query_id}")
+
+        # 3. Si no encuentra y el ID tiene formato "LB-XXXX-XXXX", extraer el número y buscar
+        if not loanbook and loanbook_query_id.startswith("LB-"):
+            # Extraer el número secuencial (ej: "LB-2026-0001" → "0001")
+            try:
+                parts = loanbook_query_id.split("-")
+                if len(parts) == 3:
+                    # Buscar por patrón alternativo: codigo = "LB" + número
+                    alt_codigo = f"LB{parts[2]}"
+                    loanbook = await db.loanbook.find_one({"codigo": alt_codigo})
+                    if loanbook:
+                        logger.info(f"[F7] Encontrado por código alternativo: {alt_codigo}")
+            except Exception as e:
+                logger.warning(f"[F7] Error procesando formato LB-XXXX-XXXX: {str(e)}")
+
+        # 4. Si todavía no encuentra, buscar por expresión regular
+        if not loanbook:
+            import re
+            pattern = re.escape(loanbook_query_id)
+            loanbook = await db.loanbook.find_one({
+                "$or": [
+                    {"id": {"$regex": pattern, "$options": "i"}},
+                    {"codigo": {"$regex": pattern, "$options": "i"}},
+                    {"loanbook_id": {"$regex": pattern, "$options": "i"}}
+                ]
+            })
+            if loanbook:
+                logger.info(f"[F7] Encontrado por búsqueda regex: {loanbook_query_id}")
 
         if not loanbook:
             raise HTTPException(status_code=400, detail=f"Loanbook {payload.loanbook_id} no encontrado")

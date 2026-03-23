@@ -143,8 +143,8 @@ async def test_t03_crear_factura(token: str):
 
     # Datos de venta de prueba (VIN real del inventario)
     payload = {
-        "cliente_nombre": "Cliente Smoke Test",
-        "cliente_nit": "88888888",
+        "cliente_nombre": "Juan García",
+        "cliente_nit": "12345678",
         "cliente_telefono": "3001234567",
         "moto_chasis": "9FL25AF36VDB96075",
         "moto_motor": "BF3AV19L1754",
