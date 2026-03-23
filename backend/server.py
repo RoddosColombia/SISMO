@@ -466,6 +466,19 @@ async def smoke_test():
 
     return result
 
+@app.get("/api/debug-env")
+async def debug_env():
+    """Debug: show environment variable status."""
+    email = os.environ.get("ALEGRA_EMAIL", "").strip()
+    token = os.environ.get("ALEGRA_TOKEN", "").strip()
+    return {
+        "ALEGRA_EMAIL": "PRESENT" if email else "MISSING",
+        "ALEGRA_EMAIL_LENGTH": len(email),
+        "ALEGRA_TOKEN": "PRESENT" if token else "MISSING",
+        "ALEGRA_TOKEN_LENGTH": len(token),
+        "debug_note": "If both show MISSING, env vars are not configured in Render"
+    }
+
 @app.get("/api/health")
 async def health_check():
     """Diagnóstico rápido del estado del sistema."""
