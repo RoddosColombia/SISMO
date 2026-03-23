@@ -945,7 +945,7 @@ async def process_document_chat(
     db, user: dict
 ) -> dict:
     """Process a chat message that includes a document (image/PDF) for accounting analysis."""
-    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
 
     from alegra_service import AlegraService
     alegra_service = AlegraService(db)
@@ -1198,7 +1198,7 @@ async def process_chat(
         return await process_cfo_query(user_message, db, user, session_id)
     # ─────────────────────────────────────────────────────────────────────────
 
-    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
 
     # Import here to avoid circular import
     from alegra_service import AlegraService

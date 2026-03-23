@@ -457,10 +457,10 @@ async def smoke_test():
     except Exception:
         result["alertas"].append("Alegra no accesible")
 
-    llm_key = os.environ.get("EMERGENT_LLM_KEY", "")
+    llm_key = os.environ.get("ANTHROPIC_API_KEY", "")
     result["anthropic_disponible"] = bool(llm_key)
     if not result["anthropic_disponible"]:
-        result["alertas"].append("EMERGENT_LLM_KEY no configurado")
+        result["alertas"].append("ANTHROPIC_API_KEY no configurado")
         if result["status"] == "ok":
             result["status"] = "degradado"
 
@@ -553,8 +553,8 @@ async def health_check():
     alegra_token = os.environ.get("ALEGRA_TOKEN", "").strip()
     result["alegra"] = "conectado" if alegra_email and alegra_token else "sin credenciales"
 
-    # Anthropic (EMERGENT_LLM_KEY)
-    llm_key = os.environ.get("EMERGENT_LLM_KEY", "")
-    result["anthropic"] = "key presente" if llm_key else "error: EMERGENT_LLM_KEY no configurado"
+    # Anthropic (ANTHROPIC_API_KEY)
+    llm_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    result["anthropic"] = "key presente" if llm_key else "error: ANTHROPIC_API_KEY no configurado"
 
     return result
