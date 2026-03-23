@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 BASE_URL = "https://sismo-backend-40ca.onrender.com"
 EMAIL = "contabilidad@roddos.com"
-PASSWORD = os.environ.get("ALEGRA_PASSWORD", "").strip()  # Necesita estar en env
+PASSWORD = "Admin@RODDOS2025!"  # Credenciales de la app SISMO
 
 # Colores para output
 RED = '\033[91m'
@@ -36,7 +36,7 @@ async def test_t01_login():
     print(f"{YELLOW}==================================================={RESET}")
 
     if not PASSWORD:
-        log_test("T01 Login", "SKIP", "ALEGRA_PASSWORD no está configurada en env")
+        log_test("T01 Login", "FAIL", "Password no configurada")
         return None
 
     async with httpx.AsyncClient(timeout=30) as client:
@@ -48,12 +48,12 @@ async def test_t01_login():
 
             if response.status_code == 200:
                 data = response.json()
-                token = data.get("access_token")
+                token = data.get("token") or data.get("access_token")
                 if token:
                     log_test("T01 Login", "PASS", f"JWT obtenido: {token[:50]}...")
                     return token
                 else:
-                    log_test("T01 Login", "FAIL", "No access_token en respuesta")
+                    log_test("T01 Login", "FAIL", "No token en respuesta")
                     print(f"   Response: {data}")
                     return None
             else:
@@ -83,7 +83,7 @@ async def test_t02_crear_causacion(token: str):
     async with httpx.AsyncClient(timeout=60) as client:
         try:
             response = await client.post(
-                f"{BASE_URL}/api/chat",
+                f"{BASE_URL}/api/chat/message",
                 headers={
                     "Authorization": f"Bearer {token}",
                     "Content-Type": "application/json"
@@ -141,13 +141,13 @@ async def test_t03_crear_factura(token: str):
         log_test("T03 Venta", "SKIP", "Sin token JWT del T01")
         return None
 
-    # Datos de venta de prueba
+    # Datos de venta de prueba (VIN real del inventario)
     payload = {
-        "cliente_nombre": "Cliente Test Smoke",
-        "cliente_nit": "1023456789",
+        "cliente_nombre": "Cliente Smoke Test",
+        "cliente_nit": "88888888",
         "cliente_telefono": "3001234567",
-        "moto_chasis": "TEST-VIN-SMOKE-001",
-        "moto_motor": "MOTOR-SMOKE-001",
+        "moto_chasis": "9FL25AF36VDB96075",
+        "moto_motor": "BF3AV19L1754",
         "plan": "P39S",
         "precio_venta": 9000000,
         "cuota_inicial": 1500000,
@@ -205,12 +205,12 @@ async def test_t04_registrar_pago(token: str):
         log_test("T04 Pago", "SKIP", "Sin token JWT del T01")
         return None
 
-    # Datos de pago de prueba (con loanbook de ejemplo)
+    # Datos de pago de prueba (con loanbook real con cuota pendiente)
     payload = {
-        "loanbook_id": "LB-2026-0042",  # Loanbook de ejemplo
-        "cliente_nombre": "Cliente Test",
-        "monto_pago": 192307.69,
-        "numero_cuota": 1,
+        "loanbook_id": "LB-2026-0001",  # Código de loanbook con cuota pendiente
+        "cliente_nombre": "CHENIER QUINTERO",
+        "monto_pago": 179900,
+        "numero_cuota": 3,
         "metodo_pago": "transferencia",
         "banco_origen": "Bancolombia",
         "referencia_pago": "REF-SMOKE-TEST-001",
