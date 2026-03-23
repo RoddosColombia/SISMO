@@ -164,6 +164,7 @@ CATALOGO_DEFAULT = [
     {"plan": "P52S", "num_cuotas": 52, "precio_venta": 4_500_000, "valor_cuota": 95_000, "modo_pago": "semanal"},
     {"plan": "P78S", "num_cuotas": 78, "precio_venta": 5_500_000, "valor_cuota": 85_000, "modo_pago": "semanal"},
     {"plan": "Contado", "num_cuotas": 0, "precio_venta": 0, "valor_cuota": 0, "modo_pago": "contado"},
+    {"tipo": "multiplicadores", "semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
 ]
 
 
@@ -357,27 +358,24 @@ async def get_loan(loan_id: str, current_user=Depends(get_current_user)):
 
 
 @router.put("/{loan_id}")
-async def edit_loan(loan_id: str, req: LoanEdit, current_user=Depends(get_current_user)):
+async def edit_loan(loan_id: str, body: dict, current_user=Depends(get_current_user)):
     """Edit mutable fields on an existing loanbook (pre-delivery or active)."""
     loan = await db.loanbook.find_one({"id": loan_id}, {"_id": 0})
     if not loan:
         raise HTTPException(status_code=404, detail="Plan no encontrado")
 
-    update_fields: dict = {}
-    for field in (
+    EDITABLE = {
         "cliente_nombre", "cliente_nit", "tipo_identificacion", "cliente_telefono",
         "moto_descripcion", "moto_chasis", "motor", "placa",
         "plan", "modo_pago", "valor_cuota", "fecha_factura",
-    ):
-        val = getattr(req, field, None)
-        if val is not None:
-            update_fields[field] = val
+    }
+    update_fields: dict = {k: v for k, v in body.items() if k in EDITABLE and v is not None}
 
-    if req.plan and req.plan in PLAN_CUOTAS:
-        update_fields["num_cuotas"] = PLAN_CUOTAS[req.plan]
-    if req.valor_cuota is not None:
-        update_fields["cuota_base"] = int(req.valor_cuota)
-        update_fields["cuota_valor"] = int(req.valor_cuota)
+    if "plan" in update_fields and update_fields["plan"] in PLAN_CUOTAS:
+        update_fields["num_cuotas"] = PLAN_CUOTAS[update_fields["plan"]]
+    if "valor_cuota" in update_fields:
+        update_fields["cuota_base"] = int(update_fields["valor_cuota"])
+        update_fields["cuota_valor"] = int(update_fields["valor_cuota"])
 
     if not update_fields:
         raise HTTPException(status_code=400, detail="No hay campos para actualizar")

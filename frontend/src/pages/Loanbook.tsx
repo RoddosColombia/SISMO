@@ -20,6 +20,13 @@ const fdate = (d: string | null | undefined): string => {
   try { return format(parseISO(d), "dd/MMM/yy", { locale: es }); } catch { return d; }
 };
 
+// ─── Multiplicadores RODDOS (semanal base) ──────────────────────────────────
+const MULTIPLICADORES: Record<string, number> = { semanal: 1.0, quincenal: 2.2, mensual: 4.4 };
+const calcularValorCuota = (base: number, modo: string): number => {
+  const m = MULTIPLICADORES[modo] || 1.0;
+  return Math.round(base * m);
+};
+
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
 interface Cuota {
@@ -636,7 +643,16 @@ const EditLoanModal: React.FC<{
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Modo de pago</label>
-              <select value={form.modo_pago} onChange={e => setForm(f => ({ ...f, modo_pago: e.target.value }))}
+              <select value={form.modo_pago} onChange={e => {
+                  const modo = e.target.value;
+                  setForm(f => {
+                    const base = loan.valor_cuota || parseFloat(f.valor_cuota) || 0;
+                    const newCuota = modo !== "contado" && base > 0
+                      ? String(calcularValorCuota(base, modo))
+                      : f.valor_cuota;
+                    return { ...f, modo_pago: modo, valor_cuota: newCuota };
+                  });
+                }}
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
                 <option value="semanal">Semanal</option>
                 <option value="quincenal">Quincenal</option>
@@ -1034,7 +1050,19 @@ const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
           {/* Modo de pago */}
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1">Modo de pago *</label>
-            <select value={form.modo_pago} onChange={e => setForm(f => ({ ...f, modo_pago: e.target.value }))}
+            <select value={form.modo_pago} onChange={e => {
+                const modo = e.target.value;
+                setForm(f => {
+                  const base = parseFloat(f.valor_cuota) || 0;
+                  // Recalculate only if switching between credit modes and we have a base from catalogo
+                  const planData = catalogo.find(p => p.plan === f.plan);
+                  const cuotaBase = planData?.valor_cuota || base;
+                  const newCuota = modo !== "contado" && cuotaBase > 0
+                    ? String(calcularValorCuota(cuotaBase, modo))
+                    : f.valor_cuota;
+                  return { ...f, modo_pago: modo, valor_cuota: newCuota };
+                });
+              }}
               className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
               <option value="semanal">Semanal (cada 7 días — miércoles)</option>
               <option value="quincenal">Quincenal (cada 14 días — miércoles)</option>

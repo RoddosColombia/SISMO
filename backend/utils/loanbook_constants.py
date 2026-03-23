@@ -4,7 +4,7 @@ loanbook_constants.py — Constantes y helpers para modo de pago RODDOS.
 Frecuencias soportadas:
   semanal   → cuota_base × 1.0   (cada 7 días  — cada miércoles)
   quincenal → cuota_base × 2.2   (cada 14 días — cada 2 miércoles)
-  mensual   → cuota_base × 4.33  (cada 28 días — cada 4 miércoles)
+  mensual   → cuota_base × 4.4   (cada 28 días — cada 4 miércoles)
 
 La cuota_base siempre es SEMANAL. Los demás modos se calculan como múltiplos.
 
@@ -14,15 +14,15 @@ Tests:
   calcular_cuota_valor(130000, "quincenal") == 286000
   calcular_cuota_valor(149900, "quincenal") == 329780
   calcular_cuota_valor(179900, "semanal")   == 179900
-  calcular_cuota_valor(149900, "mensual")   == 648967
-  calcular_cuota_valor(130000, "mensual")   == 562900
+  calcular_cuota_valor(149900, "mensual")   == 659560
+  calcular_cuota_valor(130000, "mensual")   == 572000
 """
 import math
 
 MULTIPLICADORES_PAGO: dict[str, float] = {
     "semanal":   1.0,
     "quincenal": 2.2,
-    "mensual":   4.33,
+    "mensual":   4.4,
 }
 
 DIAS_ENTRE_COBROS: dict[str, int] = {
