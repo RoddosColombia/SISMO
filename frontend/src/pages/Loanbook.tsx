@@ -44,6 +44,7 @@ interface Loan {
   motor?: string;
   cliente_nombre: string;
   cliente_nit?: string;
+  tipo_identificacion?: string;
   cliente_telefono?: string;
   cliente_id?: string;
   plan: string;
@@ -502,6 +503,183 @@ const PagoModal: React.FC<{
   );
 };
 
+// ─── Edit Loan Modal ─────────────────────────────────────────────────────────
+
+const EditLoanModal: React.FC<{
+  loan: Loan; onClose: () => void; onSuccess: () => void;
+}> = ({ loan, onClose, onSuccess }) => {
+  const { token } = useAuth();
+  const [loading, setLoading] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [form, setForm] = useState({
+    cliente_nombre: loan.cliente_nombre || "",
+    cliente_nit: loan.cliente_nit || "",
+    tipo_identificacion: loan.tipo_identificacion || "CC",
+    cliente_telefono: loan.cliente_telefono || "",
+    moto_descripcion: loan.moto_descripcion || "",
+    moto_chasis: loan.moto_chasis || "",
+    motor: loan.motor || "",
+    placa: loan.placa || "",
+    plan: loan.plan || "P39S",
+    modo_pago: loan.modo_pago || "semanal",
+    valor_cuota: String(loan.valor_cuota || ""),
+    fecha_factura: loan.fecha_factura || "",
+  });
+
+  const handleSave = async () => {
+    setLoading(true);
+    try {
+      // Only send fields that changed
+      const body: any = {};
+      if (form.cliente_nombre !== (loan.cliente_nombre || "")) body.cliente_nombre = form.cliente_nombre;
+      if (form.cliente_nit !== (loan.cliente_nit || "")) body.cliente_nit = form.cliente_nit;
+      if (form.tipo_identificacion !== (loan.tipo_identificacion || "CC")) body.tipo_identificacion = form.tipo_identificacion;
+      if (form.cliente_telefono !== (loan.cliente_telefono || "")) body.cliente_telefono = form.cliente_telefono;
+      if (form.moto_descripcion !== (loan.moto_descripcion || "")) body.moto_descripcion = form.moto_descripcion;
+      if (form.moto_chasis !== (loan.moto_chasis || "")) body.moto_chasis = form.moto_chasis;
+      if (form.motor !== (loan.motor || "")) body.motor = form.motor;
+      if (form.placa !== (loan.placa || "")) body.placa = form.placa;
+      if (form.plan !== (loan.plan || "")) body.plan = form.plan;
+      if (form.modo_pago !== (loan.modo_pago || "")) body.modo_pago = form.modo_pago;
+      if (form.valor_cuota !== String(loan.valor_cuota || "")) body.valor_cuota = parseFloat(form.valor_cuota);
+      if (form.fecha_factura !== (loan.fecha_factura || "")) body.fecha_factura = form.fecha_factura;
+
+      if (Object.keys(body).length === 0) { toast.info("No hay cambios"); onClose(); return; }
+
+      await axios.put(`${API}/api/loanbook/${loan.id}`, body,
+        { headers: { Authorization: `Bearer ${token}` } });
+      toast.success("Loanbook actualizado");
+      onSuccess();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || "Error actualizando loanbook");
+    } finally { setLoading(false); setShowConfirm(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-5 border-b sticky top-0 bg-white z-10">
+          <div>
+            <h3 className="font-bold text-slate-800">Editar Loanbook</h3>
+            <p className="text-xs text-slate-500">{loan.codigo}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          {/* Cliente */}
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Cliente</p>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Nombre *</label>
+            <input value={form.cliente_nombre} onChange={e => setForm(f => ({ ...f, cliente_nombre: e.target.value }))}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Tipo ID</label>
+              <select value={form.tipo_identificacion} onChange={e => setForm(f => ({ ...f, tipo_identificacion: e.target.value }))}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                <option value="CC">CC</option>
+                <option value="CE">CE</option>
+                <option value="PPT">PPT</option>
+                <option value="PP">PP</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">NIT / Cédula</label>
+              <input value={form.cliente_nit} onChange={e => setForm(f => ({ ...f, cliente_nit: e.target.value }))}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Teléfono</label>
+              <input value={form.cliente_telefono} onChange={e => setForm(f => ({ ...f, cliente_telefono: e.target.value }))}
+                placeholder="+573001234567" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+            </div>
+          </div>
+
+          {/* Moto */}
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mt-2">Moto</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-slate-600 mb-1">Descripción</label>
+              <input value={form.moto_descripcion} onChange={e => setForm(f => ({ ...f, moto_descripcion: e.target.value }))}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Chasis / VIN</label>
+              <input value={form.moto_chasis} onChange={e => setForm(f => ({ ...f, moto_chasis: e.target.value }))}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Motor</label>
+              <input value={form.motor} onChange={e => setForm(f => ({ ...f, motor: e.target.value }))}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono" />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-slate-600 mb-1">Placa</label>
+              <input value={form.placa} onChange={e => setForm(f => ({ ...f, placa: e.target.value }))}
+                placeholder="ABC-123" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+            </div>
+          </div>
+
+          {/* Plan / Pago */}
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mt-2">Plan y pago</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Plan</label>
+              <select value={form.plan} onChange={e => setForm(f => ({ ...f, plan: e.target.value }))}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                <option value="P39S">P39S</option>
+                <option value="P52S">P52S</option>
+                <option value="P78S">P78S</option>
+                <option value="Contado">Contado</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Modo de pago</label>
+              <select value={form.modo_pago} onChange={e => setForm(f => ({ ...f, modo_pago: e.target.value }))}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                <option value="semanal">Semanal</option>
+                <option value="quincenal">Quincenal</option>
+                <option value="mensual">Mensual</option>
+                <option value="contado">Contado</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Valor cuota</label>
+              <input type="number" value={form.valor_cuota} onChange={e => setForm(f => ({ ...f, valor_cuota: e.target.value }))}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Fecha factura</label>
+              <input type="date" value={form.fecha_factura} onChange={e => setForm(f => ({ ...f, fecha_factura: e.target.value }))}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-3 pt-3">
+            <button type="button" onClick={onClose}
+              className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+              Cancelar
+            </button>
+            {!showConfirm ? (
+              <button type="button" onClick={() => setShowConfirm(true)}
+                className="flex-1 px-4 py-2 bg-[#00A9E0] text-white rounded-lg text-sm font-medium hover:bg-[#0090c0]">
+                Guardar cambios
+              </button>
+            ) : (
+              <button type="button" onClick={handleSave} disabled={loading}
+                className="flex-1 px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-medium hover:bg-amber-600 disabled:opacity-50">
+                {loading ? "Guardando..." : "Confirmar cambios"}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── Loan Detail Panel ────────────────────────────────────────────────────────
 
 const LoanDetail: React.FC<{
@@ -514,6 +692,7 @@ const LoanDetail: React.FC<{
   const [entregaDate, setEntregaDate] = useState("");
   const [showEntrega, setShowEntrega] = useState(false);
   const [loadingEntrega, setLoadingEntrega] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
 
   const cuotas = loan.cuotas || [];
   const pct    = loan.num_cuotas > 0
@@ -571,7 +750,12 @@ const LoanDetail: React.FC<{
               </div>
             )}
           </div>
-          <button onClick={onClose} className="text-slate-300 hover:text-white mt-1"><X size={22} /></button>
+          <div className="flex items-center gap-2 mt-1">
+            <button onClick={() => setShowEdit(true)} className="text-slate-300 hover:text-[#00A9E0]" title="Editar">
+              <ClipboardList size={18} />
+            </button>
+            <button onClick={onClose} className="text-slate-300 hover:text-white"><X size={22} /></button>
+          </div>
         </div>
 
         {/* Progress */}
@@ -708,6 +892,10 @@ const LoanDetail: React.FC<{
         <PagoModal loan={loan} cuota={selectedCuota} onClose={() => setSelectedCuota(null)}
           onSuccess={() => { setSelectedCuota(null); onRefresh(); }} />
       )}
+      {showEdit && (
+        <EditLoanModal loan={loan} onClose={() => setShowEdit(false)}
+          onSuccess={() => { setShowEdit(false); onRefresh(); }} />
+      )}
     </div>
   );
 };
@@ -717,26 +905,37 @@ const LoanDetail: React.FC<{
 const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> = ({ onClose, onSuccess }) => {
   const { token } = useAuth();
   const [form, setForm] = useState({
-    codigo: "", cliente_nombre: "", cliente_nit: "", moto_descripcion: "",
-    moto_chasis: "", plan: "P39S", fecha_factura: "", precio_venta: "",
-    cuota_inicial: "", valor_cuota: "", modo_pago: "semanal",
+    codigo: "", cliente_nombre: "", cliente_nit: "", tipo_identificacion: "CC",
+    moto_descripcion: "", moto_chasis: "", plan: "P39S", fecha_factura: "",
+    precio_venta: "", cuota_inicial: "", valor_cuota: "", modo_pago: "semanal",
   });
   const [loading, setLoading] = useState(false);
-  const [aiSuggestion, setAiSuggestion] = useState<{ inicial: number; cuota: number; frecuencia: number } | null>(null);
+  const [catalogo, setCatalogo] = useState<any[]>([]);
 
+  // Fetch plan catalog from MongoDB on mount
   useEffect(() => {
-    const fetchSuggestion = async () => {
-      if (form.plan === "Contado") return;
+    const fetchCatalogo = async () => {
       try {
-        const res = await axios.get(`${API}/api/loanbook/ai-suggestion`, {
-          headers: { Authorization: `Bearer ${token}` },
-          params: { plan: form.plan },
-        });
-        if (res.data?.inicial) setAiSuggestion(res.data);
-      } catch { /* no suggestion */ }
+        const res = await axios.get(`${API}/api/loanbook/catalogo-planes`,
+          { headers: { Authorization: `Bearer ${token}` } });
+        if (Array.isArray(res.data)) setCatalogo(res.data);
+      } catch { /* use manual entry */ }
     };
-    fetchSuggestion();
-  }, [form.plan, token]);
+    fetchCatalogo();
+  }, [token]);
+
+  // Auto-fill precio_venta and valor_cuota when plan changes
+  useEffect(() => {
+    const planData = catalogo.find(p => p.plan === form.plan);
+    if (planData) {
+      setForm(f => ({
+        ...f,
+        precio_venta: planData.precio_venta ? String(planData.precio_venta) : f.precio_venta,
+        valor_cuota: planData.valor_cuota ? String(planData.valor_cuota) : f.valor_cuota,
+        modo_pago: planData.modo_pago || f.modo_pago,
+      }));
+    }
+  }, [form.plan, catalogo]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -759,6 +958,8 @@ const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
     } finally { setLoading(false); }
   };
 
+  const isContado = form.plan === "Contado" || form.modo_pago === "contado";
+
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
@@ -767,18 +968,11 @@ const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
         </div>
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              { label: "Código *", key: "codigo", placeholder: "LB-001" },
-              { label: "NIT / Cédula", key: "cliente_nit", placeholder: "1234567890" },
-            ].map(({ label, key, placeholder }) => (
-              <div key={key}>
-                <label className="block text-xs font-medium text-slate-600 mb-1">{label}</label>
-                <input value={(form as any)[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
-                  placeholder={placeholder}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
-              </div>
-            ))}
+          {/* Código */}
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Código *</label>
+            <input value={form.codigo} onChange={e => setForm(f => ({ ...f, codigo: e.target.value }))}
+              placeholder="LB-001" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1">Nombre del cliente *</label>
@@ -786,6 +980,25 @@ const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
               placeholder="Carlos García"
               className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
           </div>
+          {/* Tipo identificación + NIT/Cédula */}
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Tipo ID</label>
+              <select value={form.tipo_identificacion} onChange={e => setForm(f => ({ ...f, tipo_identificacion: e.target.value }))}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                <option value="CC">CC</option>
+                <option value="CE">CE</option>
+                <option value="PPT">PPT</option>
+                <option value="PP">PP</option>
+              </select>
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-slate-600 mb-1">NIT / Cédula</label>
+              <input value={form.cliente_nit} onChange={e => setForm(f => ({ ...f, cliente_nit: e.target.value }))}
+                placeholder="1234567890" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+            </div>
+          </div>
+          {/* Moto */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Moto *</label>
@@ -800,15 +1013,16 @@ const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
             </div>
           </div>
+          {/* Plan + Fecha factura */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Plan *</label>
               <select value={form.plan} onChange={e => setForm(f => ({ ...f, plan: e.target.value }))}
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                <option value="P39S">P39S</option>
+                <option value="P52S">P52S</option>
+                <option value="P78S">P78S</option>
                 <option value="Contado">Contado</option>
-                <option value="P39S">P39S — 39 semanas</option>
-                <option value="P52S">P52S — 52 semanas</option>
-                <option value="P78S">P78S — 78 semanas</option>
               </select>
             </div>
             <div>
@@ -817,6 +1031,7 @@ const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
             </div>
           </div>
+          {/* Modo de pago */}
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1">Modo de pago *</label>
             <select value={form.modo_pago} onChange={e => setForm(f => ({ ...f, modo_pago: e.target.value }))}
@@ -827,7 +1042,8 @@ const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
               <option value="contado">Contado (pago único — sin cuotas)</option>
             </select>
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          {/* Precio venta + Cuota inicial + Valor cuota */}
+          <div className={`grid ${isContado ? "grid-cols-2" : "grid-cols-3"} gap-3`}>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Precio venta *</label>
               <input required type="number" value={form.precio_venta} onChange={e => setForm(f => ({ ...f, precio_venta: e.target.value }))}
@@ -838,26 +1054,14 @@ const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
               <input required type="number" value={form.cuota_inicial} onChange={e => setForm(f => ({ ...f, cuota_inicial: e.target.value }))}
                 placeholder="500000" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
             </div>
-            {form.plan !== "Contado" && form.modo_pago !== "contado" && (
+            {!isContado && (
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Valor cuota/sem *</label>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Valor cuota *</label>
                 <input required type="number" value={form.valor_cuota} onChange={e => setForm(f => ({ ...f, valor_cuota: e.target.value }))}
                   placeholder="90000" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
               </div>
             )}
           </div>
-          {aiSuggestion && form.plan !== "Contado" && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm">
-              <p className="font-semibold text-blue-700 mb-1">
-                Sugerencia del Agente IA ({aiSuggestion.frecuencia} plan{aiSuggestion.frecuencia > 1 ? "es" : ""} similar{aiSuggestion.frecuencia > 1 ? "es" : ""})
-              </p>
-              <p className="text-blue-600">Cuota inicial típica: <strong>{fmt(aiSuggestion.inicial)}</strong> · Cuota semanal: <strong>{fmt(aiSuggestion.cuota)}</strong></p>
-              <button type="button" onClick={() => setForm(f => ({ ...f, cuota_inicial: String(aiSuggestion!.inicial), valor_cuota: String(aiSuggestion!.cuota) }))}
-                className="mt-2 text-xs px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700">
-                Usar sugerencia (verificar antes de confirmar)
-              </button>
-            </div>
-          )}
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium">Cancelar</button>
             <button type="submit" disabled={loading} className="flex-1 px-4 py-2 bg-[#00A9E0] text-white rounded-lg text-sm font-medium hover:bg-[#0090c0] disabled:opacity-50">

@@ -31,6 +31,7 @@ class LoanCreate(BaseModel):
     cliente_id: Optional[str] = None
     cliente_nombre: str
     cliente_nit: Optional[str] = ""
+    tipo_identificacion: Optional[str] = "CC"  # CC | CE | PPT | PP
     cliente_telefono: Optional[str] = ""
     plan: str  # Contado | P39S | P52S | P78S
     fecha_factura: str
@@ -39,6 +40,21 @@ class LoanCreate(BaseModel):
     valor_cuota: float        # cuota semanal base (manual entry)
     modo_pago: str = "semanal"  # semanal | quincenal | mensual
     cuota_base: Optional[float] = None  # override de base si difiere de valor_cuota
+
+class LoanEdit(BaseModel):
+    """Fields editable on an existing loanbook (all optional)."""
+    cliente_nombre: Optional[str] = None
+    cliente_nit: Optional[str] = None
+    tipo_identificacion: Optional[str] = None
+    cliente_telefono: Optional[str] = None
+    moto_descripcion: Optional[str] = None
+    moto_chasis: Optional[str] = None
+    motor: Optional[str] = None
+    placa: Optional[str] = None
+    plan: Optional[str] = None
+    modo_pago: Optional[str] = None
+    valor_cuota: Optional[float] = None
+    fecha_factura: Optional[str] = None
 
 class EntregaRequest(BaseModel):
     fecha_entrega: str  # ISO date string
@@ -141,7 +157,28 @@ async def _get_next_codigo():
     return f"LB-{year}-{str(count).zfill(4)}"
 
 
+# ─── Default plan catalog (seeded on first read) ─────────────────────────────
+
+CATALOGO_DEFAULT = [
+    {"plan": "P39S", "num_cuotas": 39, "precio_venta": 3_500_000, "valor_cuota": 90_000, "modo_pago": "semanal"},
+    {"plan": "P52S", "num_cuotas": 52, "precio_venta": 4_500_000, "valor_cuota": 95_000, "modo_pago": "semanal"},
+    {"plan": "P78S", "num_cuotas": 78, "precio_venta": 5_500_000, "valor_cuota": 85_000, "modo_pago": "semanal"},
+    {"plan": "Contado", "num_cuotas": 0, "precio_venta": 0, "valor_cuota": 0, "modo_pago": "contado"},
+]
+
+
 # ─── Endpoints ────────────────────────────────────────────────────────────────
+
+@router.get("/catalogo-planes")
+async def get_catalogo_planes(current_user=Depends(get_current_user)):
+    """Return plan catalog from MongoDB. Seeds default values if empty."""
+    planes = await db.catalogo_planes.find({}, {"_id": 0}).to_list(20)
+    if not planes:
+        for p in CATALOGO_DEFAULT:
+            await db.catalogo_planes.insert_one({**p})
+        planes = await db.catalogo_planes.find({}, {"_id": 0}).to_list(20)
+    return planes
+
 
 @router.get("/stats")
 async def get_stats(current_user=Depends(get_current_user)):
@@ -261,6 +298,7 @@ async def create_loan(req: LoanCreate, current_user=Depends(get_current_user)):
         "cliente_id": req.cliente_id,
         "cliente_nombre": req.cliente_nombre,
         "cliente_nit": req.cliente_nit,
+        "tipo_identificacion": req.tipo_identificacion or "CC",
         "cliente_telefono": normalizar_telefono(req.cliente_telefono or ""),
         "plan": req.plan,
         "fecha_factura": req.fecha_factura,
@@ -316,6 +354,42 @@ async def get_loan(loan_id: str, current_user=Depends(get_current_user)):
     stats = _compute_stats(loan)
     loan.update(stats)
     return loan
+
+
+@router.put("/{loan_id}")
+async def edit_loan(loan_id: str, req: LoanEdit, current_user=Depends(get_current_user)):
+    """Edit mutable fields on an existing loanbook (pre-delivery or active)."""
+    loan = await db.loanbook.find_one({"id": loan_id}, {"_id": 0})
+    if not loan:
+        raise HTTPException(status_code=404, detail="Plan no encontrado")
+
+    update_fields: dict = {}
+    for field in (
+        "cliente_nombre", "cliente_nit", "tipo_identificacion", "cliente_telefono",
+        "moto_descripcion", "moto_chasis", "motor", "placa",
+        "plan", "modo_pago", "valor_cuota", "fecha_factura",
+    ):
+        val = getattr(req, field, None)
+        if val is not None:
+            update_fields[field] = val
+
+    if req.plan and req.plan in PLAN_CUOTAS:
+        update_fields["num_cuotas"] = PLAN_CUOTAS[req.plan]
+    if req.valor_cuota is not None:
+        update_fields["cuota_base"] = int(req.valor_cuota)
+        update_fields["cuota_valor"] = int(req.valor_cuota)
+
+    if not update_fields:
+        raise HTTPException(status_code=400, detail="No hay campos para actualizar")
+
+    update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.loanbook.update_one({"id": loan_id}, {"$set": update_fields})
+    await log_action(current_user, f"/loanbook/{loan_id}", "PUT", update_fields)
+
+    updated = await db.loanbook.find_one({"id": loan_id}, {"_id": 0})
+    stats = _compute_stats(updated)
+    updated.update(stats)
+    return updated
 
 
 @router.put("/{loan_id}/entrega")
