@@ -445,8 +445,12 @@ const PagoModal: React.FC<{
   const { token } = useAuth();
   const saldoCuota = cuota.valor - ((cuota as any).valor_pagado || 0);
   const [tipoPago, setTipoPago] = useState<"total" | "parcial">("total");
-  const [form, setForm] = useState({ valor_pagado: saldoCuota, metodo_pago: "efectivo", notas: "" });
+  const [form, setForm] = useState({
+    valor_pagado: saldoCuota, metodo_pago: "efectivo", notas: "",
+    factura_numero: (loan as any).factura_numero || "",
+  });
   const [loading, setLoading] = useState(false);
+  const [facturaWarning, setFacturaWarning] = useState("");
 
   // Reset valor_pagado when switching tipo
   const handleTipoChange = (tipo: "total" | "parcial") => {
@@ -533,6 +537,20 @@ const PagoModal: React.FC<{
               <option value="daviplata">Daviplata</option>
             </select>
           </div>
+          {/* Factura Alegra — show if loanbook has no factura_alegra_id */}
+          {!(loan as any).factura_alegra_id && (
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">N° Factura Alegra (opcional)</label>
+              <input type="text" value={form.factura_numero}
+                onChange={e => { setForm(f => ({ ...f, factura_numero: e.target.value })); setFacturaWarning(""); }}
+                placeholder="Ej: FV-001 (se vincula automáticamente)"
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+              {facturaWarning && <p className="text-xs text-amber-600 mt-1">{facturaWarning}</p>}
+            </div>
+          )}
+          {(loan as any).factura_alegra_id && (
+            <p className="text-xs text-green-600">Factura Alegra vinculada: {(loan as any).factura_numero || (loan as any).factura_alegra_id}</p>
+          )}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Notas (opcional)</label>
             <input type="text" value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))}

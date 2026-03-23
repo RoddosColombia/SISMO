@@ -73,8 +73,9 @@ class EntregaRequest(BaseModel):
 class PagoRequest(BaseModel):
     cuota_numero: int
     valor_pagado: float
-    metodo_pago: str = "efectivo"  # efectivo | transferencia | tarjeta
+    metodo_pago: str = "efectivo"  # efectivo | transferencia_bancolombia | nequi | etc
     notas: Optional[str] = ""
+    factura_numero: Optional[str] = None  # Alegra invoice number to link
 
 class GestionRequest(BaseModel):
     tipo: str        # llamada | mensaje | visita | otro
@@ -165,7 +166,7 @@ async def _get_next_codigo():
 CATALOGO_DEFAULT = [
     {
         "plan": "P39S", "precio_venta": 3_500_000, "modo_pago": "semanal",
-        "cuotas_semanal": 39, "cuotas_quincenal": 19, "cuotas_mensual": 9,
+        "cuotas_semanal": 39, "cuotas_quincenal": 20, "cuotas_mensual": 9,
         "multiplicadores": {"semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
     },
     {
@@ -684,50 +685,68 @@ async def register_pago(loan_id: str, req: PagoRequest, current_user=Depends(get
             detail=f"La cuota {req.cuota_numero} ya fue registrada (pagada el {cuota.get('fecha_pago','?')}).",
         )
 
-    # Create payment in Alegra — HOTFIX 21.1: request_with_verify() obligatorio
-    # Validate factura_alegra_id before sending
-    if not loan.get("factura_alegra_id"):
-        raise HTTPException(
-            status_code=400,
-            detail=f"El crédito {loan.get('codigo')} no tiene factura Alegra asociada. No es posible registrar el pago.",
-        )
-
+    # If factura_numero provided, try to link to Alegra invoice
     service = AlegraService(db)
+    if req.factura_numero and not loan.get("factura_alegra_id"):
+        try:
+            invoices = await service.request_with_verify(
+                f"invoices?numberTemplate={req.factura_numero}", "GET", None
+            )
+            inv_list = invoices if isinstance(invoices, list) else invoices.get("data", [])
+            if inv_list:
+                alegra_id = str(inv_list[0].get("id", ""))
+                if alegra_id:
+                    await db.loanbook.update_one(
+                        {"id": loan_id},
+                        {"$set": {"factura_alegra_id": alegra_id, "factura_numero": req.factura_numero}},
+                    )
+                    loan["factura_alegra_id"] = alegra_id
+                    loan["factura_numero"] = req.factura_numero
+        except Exception:
+            pass  # Continue — user can still register pago without linking
+
+    # Create payment in Alegra (skip for cuota inicial or when no factura_alegra_id)
     alegra_payment_id = None
     comprobante_num = f"COMP-{loan['codigo']}-C{str(req.cuota_numero).zfill(3)}"
+    has_alegra = bool(loan.get("factura_alegra_id"))
 
-    try:
-        payment_payload = {
-            "date": date.today().isoformat(),
-            "invoices": [{"id": loan["factura_alegra_id"], "amount": req.valor_pagado}],
-            "paymentMethod": req.metodo_pago,
-            "observations": f"{loan['codigo']} — Cuota {req.cuota_numero}/{loan['num_cuotas']} — {req.metodo_pago}",
-        }
+    if is_cuota_inicial or not has_alegra:
+        # Cuota inicial or manual loanbook — register locally without Alegra
+        alegra_payment_id = None
+    else:
+        # Ordinary cuota with Alegra invoice — register in Alegra
+        try:
+            payment_payload = {
+                "date": date.today().isoformat(),
+                "invoices": [{"id": loan["factura_alegra_id"], "amount": req.valor_pagado}],
+                "paymentMethod": req.metodo_pago,
+                "observations": f"{loan['codigo']} — Cuota {req.cuota_numero}/{loan['num_cuotas']} — {req.metodo_pago}",
+            }
 
-        alegra_res = await service.request_with_verify("payments", "POST", payment_payload)
+            alegra_res = await service.request_with_verify("payments", "POST", payment_payload)
 
-        if not alegra_res.get("_verificado"):
+            if not alegra_res.get("_verificado"):
+                raise HTTPException(
+                    status_code=500,
+                    detail="VERIFICACIÓN FALLIDA: Alegra respondió pero no se pudo confirmar el registro. No se actualizará el loanbook hasta verificar manualmente."
+                )
+
+            alegra_payment_id = alegra_res.get("id") or alegra_res.get("_verificacion_id")
+
+            if not alegra_payment_id:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Alegra registró el pago pero no retornó un ID. Verifica manualmente en Alegra antes de continuar."
+                )
+
+        except HTTPException:
+            raise
+
+        except Exception as e:
             raise HTTPException(
-                status_code=500,
-                detail="VERIFICACIÓN FALLIDA: Alegra respondió pero no se pudo confirmar el registro. No se actualizará el loanbook hasta verificar manualmente."
+                status_code=503,
+                detail=f"No se pudo conectar con Alegra: {str(e)}. Verifica tu conexión e intenta nuevamente."
             )
-
-        alegra_payment_id = alegra_res.get("id") or alegra_res.get("_verificacion_id")
-
-        if not alegra_payment_id:
-            raise HTTPException(
-                status_code=500,
-                detail="Alegra registró el pago pero no retornó un ID. Verifica manualmente en Alegra antes de continuar."
-            )
-
-    except HTTPException:
-        raise
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=503,
-            detail=f"No se pudo conectar con Alegra: {str(e)}. Verifica tu conexión e intenta nuevamente."
-        )
 
     # Update cuota — determine if full or partial payment
     abonado_previo = cuota.get("valor_pagado", 0) or 0
