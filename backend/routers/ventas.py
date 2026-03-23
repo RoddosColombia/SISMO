@@ -294,6 +294,7 @@ async def crear_factura_venta(
             client_payload = {
                 "name": payload.cliente_nombre,
                 "identification": payload.cliente_nit,
+                "tipo_identificacion": "CC",
                 "phone": payload.cliente_telefono,
                 "type": "person"
             }

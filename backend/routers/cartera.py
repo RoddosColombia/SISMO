@@ -158,7 +158,18 @@ async def registrar_pago_cartera(
 
         # ── FIND LOANBOOK ─────────────────────────────────────────────────────
         logger.info(f"[F7] Buscando loanbook {payload.loanbook_id}...")
-        loanbook = await db.loanbook.find_one({"id": payload.loanbook_id.strip()})
+
+        # Mapeo código → UUID si necesario
+        loanbook_query_id = payload.loanbook_id.strip()
+        if loanbook_query_id.startswith("LB-"):
+            doc = await db.loanbook.find_one({"id": loanbook_query_id})
+            if not doc:
+                doc = await db.loanbook.find_one({"codigo": loanbook_query_id})
+            if doc:
+                loanbook_query_id = str(doc["_id"])
+                logger.info(f"[F7] Mapeo código {payload.loanbook_id} → UUID {loanbook_query_id}")
+
+        loanbook = await db.loanbook.find_one({"id": loanbook_query_id})
 
         if not loanbook:
             raise HTTPException(status_code=400, detail=f"Loanbook {payload.loanbook_id} no encontrado")
