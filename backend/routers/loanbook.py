@@ -40,6 +40,12 @@ class LoanCreate(BaseModel):
     valor_cuota: float        # cuota semanal base (manual entry)
     modo_pago: str = "semanal"  # semanal | quincenal | mensual
     cuota_base: Optional[float] = None  # override de base si difiere de valor_cuota
+    # Retoma (moto usada como parte de pago)
+    tiene_retoma: bool = False
+    retoma_marca_modelo: Optional[str] = None
+    retoma_vin: Optional[str] = None
+    retoma_placa: Optional[str] = None
+    retoma_valor: Optional[float] = None
 
 class LoanEdit(BaseModel):
     """Fields editable on an existing loanbook (all optional)."""
@@ -339,12 +345,77 @@ async def create_loan(req: LoanCreate, current_user=Depends(get_current_user)):
         "total_cobrado": 0.0,
         "saldo_pendiente": req.precio_venta if req.plan == "Contado" else valor_financiado,
         "ai_suggested": False,
+        "tiene_retoma": req.tiene_retoma,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "created_by": current_user.get("email"),
     }
+
+    # ── Retoma: moto usada como parte de pago ──────────────────────────────
+    retoma_inventario_id = None
+    if req.tiene_retoma and req.retoma_valor and req.retoma_valor > 0:
+        retoma_inventario_id = str(uuid.uuid4())
+        retoma_moto = {
+            "id": retoma_inventario_id,
+            "marca": (req.retoma_marca_modelo or "").split(" ")[0] if req.retoma_marca_modelo else "Usada",
+            "version": req.retoma_marca_modelo or "Retoma",
+            "chasis": req.retoma_vin or None,
+            "placa": req.retoma_placa or None,
+            "motor": None,
+            "costo": req.retoma_valor,
+            "total": req.retoma_valor,
+            "estado": "Disponible",
+            "tipo": "usada",
+            "origen": "retoma",
+            "loanbook_codigo": codigo,
+            "propietario": "RODDOS SAS",
+            "ubicacion": "BODEGA",
+            "fecha_ingreso": date.today().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.inventario_motos.insert_one(retoma_moto)
+
+        # Update loanbook doc with retoma info
+        retoma_valor = req.retoma_valor
+        valor_efectivo = max(0, req.cuota_inicial - retoma_valor)
+        doc["retoma_valor"] = retoma_valor
+        doc["retoma_descripcion"] = req.retoma_marca_modelo
+        doc["retoma_inventario_id"] = retoma_inventario_id
+
+        # Update cuota inicial with retoma breakdown
+        cuota_0 = doc["cuotas"][0]
+        cuota_0["valor_retoma"] = retoma_valor
+        cuota_0["valor_efectivo"] = valor_efectivo
+        if retoma_valor >= req.cuota_inicial:
+            cuota_0["estado"] = "pagada"
+            cuota_0["valor_pagado"] = req.cuota_inicial
+            cuota_0["fecha_pago"] = date.today().isoformat()
+            cuota_0["notas"] = f"Retoma: {req.retoma_marca_modelo} (${retoma_valor:,.0f})"
+        elif retoma_valor > 0:
+            cuota_0["estado"] = "parcial"
+            cuota_0["valor_pagado"] = retoma_valor
+            cuota_0["saldo_cuota"] = valor_efectivo
+            cuota_0["notas"] = f"Retoma: {req.retoma_marca_modelo} (${retoma_valor:,.0f}) — Saldo efectivo: ${valor_efectivo:,.0f}"
+    # ─────────────────────────────────────────────────────────────────────────
+
     await db.loanbook.insert_one(doc)
     doc.pop("_id", None)
+
+    # Emit retoma event if applicable
+    if retoma_inventario_id:
+        await emit_event(db, "loanbook", "retoma.registrada", {
+            "loanbook_id": doc["id"],
+            "codigo": codigo,
+            "cliente_nombre": req.cliente_nombre,
+            "moto_retoma": {
+                "marca_modelo": req.retoma_marca_modelo,
+                "vin": req.retoma_vin,
+                "placa": req.retoma_placa,
+                "valor": req.retoma_valor,
+            },
+            "inventario_id_creado": retoma_inventario_id,
+        })
 
     # Store pattern for AI learning
     await db.agent_memory.update_one(

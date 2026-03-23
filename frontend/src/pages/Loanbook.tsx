@@ -991,6 +991,7 @@ const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
     precio_venta: "", cuota_inicial: "", valor_cuota: "", modo_pago: "semanal",
     num_cuotas: "39",
   });
+  const [retoma, setRetoma] = useState({ activo: false, marca_modelo: "", vin: "", placa: "", valor: "" });
   const [loading, setLoading] = useState(false);
   const [catalogo, setCatalogo] = useState<any[]>([]);
 
@@ -1031,14 +1032,21 @@ const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
     e.preventDefault();
     setLoading(true);
     try {
-      await axios.post(`${API}/api/loanbook`,
-        {
+      const body: any = {
           ...form,
           precio_venta:   parseFloat(form.precio_venta),
           cuota_inicial:  parseFloat(form.cuota_inicial),
           valor_cuota:    form.plan !== "Contado" && form.modo_pago !== "contado" ? parseFloat(form.valor_cuota) : 0,
           modo_pago:      form.modo_pago,
-        },
+        };
+      if (retoma.activo && parseFloat(retoma.valor) > 0) {
+        body.tiene_retoma = true;
+        body.retoma_marca_modelo = retoma.marca_modelo;
+        body.retoma_vin = retoma.vin || null;
+        body.retoma_placa = retoma.placa || null;
+        body.retoma_valor = parseFloat(retoma.valor);
+      }
+      await axios.post(`${API}/api/loanbook`, body,
         { headers: { Authorization: `Bearer ${token}` } },
       );
       toast.success("Plan de pago creado exitosamente");
@@ -1171,6 +1179,60 @@ const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
               {form.num_cuotas} cuotas de {fmt(parseFloat(form.valor_cuota) || 0)} ({form.modo_pago})
             </p>
           )}
+
+          {/* Retoma */}
+          <div className="border border-slate-200 rounded-xl overflow-hidden">
+            <button type="button" onClick={() => setRetoma(r => ({ ...r, activo: !r.activo }))}
+              className="w-full flex items-center justify-between px-4 py-2.5 bg-slate-50 hover:bg-slate-100 transition-colors">
+              <span className="text-xs font-semibold text-slate-600">Retoma (moto usada como parte de pago)</span>
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${retoma.activo ? "bg-green-100 text-green-700" : "bg-slate-200 text-slate-500"}`}>
+                {retoma.activo ? "Activo" : "No"}
+              </span>
+            </button>
+            {retoma.activo && (
+              <div className="p-4 space-y-3 border-t">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Marca / Modelo retoma *</label>
+                  <input value={retoma.marca_modelo} onChange={e => setRetoma(r => ({ ...r, marca_modelo: e.target.value }))}
+                    placeholder="Honda XR150 2020" required
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">VIN (opcional)</label>
+                    <input value={retoma.vin} onChange={e => setRetoma(r => ({ ...r, vin: e.target.value }))}
+                      placeholder="Chasis moto retoma"
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Placa (opcional)</label>
+                    <input value={retoma.placa} onChange={e => setRetoma(r => ({ ...r, placa: e.target.value }))}
+                      placeholder="ABC-123"
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Valor retoma $ *</label>
+                  <input type="number" value={retoma.valor} onChange={e => setRetoma(r => ({ ...r, valor: e.target.value }))}
+                    placeholder="1000000" required
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+                </div>
+                {retoma.valor && parseFloat(form.cuota_inicial) > 0 && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-xs">
+                    <p className="font-semibold text-green-800">Desglose cuota inicial:</p>
+                    <p className="text-green-700">Retoma: {fmt(parseFloat(retoma.valor))}</p>
+                    <p className="text-green-700">
+                      Efectivo: {fmt(Math.max(0, parseFloat(form.cuota_inicial) - parseFloat(retoma.valor)))}
+                    </p>
+                    {parseFloat(retoma.valor) >= parseFloat(form.cuota_inicial) && (
+                      <p className="text-green-600 font-semibold mt-1">Cuota inicial cubierta por retoma</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium">Cancelar</button>
             <button type="submit" disabled={loading} className="flex-1 px-4 py-2 bg-[#00A9E0] text-white rounded-lg text-sm font-medium hover:bg-[#0090c0] disabled:opacity-50">
