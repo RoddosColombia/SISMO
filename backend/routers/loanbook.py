@@ -48,7 +48,11 @@ class EntregaRequest(BaseModel):
     valor_cuota: Optional[float] = None
     cliente_nit: Optional[str] = None
     precio_venta: Optional[float] = None
-    modo_pago: Optional[str] = None  # semanal | quincenal | mensual
+    modo_pago: Optional[str] = None  # semanal | quincenal | mensual | contado
+    # Moto confirmation fields
+    motor: Optional[str] = None       # Engine number (required if null on moto)
+    placa: Optional[str] = None       # License plate (optional)
+    moto_chasis: Optional[str] = None # VIN confirmation/override
 
 class PagoRequest(BaseModel):
     cuota_numero: int
@@ -347,9 +351,11 @@ async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depen
     # Merge updates into loan object for processing
     loan.update(update_fields)
 
+    # Override moto_chasis if provided in request
+    if req.moto_chasis:
+        loan["moto_chasis"] = req.moto_chasis
+
     plan = loan.get("plan", req.plan)
-    if plan == "Contado":
-        raise HTTPException(status_code=400, detail="Plan Contado no requiere fecha de entrega")
     if not plan:
         raise HTTPException(status_code=400, detail="Plan de crédito requerido para registrar entrega")
 
@@ -372,20 +378,29 @@ async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depen
     # ─────────────────────────────────────────────────────────────────────────
 
     fecha_entrega = date.fromisoformat(req.fecha_entrega)
-    fecha_primer_pago = _first_wednesday(fecha_entrega)
     num_cuotas  = loan.get("num_cuotas", 0)
 
     # ── modo_pago: request overrides stored value ─────────────────────────────
     modo_pago = req.modo_pago or loan.get("modo_pago", "semanal")
-    if modo_pago not in MODOS_VALIDOS:
+    is_contado = modo_pago == "contado" or plan == "Contado"
+    if is_contado:
+        modo_pago = "contado"
+    elif modo_pago not in MODOS_VALIDOS:
         modo_pago = "semanal"
-    intervalo_dias = dias_entre_cuotas(modo_pago)
+
+    # For non-contado: calculate schedule with Wednesday rule
+    fecha_primer_pago = None if is_contado else _first_wednesday(fecha_entrega)
+    intervalo_dias = 0 if is_contado else dias_entre_cuotas(modo_pago)
 
     # cuota_base: siempre el valor semanal puro; recalcular cuota_valor con ceil
     cuota_base_stored = loan.get("cuota_base") or loan.get("valor_cuota") or loan.get("cuota_valor") or 0
-    # Support both field names: valor_cuota (created via form) and cuota_valor (legacy/auto-created)
-    valor_cuota_final = calcular_cuota_valor(int(cuota_base_stored), modo_pago)
-    valor_financiado = loan.get("valor_financiado") or (cuota_base_stored * num_cuotas)
+    if is_contado:
+        valor_cuota_final = 0
+        valor_financiado = 0
+    else:
+        # Support both field names: valor_cuota (created via form) and cuota_valor (legacy/auto-created)
+        valor_cuota_final = calcular_cuota_valor(int(cuota_base_stored), modo_pago)
+        valor_financiado = loan.get("valor_financiado") or (cuota_base_stored * num_cuotas)
     # ─────────────────────────────────────────────────────────────────────────
 
     # Build cuotas schedule
@@ -406,32 +421,44 @@ async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depen
             "comprobante": None, "notas": "",
         })
 
-    for i in range(1, num_cuotas + 1):
-        fecha_cuota = fecha_primer_pago + timedelta(days=intervalo_dias * (i - 1))
-        cuotas.append({
-            "numero": i, "tipo": modo_pago,
-            "fecha_vencimiento": fecha_cuota.isoformat(),
-            "valor": valor_cuota_final,
-            "estado": "vencida" if fecha_cuota.isoformat() < date.today().isoformat() else "pendiente",
-            "fecha_pago": None, "valor_pagado": 0.0,
-            "alegra_payment_id": None, "comprobante": None, "notas": "",
-        })
+    # Contado: no installment cuotas; credit plans: generate full schedule
+    if not is_contado:
+        for i in range(1, num_cuotas + 1):
+            fecha_cuota = fecha_primer_pago + timedelta(days=intervalo_dias * (i - 1))
+            cuotas.append({
+                "numero": i, "tipo": modo_pago,
+                "fecha_vencimiento": fecha_cuota.isoformat(),
+                "valor": valor_cuota_final,
+                "estado": "vencida" if fecha_cuota.isoformat() < date.today().isoformat() else "pendiente",
+                "fecha_pago": None, "valor_pagado": 0.0,
+                "alegra_payment_id": None, "comprobante": None, "notas": "",
+            })
+
+    # For contado, mark as completado immediately (single payment already covers total)
+    estado_final = "completado" if is_contado else "activo"
 
     update: dict = {
         **update_fields,
         "fecha_entrega": req.fecha_entrega,
-        "fecha_primer_pago": fecha_primer_pago.isoformat(),
+        "fecha_primer_pago": fecha_primer_pago.isoformat() if fecha_primer_pago else None,
         "modo_pago": modo_pago,
         "cuota_base": int(cuota_base_stored),
         "valor_cuota": valor_cuota_final,
         "cuota_valor": valor_cuota_final,   # alias de compatibilidad
         "cuotas": cuotas,
-        "estado": "activo",
+        "estado": estado_final,
         "datos_completos": True,
         "campos_pendientes": [],
         "saldo_pendiente": valor_financiado,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
+    # Store moto confirmation fields if provided
+    if req.moto_chasis:
+        update["moto_chasis"] = req.moto_chasis
+    if req.motor:
+        update["motor"] = req.motor
+    if req.placa:
+        update["placa"] = req.placa
     await db.loanbook.update_one({"id": loan_id}, {"$set": update})
     loan.update(update)
     stats = _compute_stats(loan)
@@ -439,17 +466,22 @@ async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depen
     loan.update(stats)
     loan.pop("_id", None)
 
-    # Update moto status to "Entregada" (by chasis or by moto_id)
+    # Update moto status to "Entregada" + motor/placa if provided
     now_iso = datetime.now(timezone.utc).isoformat()
+    moto_update: dict = {"estado": "Entregada", "fecha_entrega": req.fecha_entrega, "updated_at": now_iso}
+    if req.motor:
+        moto_update["motor"] = req.motor
+    if req.placa:
+        moto_update["placa"] = req.placa
     if chasis:
         await db.inventario_motos.update_one(
             {"chasis": chasis},
-            {"$set": {"estado": "Entregada", "fecha_entrega": req.fecha_entrega, "updated_at": now_iso}},
+            {"$set": moto_update},
         )
     elif loan.get("moto_id"):
         await db.inventario_motos.update_one(
             {"id": loan["moto_id"]},
-            {"$set": {"estado": "Entregada", "fecha_entrega": req.fecha_entrega, "updated_at": now_iso}},
+            {"$set": moto_update},
         )
 
     # Emit loanbook.activado event
@@ -458,14 +490,34 @@ async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depen
         "codigo": loan["codigo"],
         "cliente_nombre": loan["cliente_nombre"],
         "fecha_entrega": req.fecha_entrega,
-        "primera_cuota": fecha_primer_pago.isoformat(),
+        "primera_cuota": fecha_primer_pago.isoformat() if fecha_primer_pago else None,
         "num_cuotas": num_cuotas,
+        "modo_pago": modo_pago,
+    })
+
+    # Emit moto.entregada event
+    await emit_event(db, "loanbook", "moto.entregada", {
+        "loanbook_id": loan_id,
+        "codigo": loan["codigo"],
+        "cliente_nombre": loan["cliente_nombre"],
+        "moto_descripcion": loan.get("moto_descripcion", ""),
+        "moto_chasis": chasis or loan.get("moto_chasis", ""),
+        "motor": req.motor or loan.get("motor", ""),
+        "placa": req.placa or loan.get("placa", ""),
+        "fecha_entrega": req.fecha_entrega,
     })
 
     # Invalidate CFO cache
     await invalidar_cache_cfo()
 
-    await log_action(current_user, f"/loanbook/{loan_id}/entrega", "PUT", {"fecha_entrega": req.fecha_entrega})
+    await log_action(current_user, f"/loanbook/{loan_id}/entrega", "PUT", {"fecha_entrega": req.fecha_entrega, "modo_pago": modo_pago})
+
+    if is_contado:
+        return {
+            **loan,
+            "primera_cuota_fecha": None,
+            "message": f"Loanbook completado — Pago de contado registrado.",
+        }
     return {
         **loan,
         "primera_cuota_fecha": fecha_primer_pago.isoformat(),

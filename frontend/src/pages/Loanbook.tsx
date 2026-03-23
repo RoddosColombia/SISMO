@@ -61,6 +61,8 @@ interface Loan {
   num_cuotas_vencidas?: number;
   total_cobrado?: number;
   saldo_pendiente?: number;
+  modo_pago?: string;
+  placa?: string;
   datos_completos?: boolean;
   campos_pendientes?: string[];
   fuente_creacion?: string;
@@ -172,16 +174,37 @@ const EntregaModal: React.FC<{
   const [valorCuota, setValorCuota] = useState(String(loan.valor_cuota || ""));
   const [cedula, setCedula] = useState(loan.cliente_nit || "");
   const [precioVenta, setPrecioVenta] = useState(String(loan.precio_venta || ""));
+  const [modoPago, setModoPago] = useState(loan.modo_pago || "semanal");
+  const [vinConfirm, setVinConfirm] = useState(loan.moto_chasis || "");
+  const [motorNum, setMotorNum] = useState(loan.motor || "");
+  const [placa, setPlaca] = useState(loan.placa || "");
 
   const incomplete = !loan.datos_completos && loan.datos_completos !== undefined;
+  const isContado = modoPago === "contado";
+
+  // Calculate preview of first payment date (Wednesday rule)
+  const calcFirstWednesday = (fechaStr: string) => {
+    if (!fechaStr || isContado) return null;
+    const d = new Date(fechaStr + "T12:00:00");
+    d.setDate(d.getDate() + 7);
+    const wd = d.getDay(); // 0=Sun, 1=Mon, ..., 3=Wed, 6=Sat
+    if (wd === 3) return d;
+    if (wd < 3) { d.setDate(d.getDate() + (3 - wd)); return d; }
+    d.setDate(d.getDate() + (10 - wd)); return d;
+  };
+  const primerMiercoles = calcFirstWednesday(fecha);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fecha) { toast.error("Selecciona una fecha de entrega"); return; }
     if (incomplete && !plan) { toast.error("Selecciona el plan de crédito"); return; }
+    if (!loan.motor && !motorNum && !isContado) { toast.error("Número de motor es obligatorio"); return; }
     setLoading(true);
     try {
-      const body: any = { fecha_entrega: fecha };
+      const body: any = { fecha_entrega: fecha, modo_pago: modoPago };
+      if (vinConfirm && vinConfirm !== loan.moto_chasis) body.moto_chasis = vinConfirm;
+      if (motorNum) body.motor = motorNum;
+      if (placa) body.placa = placa;
       if (incomplete) {
         if (plan) body.plan = plan;
         if (cuotaInicial) body.cuota_inicial = parseFloat(cuotaInicial);
@@ -192,7 +215,10 @@ const EntregaModal: React.FC<{
       const res = await axios.put(`${API}/api/loanbook/${loan.id}/entrega`, body,
         { headers: { Authorization: `Bearer ${token}` } });
       const primeraCuota = res.data?.primera_cuota_fecha;
-      toast.success(`Entrega registrada${primeraCuota ? ` — Primera cuota: ${fdate(primeraCuota)}` : ""}`, { duration: 5000 });
+      const msg = isContado
+        ? "Entrega registrada — Pago de contado"
+        : `Entrega registrada${primeraCuota ? ` — Primera cuota: ${fdate(primeraCuota)}` : ""}`;
+      toast.success(msg, { duration: 5000 });
       onSuccess();
     } catch (err: any) {
       toast.error(err.response?.data?.detail || "Error registrando entrega");
@@ -201,8 +227,8 @@ const EntregaModal: React.FC<{
 
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="flex items-center justify-between p-5 border-b">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-5 border-b sticky top-0 bg-white z-10">
           <div className="flex items-center gap-2">
             <Truck size={18} className="text-amber-500" />
             <div>
@@ -213,11 +239,29 @@ const EntregaModal: React.FC<{
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
         </div>
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
-          {/* Moto info */}
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+          {/* Moto info + VIN/Motor/Placa confirmation */}
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
             <p className="text-xs font-semibold text-amber-800">{loan.moto_descripcion || "TVS"}</p>
-            {loan.moto_chasis && <p className="text-[11px] text-amber-700 font-mono mt-0.5">VIN: {loan.moto_chasis}</p>}
-            {loan.motor && <p className="text-[11px] text-amber-700 font-mono">Motor: {loan.motor}</p>}
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-[10px] font-medium text-amber-700 mb-0.5">VIN / Chasis</label>
+                <input value={vinConfirm} onChange={e => setVinConfirm(e.target.value)}
+                  placeholder="VIN" className="w-full border border-amber-300 rounded-lg px-2 py-1 text-xs font-mono bg-white" />
+              </div>
+              <div>
+                <label className="block text-[10px] font-medium text-amber-700 mb-0.5">
+                  Motor {!loan.motor && <span className="text-red-500">*</span>}
+                </label>
+                <input value={motorNum} onChange={e => setMotorNum(e.target.value)}
+                  placeholder="Número motor" required={!loan.motor && !isContado}
+                  className="w-full border border-amber-300 rounded-lg px-2 py-1 text-xs font-mono bg-white" />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-[10px] font-medium text-amber-700 mb-0.5">Placa (opcional)</label>
+                <input value={placa} onChange={e => setPlaca(e.target.value)}
+                  placeholder="ABC-123" className="w-full border border-amber-300 rounded-lg px-2 py-1 text-xs font-mono bg-white" />
+              </div>
+            </div>
           </div>
 
           {/* Complete missing data if needed */}
@@ -264,16 +308,31 @@ const EntregaModal: React.FC<{
             </div>
           )}
 
+          {/* Modo de pago */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Modo de pago *</label>
+            <select value={modoPago} onChange={e => setModoPago(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400">
+              <option value="semanal">Semanal (cada 7 días — miércoles)</option>
+              <option value="quincenal">Quincenal (cada 14 días — miércoles)</option>
+              <option value="mensual">Mensual (cada 28 días — miércoles)</option>
+              <option value="contado">Contado (pago único — sin cuotas)</option>
+            </select>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">
               Fecha de entrega *
             </label>
             <input type="date" value={fecha} onChange={e => setFecha(e.target.value)}
               className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-400" />
-            {fecha && (
-              <p className="text-xs text-slate-400 mt-1">
-                Primera cuota: próximo miércoles &gt;= {fecha} + 7 días
+            {fecha && !isContado && primerMiercoles && (
+              <p className="text-xs text-emerald-600 mt-1 font-medium">
+                Primera cuota: {primerMiercoles.toLocaleDateString("es-CO", { weekday: "long", year: "numeric", month: "2-digit", day: "2-digit" })} (miércoles)
               </p>
+            )}
+            {isContado && (
+              <p className="text-xs text-blue-500 mt-1">Pago de contado — no se generarán cuotas</p>
             )}
           </div>
 
@@ -660,7 +719,7 @@ const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
   const [form, setForm] = useState({
     codigo: "", cliente_nombre: "", cliente_nit: "", moto_descripcion: "",
     moto_chasis: "", plan: "P39S", fecha_factura: "", precio_venta: "",
-    cuota_inicial: "", valor_cuota: "",
+    cuota_inicial: "", valor_cuota: "", modo_pago: "semanal",
   });
   const [loading, setLoading] = useState(false);
   const [aiSuggestion, setAiSuggestion] = useState<{ inicial: number; cuota: number; frecuencia: number } | null>(null);
@@ -688,7 +747,8 @@ const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
           ...form,
           precio_venta:   parseFloat(form.precio_venta),
           cuota_inicial:  parseFloat(form.cuota_inicial),
-          valor_cuota:    form.plan !== "Contado" ? parseFloat(form.valor_cuota) : 0,
+          valor_cuota:    form.plan !== "Contado" && form.modo_pago !== "contado" ? parseFloat(form.valor_cuota) : 0,
+          modo_pago:      form.modo_pago,
         },
         { headers: { Authorization: `Bearer ${token}` } },
       );
@@ -757,6 +817,16 @@ const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
             </div>
           </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Modo de pago *</label>
+            <select value={form.modo_pago} onChange={e => setForm(f => ({ ...f, modo_pago: e.target.value }))}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+              <option value="semanal">Semanal (cada 7 días — miércoles)</option>
+              <option value="quincenal">Quincenal (cada 14 días — miércoles)</option>
+              <option value="mensual">Mensual (cada 28 días — miércoles)</option>
+              <option value="contado">Contado (pago único — sin cuotas)</option>
+            </select>
+          </div>
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Precio venta *</label>
@@ -768,7 +838,7 @@ const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
               <input required type="number" value={form.cuota_inicial} onChange={e => setForm(f => ({ ...f, cuota_inicial: e.target.value }))}
                 placeholder="500000" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
             </div>
-            {form.plan !== "Contado" && (
+            {form.plan !== "Contado" && form.modo_pago !== "contado" && (
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Valor cuota/sem *</label>
                 <input required type="number" value={form.valor_cuota} onChange={e => setForm(f => ({ ...f, valor_cuota: e.target.value }))}
