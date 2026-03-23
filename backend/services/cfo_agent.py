@@ -659,7 +659,7 @@ async def generar_semaforo(datos: dict) -> dict:
 
 async def generar_informe_cfo(db, triggered_by: str = "manual") -> dict:
     """Genera informe CFO completo con análisis IA. Guarda en cfo_informes."""
-    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
     now_iso = datetime.now(timezone.utc).isoformat()
 
     datos      = await consolidar_datos_financieros(db)
@@ -805,7 +805,7 @@ async def generar_informe_cfo(db, triggered_by: str = "manual") -> dict:
 
 async def process_cfo_query(message: str, db, user: dict, session_id: str) -> dict:
     """Procesa consulta financiera/CFO desde el chat del agente."""
-    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
     try:
         datos      = await consolidar_datos_financieros(db)
         pyg        = await analizar_pyg(datos)
