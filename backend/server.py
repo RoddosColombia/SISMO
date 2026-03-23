@@ -479,6 +479,45 @@ async def debug_env():
         "debug_note": "If both show MISSING, env vars are not configured in Render"
     }
 
+@app.get("/api/debug-alegra")
+async def debug_alegra():
+    """Debug: Test AlegraService connection and fetch categories."""
+    try:
+        from alegra_service import AlegraService
+        service = AlegraService(db)
+
+        # Check if demo mode
+        is_demo = await service.is_demo_mode()
+        if is_demo:
+            return {
+                "status": "DEMO_MODE",
+                "message": "AlegraService is in demo mode - credentials not loaded"
+            }
+
+        # Get categories
+        categories = await service.get_accounts_from_categories()
+
+        if not categories:
+            return {
+                "status": "ERROR",
+                "message": "No categories returned from Alegra"
+            }
+
+        # Return results
+        return {
+            "status": "CONNECTED",
+            "total_categories": len(categories),
+            "first_three": [
+                {"name": c.get("name"), "id": c.get("id"), "type": c.get("type")}
+                for c in categories[:3]
+            ]
+        }
+    except Exception as e:
+        return {
+            "status": "ERROR",
+            "error": str(e)
+        }
+
 @app.get("/api/health")
 async def health_check():
     """Diagnóstico rápido del estado del sistema."""
