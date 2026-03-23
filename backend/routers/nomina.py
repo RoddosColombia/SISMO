@@ -90,8 +90,8 @@ async def obtener_cuenta_bancaria_nomina(banco_origen: str) -> int:
     if default_cuenta:
         return default_cuenta["alegra_id"]
 
-    logger.warning(f"[F4] Banco '{banco_origen}' no encontrado en plan_cuentas_roddos, usando fallback 5314")
-    return 5314
+    logger.warning(f"[F4] Banco '{banco_origen}' no encontrado en plan_cuentas_roddos, usando fallback 111005 (Bancolombia)")
+    return 111005
 
 
 # ══════════════════════════════════════════════════════════════════════════════

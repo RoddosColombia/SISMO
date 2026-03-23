@@ -61,9 +61,9 @@ async def obtener_cuenta_bancaria(banco_origen: str) -> int:
     if default_cuenta:
         return default_cuenta["alegra_id"]
 
-    # Fallback: return 5314 (should never reach this)
-    logger.warning(f"[F7] Banco '{banco_origen}' no encontrado en plan_cuentas_roddos, usando fallback 5314")
-    return 5314
+    # Fallback: return 111005 Bancolombia (should never reach this)
+    logger.warning(f"[F7] Banco '{banco_origen}' no encontrado en plan_cuentas_roddos, usando fallback 111005 (Bancolombia)")
+    return 111005
 
 
 async def obtener_cuenta_ingreso(tipo_ingreso: str = "Intereses_Financieros_Cartera") -> int:

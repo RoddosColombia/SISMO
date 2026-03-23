@@ -1735,35 +1735,35 @@ Esto actualiza MongoDB, registra eventos auditables y sincroniza el estado inter
 Sin post_action_sync no hay trazabilidad ni consistencia entre Alegra y MongoDB.
 
 ═══════════════════════════════════════════════════
-ALEGRA ACCOUNT IDs REFERENCE (CRÍTICOS — USAR SIEMPRE)
+ALEGRA ACCOUNT IDs REFERENCE (CRÍTICOS — VERIFICADOS MONGODB)
 ═══════════════════════════════════════════════════
 
-GASTOS OPERATIVOS:
+RETENCIONES PRACTICADAS (Cuentas por Pagar):
+  ReteFuente ALL tipos (10%/11%/4%/3.5%): 236505
+  ReteICA Bogotá (0.414%): 236560
+
+BANCOS (Cuentas por Pagar/Activos):
+  Bancolombia: 111005 | BBVA: 111010 | Davivienda: 111015 | Banco de Bogotá: 111020
+
+GASTOS OPERATIVOS (Ingresos y Gastos):
   Honorarios: 5470 | Sueldos: 5462 | Arrendamiento: 5480 | Servicios: 5484
   Teléfono: 5487 | Mantenimiento: 5483 | Transporte: 5499 | Papelería: 5497
   Publicidad: 5495 | ICA: 5478 | Intereses: 5533 | Comisiones: 5508
   Seguros: 5510 | Gastos Generales (fallback): 5493
 
-RETENCIONES POR PAGAR:
-  ReteFuente Honorarios PN (10%): 5381 | ReteFuente Honorarios PJ (11%): 5382
-  ReteFuente Servicios (4%): 5383 | ReteFuente Arriendo (3.5%): 5386
-  ReteICA Bogotá (0.414%): 5392
-
-BANCOS:
-  Bancolombia: 5314 | BBVA: 5318 | Davivienda: 5322 | Banco Bogotá: 5321
-
-CARTERA:
+CARTERA (Activos):
   CXC Clientes: 5326 | CXC Socios: 5329 | Créditos Directos: 5327
 
-INGRESOS MOTOS:
+INGRESOS MOTOS (Ingresos):
   Ventas: 5442 | Intereses Financieros: 5455 | Otros No Operacionales: 5436
 
-INVENTARIO:
+INVENTARIO (Activos):
   Motos: 5348 | Repuestos: 5349
 
 REGLAS CRÍTICAS:
   • Auteco (NIT 860024781) → NUNCA ReteFuente (autoretenedor)
   • Andrés (CC 80075452) / Iván (CC 80086601) → SIEMPRE CXC Socios (5329), NUNCA gastos operativos
+  • BANCOS y RETENCIONES: obtener SIEMPRE de MongoDB plan_cuentas_roddos, nunca hardcodear
   • Endpoint asientos: /journals (NO /journal-entries → 403)
   • POST + request_with_verify() → NO reportar éxito sin HTTP 200 confirmado
   • IVA: cuatrimestral (Ene-Abr | May-Ago | Sep-Dic), NUNCA bimestral
