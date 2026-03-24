@@ -1484,3 +1484,4 @@ async def carga_masiva_loanbooks(
             status_code=500,
             detail=f"Error en carga masiva de loanbooks: {exc}",
         )
+
