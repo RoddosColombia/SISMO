@@ -21,6 +21,26 @@ router = APIRouter(prefix="/loanbook", tags=["loanbook"])
 PLAN_CUOTAS = {"Contado": 0, "P39S": 39, "P52S": 52, "P78S": 78}
 
 
+# ─── Loanbook Lookup Helper ──────────────────────────────────────────────────
+
+async def find_loanbook(loan_id: str):
+    """Find loanbook by id, codigo, or _id (ObjectId). Returns dict or None."""
+    loan = await db.loanbook.find_one({"id": loan_id})
+    if loan:
+        return loan
+    loan = await db.loanbook.find_one({"codigo": loan_id})
+    if loan:
+        return loan
+    try:
+        from bson import ObjectId
+        loan = await db.loanbook.find_one({"_id": ObjectId(loan_id)})
+        if loan:
+            return loan
+    except Exception:
+        pass
+    return None
+
+
 # ─── Mora Calculation Helper ───────────────────────────────────────────────────
 
 def calcular_mora(fecha_vencimiento: str, mora_diaria: int = 2000) -> dict:
@@ -673,9 +693,10 @@ async def create_loan(req: LoanCreate, current_user=Depends(get_current_user)):
 
 @router.get("/{loan_id}")
 async def get_loan(loan_id: str, current_user=Depends(get_current_user)):
-    loan = await db.loanbook.find_one({"id": loan_id}, {"_id": 0})
+    loan = await find_loanbook(loan_id)
     if not loan:
         raise HTTPException(status_code=404, detail="Plan de pago no encontrado")
+    loan.pop("_id", None)
     stats = _compute_stats(loan)
     loan.update(stats)
     return loan
@@ -688,9 +709,10 @@ async def recalcular_cuotas(loan_id: str, current_user=Depends(get_current_user)
     Preserves cuota inicial (numero=0) and any already-paid cuotas.
     Regenerates remaining cuotas with correct count, values, and Wednesday dates.
     """
-    loan = await db.loanbook.find_one({"id": loan_id}, {"_id": 0})
+    loan = await find_loanbook(loan_id)
     if not loan:
         raise HTTPException(status_code=404, detail="Plan no encontrado")
+    loan.pop("_id", None)
 
     plan = loan.get("plan", "")
     modo_pago = loan.get("modo_pago", "semanal")
@@ -793,9 +815,10 @@ async def recalcular_cuotas(loan_id: str, current_user=Depends(get_current_user)
 @router.put("/{loan_id}")
 async def edit_loan(loan_id: str, body: dict, current_user=Depends(get_current_user)):
     """Edit mutable fields on an existing loanbook (pre-delivery or active)."""
-    loan = await db.loanbook.find_one({"id": loan_id}, {"_id": 0})
+    loan = await find_loanbook(loan_id)
     if not loan:
         raise HTTPException(status_code=404, detail="Plan no encontrado")
+    loan.pop("_id", None)
 
     EDITABLE = {
         "cliente_nombre", "cliente_nit", "tipo_identificacion", "cliente_telefono",
@@ -846,9 +869,10 @@ async def edit_loan(loan_id: str, body: dict, current_user=Depends(get_current_u
 @router.post("/{loan_id}/cuota-inicial")
 async def registrar_cuota_inicial(loan_id: str, req: CuotaInicialRequest, current_user=Depends(get_current_user)):
     """Register the initial payment (cuota 0) for a legacy loanbook that doesn't have one yet."""
-    loan = await db.loanbook.find_one({"id": loan_id}, {"_id": 0})
+    loan = await find_loanbook(loan_id)
     if not loan:
         raise HTTPException(status_code=404, detail="Plan no encontrado")
+    loan.pop("_id", None)
 
     # Validate cuota 0 doesn't already exist
     if any(c.get("numero") == 0 for c in loan.get("cuotas", [])):
@@ -904,9 +928,10 @@ async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depen
     """
     from routers.cfo import invalidar_cache_cfo
 
-    loan = await db.loanbook.find_one({"id": loan_id}, {"_id": 0})
+    loan = await find_loanbook(loan_id)
     if not loan:
         raise HTTPException(status_code=404, detail="Plan no encontrado")
+    loan.pop("_id", None)
     if loan.get("fecha_entrega"):
         raise HTTPException(status_code=400, detail="La fecha de entrega ya fue registrada. Contacte al administrador para modificarla.")
 
@@ -1131,9 +1156,10 @@ async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depen
 @router.put("/{loan_id}/cuota/{cuota_num}")
 async def update_cuota(loan_id: str, cuota_num: int, body: dict, current_user=Depends(get_current_user)):
     """Edit cuota value or notes (AI verification checkpoint)."""
-    loan = await db.loanbook.find_one({"id": loan_id}, {"_id": 0})
+    loan = await find_loanbook(loan_id)
     if not loan:
         raise HTTPException(status_code=404, detail="Plan no encontrado")
+    loan.pop("_id", None)
     cuotas = loan.get("cuotas", [])
     cuota = next((c for c in cuotas if c["numero"] == cuota_num), None)
     if not cuota:
@@ -1164,9 +1190,10 @@ async def update_cuota(loan_id: str, cuota_num: int, body: dict, current_user=De
 @router.post("/{loan_id}/pago")
 async def register_pago(loan_id: str, req: PagoRequest, current_user=Depends(get_current_user)):
     """Register payment for a cuota + create payment in Alegra."""
-    loan = await db.loanbook.find_one({"id": loan_id}, {"_id": 0})
+    loan = await find_loanbook(loan_id)
     if not loan:
         raise HTTPException(status_code=404, detail=f"Plan de crédito no encontrado (ID: {loan_id})")
+    loan.pop("_id", None)
 
     # Allow payments for pendiente_entrega, activo, mora — all operational states
     is_cuota_inicial = req.cuota_numero == 0
@@ -1321,9 +1348,10 @@ async def register_pago(loan_id: str, req: PagoRequest, current_user=Depends(get
 @router.post("/{loan_id}/gestion")
 async def register_gestion(loan_id: str, req: GestionRequest, current_user=Depends(get_current_user)):
     """Registra una gestión de cobro → append a gestiones[] + update CRM."""
-    loan = await db.loanbook.find_one({"id": loan_id}, {"_id": 0})
+    loan = await find_loanbook(loan_id)
     if not loan:
         raise HTTPException(status_code=404, detail="Plan no encontrado")
+    loan.pop("_id", None)
 
     now_iso = datetime.now(timezone.utc).isoformat()
     gestion = {
@@ -1362,9 +1390,10 @@ async def register_ptp(loan_id: str, req: PtpRequest, current_user=Depends(get_c
     """Registra un compromiso de pago (PTP) + emite evento al bus."""
     from services.shared_state import emit_state_change
 
-    loan = await db.loanbook.find_one({"id": loan_id}, {"_id": 0})
+    loan = await find_loanbook(loan_id)
     if not loan:
         raise HTTPException(status_code=404, detail="Plan no encontrado")
+    loan.pop("_id", None)
 
     now_iso = datetime.now(timezone.utc).isoformat()
     await db.loanbook.update_one(
