@@ -41,6 +41,9 @@ interface Cuota {
   notas?: string;
   canal_pago?: string;
   dpd_al_pagar?: number;
+  dias_mora?: number;
+  mora_total?: number;
+  valor_retoma?: number;
 }
 
 interface Loan {
@@ -81,6 +84,16 @@ interface Loan {
   estrella_nivel?: number;
   interes_mora_acumulado?: number;
   gestiones?: any[];
+  // Retoma (moto usada como parte de pago)
+  tiene_retoma?: boolean;
+  retoma_valor?: number;
+  retoma_descripcion?: string;
+  retoma_marca_modelo?: string;
+  retoma_vin?: string;
+  retoma_placa?: string;
+  // Factura Alegra
+  numero_factura_alegra?: string;
+  total_mora?: number;
 }
 
 interface Stats {
@@ -580,6 +593,13 @@ const EditLoanModal: React.FC<{
   const { token } = useAuth();
   const [loading, setLoading] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [retoma, setRetoma] = useState({
+    activo: (loan.retoma_valor != null && loan.retoma_valor > 0) || loan.tiene_retoma || false,
+    marca_modelo: loan.retoma_descripcion || loan.retoma_marca_modelo || "",
+    vin: loan.retoma_vin || "",
+    placa: loan.retoma_placa || "",
+    valor: String(loan.retoma_valor || ""),
+  });
   const [form, setForm] = useState({
     cliente_nombre: loan.cliente_nombre || "",
     cliente_nit: loan.cliente_nit || "",
@@ -614,6 +634,20 @@ const EditLoanModal: React.FC<{
       if (form.modo_pago !== (loan.modo_pago || "")) body.modo_pago = form.modo_pago;
       if (form.valor_cuota !== String(loan.valor_cuota || "")) body.valor_cuota = parseFloat(form.valor_cuota);
       if (form.fecha_factura !== (loan.fecha_factura || "")) body.fecha_factura = form.fecha_factura;
+
+      // Retoma fields
+      const origRetoma = (loan.retoma_valor != null && loan.retoma_valor > 0) || loan.tiene_retoma || false;
+      if (retoma.activo !== origRetoma) body.tiene_retoma = retoma.activo;
+      if (retoma.activo) {
+        if (retoma.marca_modelo !== (loan.retoma_descripcion || loan.retoma_marca_modelo || "")) body.retoma_marca_modelo = retoma.marca_modelo;
+        if (retoma.vin !== (loan.retoma_vin || "")) body.retoma_vin = retoma.vin;
+        if (retoma.placa !== (loan.retoma_placa || "")) body.retoma_placa = retoma.placa;
+        const newVal = parseFloat(retoma.valor) || 0;
+        if (newVal !== (loan.retoma_valor || 0)) body.retoma_valor = newVal;
+      } else if (origRetoma && !retoma.activo) {
+        // Clearing retoma — backend will zero out all fields
+        body.tiene_retoma = false;
+      }
 
       if (Object.keys(body).length === 0) { toast.info("No hay cambios"); onClose(); return; }
 
@@ -747,6 +781,48 @@ const EditLoanModal: React.FC<{
             </div>
           </div>
 
+          {/* Retoma */}
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mt-2">Retoma</p>
+          <div className="border border-slate-200 rounded-xl overflow-hidden">
+            <button type="button" onClick={() => setRetoma(r => ({ ...r, activo: !r.activo }))}
+              className="w-full flex items-center justify-between px-4 py-2.5 bg-slate-50 hover:bg-slate-100 transition-colors">
+              <span className="text-xs font-semibold text-slate-600">Moto usada como parte de pago</span>
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${retoma.activo ? "bg-green-100 text-green-700" : "bg-slate-200 text-slate-500"}`}>
+                {retoma.activo ? "Si" : "No"}
+              </span>
+            </button>
+            {retoma.activo && (
+              <div className="p-4 space-y-3 border-t">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Marca / Modelo retoma</label>
+                  <input value={retoma.marca_modelo} onChange={e => setRetoma(r => ({ ...r, marca_modelo: e.target.value }))}
+                    placeholder="Honda XR150 2020"
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">VIN (opcional)</label>
+                    <input value={retoma.vin} onChange={e => setRetoma(r => ({ ...r, vin: e.target.value }))}
+                      placeholder="Chasis moto retoma"
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Placa (opcional)</label>
+                    <input value={retoma.placa} onChange={e => setRetoma(r => ({ ...r, placa: e.target.value }))}
+                      placeholder="ABC-123"
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Valor retoma $</label>
+                  <input type="number" value={retoma.valor} onChange={e => setRetoma(r => ({ ...r, valor: e.target.value }))}
+                    placeholder="1000000"
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Actions */}
           <div className="flex gap-3 pt-3">
             <button type="button" onClick={onClose}
@@ -771,6 +847,115 @@ const EditLoanModal: React.FC<{
   );
 };
 
+// ─── Cuota Inicial Modal ──────────────────────────────────────────────────────
+
+const CuotaInicialModal: React.FC<{
+  loan: Loan; onClose: () => void; onSuccess: () => void;
+}> = ({ loan, onClose, onSuccess }) => {
+  const { token } = useAuth();
+  const [loading, setLoading] = useState(false);
+  const [form, setForm] = useState({
+    valor: String(loan.cuota_inicial || ""),
+    metodo_pago: "efectivo",
+    fecha: new Date().toISOString().slice(0, 10),
+    valor_retoma: "",
+    notas: "",
+  });
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const val = parseFloat(form.valor);
+    if (!val || val <= 0) { toast.error("Ingresa un valor válido"); return; }
+    setLoading(true);
+    try {
+      const payload: any = { valor: val, metodo_pago: form.metodo_pago, fecha: form.fecha, notas: form.notas };
+      if (form.metodo_pago === "retoma" && form.valor_retoma) {
+        payload.valor_retoma = parseFloat(form.valor_retoma);
+      }
+      await axios.post(`${API}/api/loanbook/${loan.id}/cuota-inicial`, payload,
+        { headers: { Authorization: `Bearer ${token}` } });
+      toast.success("Cuota inicial registrada");
+      onSuccess();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || "Error registrando cuota inicial");
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-5 border-b sticky top-0 bg-white z-10">
+          <div className="flex items-center gap-2">
+            <DollarSign size={18} className="text-amber-500" />
+            <div>
+              <h3 className="font-bold text-slate-800">Registrar Cuota Inicial</h3>
+              <p className="text-xs text-slate-500">{loan.codigo} — {loan.cliente_nombre}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700">
+            Se registrara como cuota numero 0 (pagada) en el historial de pagos.
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Valor cuota inicial *</label>
+            <input required type="number" value={form.valor} onChange={e => setForm(f => ({ ...f, valor: e.target.value }))}
+              placeholder="0" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Método de pago</label>
+            <select value={form.metodo_pago} onChange={e => setForm(f => ({ ...f, metodo_pago: e.target.value }))}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+              <option value="efectivo">Efectivo</option>
+              <option value="transferencia_bancolombia">Transferencia Bancolombia</option>
+              <option value="transferencia_bbva">Transferencia BBVA</option>
+              <option value="transferencia_davivienda">Transferencia Davivienda</option>
+              <option value="transferencia_bogota">Transferencia Banco Bogotá</option>
+              <option value="nequi">Nequi</option>
+              <option value="daviplata">Daviplata</option>
+              <option value="retoma">Retoma</option>
+            </select>
+          </div>
+
+          {form.metodo_pago === "retoma" && (
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Valor retoma $</label>
+              <input type="number" value={form.valor_retoma} onChange={e => setForm(f => ({ ...f, valor_retoma: e.target.value }))}
+                placeholder="1000000" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Fecha de pago</label>
+            <input type="date" value={form.fecha} onChange={e => setForm(f => ({ ...f, fecha: e.target.value }))}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Notas (opcional)</label>
+            <input value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))}
+              placeholder="Observaciones adicionales" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose}
+              className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+              Cancelar
+            </button>
+            <button type="submit" disabled={loading}
+              className="flex-1 px-4 py-2 bg-[#00A9E0] text-white rounded-lg text-sm font-medium hover:bg-[#0090c0] disabled:opacity-50">
+              {loading ? "Registrando..." : "Registrar cuota inicial"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
 // ─── Loan Detail Panel ────────────────────────────────────────────────────────
 
 const LoanDetail: React.FC<{
@@ -784,8 +969,10 @@ const LoanDetail: React.FC<{
   const [showEntrega, setShowEntrega] = useState(false);
   const [loadingEntrega, setLoadingEntrega] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
+  const [showCuotaInicial, setShowCuotaInicial] = useState(false);
 
   const cuotas = loan.cuotas || [];
+  const hasCuotaInicial = cuotas.some(c => c.numero === 0 || c.tipo === "inicial");
   const pct    = loan.num_cuotas > 0
     ? Math.round((loan.num_cuotas_pagadas / (loan.num_cuotas + 1)) * 100)
     : 0;
@@ -925,6 +1112,13 @@ const LoanDetail: React.FC<{
         {/* Installment Timeline */}
         <div className="flex-1 px-5 py-4">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Cronograma de cuotas</p>
+          {!hasCuotaInicial && loan.plan !== "Contado" && (
+            <button onClick={() => setShowCuotaInicial(true)}
+              className="w-full mb-3 flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-50 border border-amber-200 text-amber-700 rounded-lg text-sm font-medium hover:bg-amber-100 transition-colors">
+              <DollarSign size={14} />
+              Registrar cuota inicial
+            </button>
+          )}
           <div className="space-y-1.5">
             {cuotas.map((c) => (
               <div key={c.numero} className={`rounded-lg border p-3 flex items-center gap-3 transition-all
@@ -1008,6 +1202,10 @@ const LoanDetail: React.FC<{
       {showEdit && (
         <EditLoanModal loan={loan} onClose={() => setShowEdit(false)}
           onSuccess={() => { setShowEdit(false); onRefresh(); }} />
+      )}
+      {showCuotaInicial && (
+        <CuotaInicialModal loan={loan} onClose={() => setShowCuotaInicial(false)}
+          onSuccess={() => { setShowCuotaInicial(false); onRefresh(); }} />
       )}
     </div>
   );
