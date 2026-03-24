@@ -96,43 +96,43 @@ Deferred to future release. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CONT-01 | TBD | Pending |
-| CONT-02 | TBD | Pending |
-| CONT-03 | TBD | Pending |
-| CONT-04 | TBD | Pending |
-| CONT-05 | TBD | Pending |
-| CONT-06 | TBD | Pending |
-| CONT-07 | TBD | Pending |
-| CONT-08 | TBD | Pending |
-| ORQU-01 | TBD | Pending |
-| ORQU-02 | TBD | Pending |
-| ORQU-03 | TBD | Pending |
-| ORQU-04 | TBD | Pending |
-| WA360-01 | TBD | Pending |
-| WA360-02 | TBD | Pending |
-| WA360-03 | TBD | Pending |
-| WA360-04 | TBD | Pending |
-| WA360-05 | TBD | Pending |
-| LOAN-01 | TBD | Pending |
-| LOAN-02 | TBD | Pending |
-| LOAN-03 | TBD | Pending |
-| LOAN-04 | TBD | Pending |
-| LOAN-05 | TBD | Pending |
-| INFRA-01 | TBD | Pending |
-| INFRA-02 | TBD | Pending |
-| INFRA-03 | TBD | Pending |
-| INFRA-04 | TBD | Pending |
-| INFRA-05 | TBD | Pending |
-| ORQU-05 | TBD | Pending |
-| ORQU-06 | TBD | Pending |
-| LOAN-06 | TBD | Pending |
-| INFRA-06 | TBD | Pending |
+| CONT-01 | Phase 1 | Pending |
+| CONT-02 | Phase 1 | Pending |
+| CONT-03 | Phase 1 | Pending |
+| CONT-04 | Phase 1 | Pending |
+| CONT-05 | Phase 1 | Pending |
+| CONT-06 | Phase 2 | Pending |
+| CONT-07 | Phase 2 | Pending |
+| CONT-08 | Phase 2 | Pending |
+| ORQU-05 | Phase 2 | Pending |
+| ORQU-06 | Phase 2 | Pending |
+| ORQU-01 | Phase 3 | Pending |
+| ORQU-02 | Phase 3 | Pending |
+| ORQU-03 | Phase 3 | Pending |
+| ORQU-04 | Phase 3 | Pending |
+| LOAN-01 | Phase 4 | Pending |
+| LOAN-06 | Phase 4 | Pending |
+| LOAN-02 | Phase 4 | Pending |
+| LOAN-03 | Phase 4 | Pending |
+| LOAN-04 | Phase 4 | Pending |
+| LOAN-05 | Phase 4 | Pending |
+| WA360-01 | Phase 5 | Pending |
+| WA360-02 | Phase 5 | Pending |
+| WA360-03 | Phase 5 | Pending |
+| WA360-04 | Phase 5 | Pending |
+| WA360-05 | Phase 5 | Pending |
+| INFRA-01 | Phase 6 | Pending |
+| INFRA-02 | Phase 6 | Pending |
+| INFRA-03 | Phase 6 | Pending |
+| INFRA-04 | Phase 6 | Pending |
+| INFRA-05 | Phase 6 | Pending |
+| INFRA-06 | Phase 6 | Pending |
 
 **Coverage:**
 - v1 requirements: 31 total
-- Mapped to phases: 0
-- Unmapped: 31
+- Mapped to phases: 31
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-24*
-*Last updated: 2026-03-24 after initial definition*
+*Last updated: 2026-03-24 after roadmap creation — all 31 requirements mapped*
