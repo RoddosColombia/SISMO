@@ -45,6 +45,14 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **LOAN-04**: Alertas predictivas de morosidad: detectar clientes en riesgo antes de que caigan en mora
 - [ ] **LOAN-05**: Collection queue priorizada: ordenar cobranza por riesgo, monto, y dias de mora
 
+### Agente de Ventas y CRM
+
+- [ ] **SALES-01a**: Agente Vendedor Motos WhatsApp — responde consultas sobre motos nuevas disponibles, precios, planes de credito P39S/P52S/P78S y contado. Califica al prospecto con preguntas clave (presupuesto, uso, zona). Escala a humano cuando hay intencion de compra confirmada. Canal: Mercately.
+- [ ] **SALES-01b**: Agente Vendedor Repuestos WhatsApp — venta consultiva de repuestos multimarca. Identifica la moto del cliente (modelo, ano), recomienda el repuesto correcto, verifica disponibilidad en inventario, cotiza y cierra. Flujo mas largo que motos — requiere multiples turnos de conversacion. Canal: Mercately.
+- [ ] **SALES-02**: CRM unificado — toda interaccion de clientes (WhatsApp motos, WhatsApp repuestos, web) llega a coleccion crm_clientes en MongoDB con origen y tipo de interes. Pipeline con estados: prospecto -> calificado -> en proceso -> cerrado. Los dos agentes de venta alimentan el mismo CRM.
+- [ ] **SALES-03**: Pagina web RODDOS integrada a SISMO — catalogo de motos disponibles (inventario_motos en tiempo real), catalogo de repuestos, formulario de solicitud de credito, boton WhatsApp. Los leads entran directamente al CRM.
+- [ ] **SALES-04**: Motor de Score crediticio — calificacion automatica para otorgamiento de credito basada en: historial de pagos en SISMO, comportamiento DPD, consulta Datacredito/Experian (futuro), y reglas de negocio RODDOS. Output: score A+ a E + recomendacion aprobar/rechazar/condicionar.
+
 ### Infraestructura y Soberania Digital
 
 - [ ] **INFRA-01**: Docker Compose para toda la aplicacion (frontend, backend, MongoDB)
@@ -88,7 +96,7 @@ Deferred to future release. Tracked but not in current roadmap.
 | App movil nativa | Web-first, mobile responsive suficiente para equipo de 2-5 |
 | Multitenancy | SISMO es exclusivo para RODDOS S.A.S. |
 | Integracion bancaria directa | Reconciliacion via CSV/Excel es suficiente por ahora |
-| Portal de cliente web | WhatsApp es el canal del cliente, no necesita portal web |
+| Portal de cliente web dedicado | La web es canal de captacion integrado a SISMO, no un portal de autoservicio separado |
 | Facturacion electronica DIAN produccion | Bloqueado por certificado externo — diferido a v2 |
 | Cobranza autonoma sin supervision | Riesgo regulatorio (Ley 1480) — requiere suppression logic primero |
 | Machine Learning para scoring | 34 motos no justifica ML — scoring basado en reglas/estadistica |
@@ -123,6 +131,11 @@ Deferred to future release. Tracked but not in current roadmap.
 | WA360-03 | Phase 5 | Pending |
 | WA360-04 | Phase 5 | Pending |
 | WA360-05 | Phase 5 | Pending |
+| SALES-01a | Phase 5 | Pending |
+| SALES-01b | Phase 5 | Pending |
+| SALES-02 | Phase 5 | Pending |
+| SALES-03 | Phase 5 | Pending |
+| SALES-04 | Phase 4 | Pending |
 | INFRA-01 | Phase 6 | Pending |
 | INFRA-02 | Phase 6 | Pending |
 | INFRA-03 | Phase 6 | Pending |
@@ -131,10 +144,10 @@ Deferred to future release. Tracked but not in current roadmap.
 | INFRA-06 | Phase 6 | Pending |
 
 **Coverage:**
-- v1 requirements: 32 total
-- Mapped to phases: 32
+- v1 requirements: 37 total
+- Mapped to phases: 37
 - Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-24*
-*Last updated: 2026-03-24 after roadmap creation — all 31 requirements mapped*
+*Last updated: 2026-03-24 — added SALES-01a/01b/02/03/04 (Agente de Ventas y CRM)*

@@ -61,7 +61,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 ### Phase 4: Loanbook Intelligence
 **Goal**: La cartera es visible en tiempo real con metricas PAR correctas, scoring de riesgo por cliente, alertas predictivas de mora, y collection queue priorizada — todo respetando la Regla del Miercoles sin excepcion
 **Depends on**: Phase 3
-**Requirements**: LOAN-01, LOAN-06, LOAN-02, LOAN-03, LOAN-04, LOAN-05
+**Requirements**: LOAN-01, LOAN-06, LOAN-02, LOAN-03, LOAN-04, LOAN-05, SALES-04
 **Success Criteria** (what must be TRUE):
   1. Las transiciones de estado del loanbook (pendiente_entrega -> activo -> cancelado) son seguras bajo concurrencia: dos procesos simultaneos no pueden poner un loanbook en estado invalido
   2. Toda logica de cuotas, fechas de corte y generacion de planes de pago produce fechas que caen en miercoles segun la Regla del Miercoles, sin excepcion verificable
@@ -75,7 +75,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 ### Phase 5: WhatsApp 360
 **Goal**: WhatsApp es el canal operativo completo del cliente: el sistema detecta intenciones, responde con datos reales del loanbook, confirma pagos y mantiene historial en el CRM
 **Depends on**: Phase 4
-**Requirements**: WA360-01, WA360-02, WA360-03, WA360-04, WA360-05
+**Requirements**: WA360-01, WA360-02, WA360-03, WA360-04, WA360-05, SALES-01a, SALES-01b, SALES-02, SALES-03
 **Success Criteria** (what must be TRUE):
   1. El sistema detecta correctamente las intenciones del cliente por WhatsApp: saldo, pago realizado, dificultad de pago, consulta de repuestos, estado de moto
   2. Cuando un cliente pregunta su saldo por WhatsApp, recibe el saldo actualizado y la proxima cuota con fecha y monto reales de su loanbook
