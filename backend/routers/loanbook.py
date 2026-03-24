@@ -917,7 +917,7 @@ async def registrar_cuota_inicial(loan_id: str, req: CuotaInicialRequest, curren
         extra_set["retoma_valor"] = req.valor_retoma
 
     await db.loanbook.update_one(
-        {"id": loan_id},
+        _mongo_filter(loan),
         {
             "$push": {"cuotas": {"$each": [cuota_0], "$position": 0}},
             "$set": extra_set,
@@ -1193,7 +1193,7 @@ async def update_cuota(loan_id: str, cuota_num: int, body: dict, current_user=De
         loan["valor_cuota"] = body["valor"]
 
     await db.loanbook.update_one(
-        {"id": loan_id},
+        _mongo_filter(loan),
         {"$set": {"cuotas": cuotas, "valor_cuota": loan.get("valor_cuota"), "updated_at": datetime.now(timezone.utc).isoformat()}},
     )
     loan["cuotas"] = cuotas
@@ -1241,7 +1241,7 @@ async def register_pago(loan_id: str, req: PagoRequest, current_user=Depends(get
                 alegra_id = str(inv_list[0].get("id", ""))
                 if alegra_id:
                     await db.loanbook.update_one(
-                        {"id": loan_id},
+                        _mongo_filter(loan),
                         {"$set": {"factura_alegra_id": alegra_id, "factura_numero": req.factura_numero}},
                     )
                     loan["factura_alegra_id"] = alegra_id
@@ -1382,7 +1382,7 @@ async def register_gestion(loan_id: str, req: GestionRequest, current_user=Depen
     }
 
     await db.loanbook.update_one(
-        {"id": loan_id},
+        _mongo_filter(loan),
         {"$push": {"gestiones": gestion}, "$set": {"updated_at": now_iso}},
     )
 
@@ -1413,7 +1413,7 @@ async def register_ptp(loan_id: str, req: PtpRequest, current_user=Depends(get_c
 
     now_iso = datetime.now(timezone.utc).isoformat()
     await db.loanbook.update_one(
-        {"id": loan_id},
+        _mongo_filter(loan),
         {"$set": {
             "ptp_fecha":          req.ptp_fecha,
             "ptp_monto":          req.ptp_monto,
