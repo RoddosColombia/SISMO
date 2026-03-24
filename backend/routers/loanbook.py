@@ -369,7 +369,7 @@ async def migrar_loanbooks_legacy(
         for lb in legacy_lbs:
             updates = {}
             lb_codigo = lb.get("codigo", "UNKNOWN")
-            lb_id = lb.get("id", lb.get("codigo", "UNKNOWN"))
+            lb_id = lb.get("id") or lb.get("codigo")  # FIX: Use codigo if id is None/null
 
             # 1. Calculate precio_venta from ACTUAL cuotas if missing
             if not lb.get("precio_venta") or lb.get("precio_venta") == 0:
@@ -400,8 +400,9 @@ async def migrar_loanbooks_legacy(
 
             # Update document if there are changes
             if updates:
-                # Try update by id first (newer loanbooks), then by codigo (legacy)
-                query = {"id": lb_id} if lb_id and lb_id != "UNKNOWN" else {"codigo": lb_codigo}
+                # Use id if it's a UUID (newer), otherwise use codigo (legacy)
+                is_uuid = lb_id and lb_id != lb_codigo and '-' in str(lb_id)
+                query = {"id": lb_id} if is_uuid else {"codigo": lb_codigo}
                 result = await db.loanbook.update_one(
                     query,
                     {"$set": updates}
