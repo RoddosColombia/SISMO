@@ -986,8 +986,9 @@ const LoanDetail: React.FC<{
 const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> = ({ onClose, onSuccess }) => {
   const { token } = useAuth();
   const [form, setForm] = useState({
-    codigo: "", cliente_nombre: "", cliente_nit: "", tipo_identificacion: "CC",
-    moto_descripcion: "", moto_chasis: "", plan: "P39S", fecha_factura: "",
+    cliente_nombre: "", cliente_nit: "", tipo_identificacion: "CC",
+    moto_descripcion: "", moto_chasis: "", placa: "",
+    plan: "P39S", fecha_factura: "",
     precio_venta: "", cuota_inicial: "", valor_cuota: "", modo_pago: "semanal",
     num_cuotas: "39",
   });
@@ -997,32 +998,29 @@ const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
 
   // Fetch plan catalog from MongoDB on mount
   useEffect(() => {
-    const fetchCatalogo = async () => {
+    (async () => {
       try {
         const res = await axios.get(`${API}/api/loanbook/catalogo-planes`,
           { headers: { Authorization: `Bearer ${token}` } });
         if (Array.isArray(res.data)) setCatalogo(res.data);
-      } catch { /* use manual entry */ }
-    };
-    fetchCatalogo();
+      } catch { /* manual entry */ }
+    })();
   }, [token]);
 
-  // Helper: get cuotas count from catalog for given plan + modo
+  // Helper: get cuotas count from catalog
   const getCuotasFromCatalog = (plan: string, modo: string) => {
     const p = catalogo.find(c => c.plan === plan);
     if (!p) return "";
-    const key = `cuotas_${modo}` as string;
-    return String(p[key] ?? p.cuotas_semanal ?? "");
+    return String(p[`cuotas_${modo}`] ?? p.cuotas_semanal ?? "");
   };
 
-  // Auto-fill precio_venta when plan changes
+  // Auto-fill num_cuotas when plan or catalogo changes
   useEffect(() => {
-    const planData = catalogo.find(p => p.plan === form.plan);
-    if (planData) {
+    if (catalogo.length > 0) {
       setForm(f => ({
         ...f,
-        precio_venta: planData.precio_venta ? String(planData.precio_venta) : f.precio_venta,
         num_cuotas: getCuotasFromCatalog(f.plan, f.modo_pago) || f.num_cuotas,
+        modo_pago: f.plan === "Contado" ? "contado" : f.modo_pago,
       }));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1032,13 +1030,21 @@ const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
     e.preventDefault();
     setLoading(true);
     try {
+      const isC = form.plan === "Contado" || form.modo_pago === "contado";
       const body: any = {
-          ...form,
-          precio_venta:   parseFloat(form.precio_venta),
-          cuota_inicial:  parseFloat(form.cuota_inicial),
-          valor_cuota:    form.plan !== "Contado" && form.modo_pago !== "contado" ? parseFloat(form.valor_cuota) : 0,
-          modo_pago:      form.modo_pago,
-        };
+        cliente_nombre: form.cliente_nombre,
+        cliente_nit: form.cliente_nit,
+        tipo_identificacion: form.tipo_identificacion,
+        moto_descripcion: form.moto_descripcion,
+        moto_chasis: form.moto_chasis,
+        plan: form.plan,
+        fecha_factura: form.fecha_factura,
+        precio_venta: parseFloat(form.precio_venta),
+        cuota_inicial: parseFloat(form.cuota_inicial) || 0,
+        valor_cuota: isC ? 0 : parseFloat(form.valor_cuota),
+        modo_pago: form.modo_pago,
+      };
+      if (form.placa) body.placa = form.placa;
       if (retoma.activo && parseFloat(retoma.valor) > 0) {
         body.tiene_retoma = true;
         body.retoma_marca_modelo = retoma.marca_modelo;
@@ -1047,8 +1053,7 @@ const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
         body.retoma_valor = parseFloat(retoma.valor);
       }
       await axios.post(`${API}/api/loanbook`, body,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
+        { headers: { Authorization: `Bearer ${token}` } });
       toast.success("Plan de pago creado exitosamente");
       onSuccess();
     } catch (err: any) {
@@ -1066,19 +1071,17 @@ const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
         </div>
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
-          {/* Código */}
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">Código *</label>
-            <input value={form.codigo} onChange={e => setForm(f => ({ ...f, codigo: e.target.value }))}
-              placeholder="LB-001" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
-          </div>
+          {/* Código auto-generado */}
+          <p className="text-xs text-slate-400">Código: se asigna automáticamente (LB-2026-XXXX)</p>
+
+          {/* Nombre del cliente */}
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1">Nombre del cliente *</label>
             <input required value={form.cliente_nombre} onChange={e => setForm(f => ({ ...f, cliente_nombre: e.target.value }))}
-              placeholder="Carlos García"
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+              placeholder="Carlos García" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
           </div>
-          {/* Tipo identificación + NIT/Cédula */}
+
+          {/* Tipo ID + NIT/Cédula */}
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Tipo ID</label>
@@ -1091,31 +1094,50 @@ const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
               </select>
             </div>
             <div className="col-span-2">
-              <label className="block text-xs font-medium text-slate-600 mb-1">NIT / Cédula</label>
-              <input value={form.cliente_nit} onChange={e => setForm(f => ({ ...f, cliente_nit: e.target.value }))}
+              <label className="block text-xs font-medium text-slate-600 mb-1">NIT / Cédula *</label>
+              <input required value={form.cliente_nit} onChange={e => setForm(f => ({ ...f, cliente_nit: e.target.value }))}
                 placeholder="1234567890" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
             </div>
           </div>
-          {/* Moto */}
+
+          {/* Moto + Chasis + Placa */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Moto *</label>
               <input required value={form.moto_descripcion} onChange={e => setForm(f => ({ ...f, moto_descripcion: e.target.value }))}
-                placeholder="Honda CB190R Roja"
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+                placeholder="TVS Raider 125" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Chasis *</label>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Chasis / VIN *</label>
               <input required value={form.moto_chasis} onChange={e => setForm(f => ({ ...f, moto_chasis: e.target.value }))}
-                placeholder="XYZ1234567890"
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+                placeholder="9FL25AF3XVDB95057" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono" />
             </div>
           </div>
-          {/* Plan + Fecha factura */}
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Placa (opcional)</label>
+            <input value={form.placa} onChange={e => setForm(f => ({ ...f, placa: e.target.value }))}
+              placeholder="ABC-123" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+          </div>
+
+          {/* Fecha factura */}
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Fecha factura *</label>
+            <input required type="date" value={form.fecha_factura} onChange={e => setForm(f => ({ ...f, fecha_factura: e.target.value }))}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+          </div>
+
+          {/* Plan + Modo de pago */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Plan *</label>
-              <select value={form.plan} onChange={e => setForm(f => ({ ...f, plan: e.target.value }))}
+              <select value={form.plan} onChange={e => {
+                  const plan = e.target.value;
+                  setForm(f => ({
+                    ...f,
+                    plan,
+                    modo_pago: plan === "Contado" ? "contado" : f.modo_pago === "contado" ? "semanal" : f.modo_pago,
+                  }));
+                }}
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
                 <option value="P39S">P39S</option>
                 <option value="P52S">P52S</option>
@@ -1124,53 +1146,46 @@ const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Fecha factura</label>
-              <input type="date" value={form.fecha_factura} onChange={e => setForm(f => ({ ...f, fecha_factura: e.target.value }))}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+              <label className="block text-xs font-medium text-slate-600 mb-1">Modo de pago *</label>
+              <select value={form.modo_pago} disabled={form.plan === "Contado"}
+                onChange={e => {
+                  const modo = e.target.value;
+                  setForm(f => {
+                    const curMult = MULTIPLICADORES[f.modo_pago] || 1;
+                    const curVal = parseFloat(f.valor_cuota) || 0;
+                    const semanalBase = curMult !== 0 ? Math.round(curVal / curMult) : curVal;
+                    const newCuota = modo !== "contado" && semanalBase > 0
+                      ? String(calcularValorCuota(semanalBase, modo)) : f.valor_cuota;
+                    const numCuotas = getCuotasFromCatalog(f.plan, modo) || f.num_cuotas;
+                    return { ...f, modo_pago: modo, valor_cuota: newCuota, num_cuotas: numCuotas };
+                  });
+                }}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm disabled:bg-slate-100">
+                <option value="semanal">Semanal</option>
+                <option value="quincenal">Quincenal</option>
+                <option value="mensual">Mensual</option>
+                <option value="contado">Contado</option>
+              </select>
             </div>
           </div>
-          {/* Modo de pago */}
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">Modo de pago *</label>
-            <select value={form.modo_pago} onChange={e => {
-                const modo = e.target.value;
-                setForm(f => {
-                  // Get base semanal value from current valor_cuota (when semanal) or reverse-calc
-                  const curMult = MULTIPLICADORES[f.modo_pago] || 1;
-                  const curVal = parseFloat(f.valor_cuota) || 0;
-                  const semanalBase = curMult !== 0 ? Math.round(curVal / curMult) : curVal;
-                  const newCuota = modo !== "contado" && semanalBase > 0
-                    ? String(calcularValorCuota(semanalBase, modo))
-                    : f.valor_cuota;
-                  // Get num_cuotas from catalog
-                  const numCuotas = getCuotasFromCatalog(f.plan, modo) || f.num_cuotas;
-                  return { ...f, modo_pago: modo, valor_cuota: newCuota, num_cuotas: numCuotas };
-                });
-              }}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
-              <option value="semanal">Semanal (cada 7 días — miércoles)</option>
-              <option value="quincenal">Quincenal (cada 14 días — miércoles)</option>
-              <option value="mensual">Mensual (cada 28 días — miércoles)</option>
-              <option value="contado">Contado (pago único — sin cuotas)</option>
-            </select>
-          </div>
+
           {/* Precio venta + Cuota inicial + Valor cuota */}
           <div className={`grid ${isContado ? "grid-cols-2" : "grid-cols-3"} gap-3`}>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Precio venta *</label>
               <input required type="number" value={form.precio_venta} onChange={e => setForm(f => ({ ...f, precio_venta: e.target.value }))}
-                placeholder="3500000" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+                placeholder="7800000" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Cuota inicial *</label>
-              <input required type="number" value={form.cuota_inicial} onChange={e => setForm(f => ({ ...f, cuota_inicial: e.target.value }))}
-                placeholder="500000" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+              <label className="block text-xs font-medium text-slate-600 mb-1">Cuota inicial</label>
+              <input type="number" value={form.cuota_inicial} onChange={e => setForm(f => ({ ...f, cuota_inicial: e.target.value }))}
+                placeholder="0" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
             </div>
             {!isContado && (
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Valor cuota *</label>
                 <input required type="number" value={form.valor_cuota} onChange={e => setForm(f => ({ ...f, valor_cuota: e.target.value }))}
-                  placeholder="90000" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+                  placeholder="210000" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
               </div>
             )}
           </div>
@@ -1207,24 +1222,19 @@ const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1">Placa (opcional)</label>
                     <input value={retoma.placa} onChange={e => setRetoma(r => ({ ...r, placa: e.target.value }))}
-                      placeholder="ABC-123"
-                      className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+                      placeholder="ABC-123" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
                   </div>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">Valor retoma $ *</label>
                   <input type="number" value={retoma.valor} onChange={e => setRetoma(r => ({ ...r, valor: e.target.value }))}
-                    placeholder="1000000" required
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+                    placeholder="1000000" required className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
                 </div>
-                {retoma.valor && parseFloat(form.cuota_inicial) > 0 && (
+                {retoma.valor && (parseFloat(form.cuota_inicial) > 0 || parseFloat(retoma.valor) > 0) && (
                   <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-xs">
                     <p className="font-semibold text-green-800">Desglose cuota inicial:</p>
-                    <p className="text-green-700">Retoma: {fmt(parseFloat(retoma.valor))}</p>
-                    <p className="text-green-700">
-                      Efectivo: {fmt(Math.max(0, parseFloat(form.cuota_inicial) - parseFloat(retoma.valor)))}
-                    </p>
-                    {parseFloat(retoma.valor) >= parseFloat(form.cuota_inicial) && (
+                    <p className="text-green-700">Retoma: {fmt(parseFloat(retoma.valor))} + Efectivo: {fmt(Math.max(0, (parseFloat(form.cuota_inicial) || 0) - parseFloat(retoma.valor)))} = Cuota inicial: {fmt(parseFloat(form.cuota_inicial) || 0)}</p>
+                    {parseFloat(retoma.valor) >= (parseFloat(form.cuota_inicial) || 0) && (
                       <p className="text-green-600 font-semibold mt-1">Cuota inicial cubierta por retoma</p>
                     )}
                   </div>
@@ -1233,6 +1243,7 @@ const CreateLoanModal: React.FC<{ onClose: () => void; onSuccess: () => void }> 
             )}
           </div>
 
+          {/* Botón crear */}
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium">Cancelar</button>
             <button type="submit" disabled={loading} className="flex-1 px-4 py-2 bg-[#00A9E0] text-white rounded-lg text-sm font-medium hover:bg-[#0090c0] disabled:opacity-50">

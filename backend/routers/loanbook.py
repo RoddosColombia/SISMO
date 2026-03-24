@@ -171,22 +171,37 @@ async def _get_next_codigo():
 
 CATALOGO_DEFAULT = [
     {
-        "plan": "P39S", "precio_venta": 3_500_000, "modo_pago": "semanal",
+        "plan": "P39S", "modo_pago": "semanal",
         "cuotas_semanal": 39, "cuotas_quincenal": 20, "cuotas_mensual": 9,
         "multiplicadores": {"semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
+        "modelos": {
+            "Raider 125": {"precio_venta": 7_800_000, "valor_cuota_semanal": 210_000},
+            "Sport 100":  {"precio_venta": 5_750_000, "valor_cuota_semanal": 175_000},
+        },
     },
     {
-        "plan": "P52S", "precio_venta": 4_500_000, "modo_pago": "semanal",
+        "plan": "P52S", "modo_pago": "semanal",
         "cuotas_semanal": 52, "cuotas_quincenal": 26, "cuotas_mensual": 12,
         "multiplicadores": {"semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
+        "modelos": {
+            "Raider 125": {"precio_venta": 7_800_000, "valor_cuota_semanal": 179_900},
+            "Sport 100":  {"precio_venta": 5_750_000, "valor_cuota_semanal": 160_000},
+        },
     },
     {
-        "plan": "P78S", "precio_venta": 5_500_000, "modo_pago": "semanal",
+        "plan": "P78S", "modo_pago": "semanal",
         "cuotas_semanal": 78, "cuotas_quincenal": 39, "cuotas_mensual": 18,
         "multiplicadores": {"semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
+        "modelos": {
+            "Raider 125": {"precio_venta": 7_800_000, "valor_cuota_semanal": 149_900},
+            "Sport 100":  {"precio_venta": 5_750_000, "valor_cuota_semanal": 130_000},
+        },
     },
-    {"plan": "Contado", "precio_venta": 0, "modo_pago": "contado",
-     "cuotas_semanal": 0, "cuotas_quincenal": 0, "cuotas_mensual": 0},
+    {
+        "plan": "Contado", "modo_pago": "contado",
+        "cuotas_semanal": 0, "cuotas_quincenal": 0, "cuotas_mensual": 0,
+        "modelos": {},
+    },
 ]
 
 
@@ -196,8 +211,8 @@ CATALOGO_DEFAULT = [
 async def get_catalogo_planes(current_user=Depends(get_current_user)):
     """Return plan catalog from MongoDB. Seeds/updates default values if missing fields."""
     planes = await db.catalogo_planes.find({}, {"_id": 0}).to_list(20)
-    # Re-seed if empty or old format (missing cuotas_quincenal)
-    needs_reseed = not planes or (planes and not any(p.get("cuotas_quincenal") for p in planes))
+    # Re-seed if empty or old format (missing modelos field)
+    needs_reseed = not planes or (planes and not any(p.get("modelos") for p in planes))
     if needs_reseed:
         await db.catalogo_planes.delete_many({})
         for p in CATALOGO_DEFAULT:
