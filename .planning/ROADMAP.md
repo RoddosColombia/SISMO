@@ -31,7 +31,13 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Todas las escrituras a Alegra (contactos, facturas, pagos, recibos) tienen idempotency keys y no crean duplicados ante reintentos
   4. Los webhooks fallidos de Alegra se almacenan en dead-letter queue y se reintentan con backoff exponencial sin perder eventos
   5. El cache se invalida inmediatamente cuando se emite un evento relevante, sin esperar TTL de 30 segundos
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Fix proveedor extraction + audit 32 accounting flows coverage matrix (CONT-00, CONT-01)
+- [ ] 01-02-PLAN.md — Harden smoke test 20/20 baseline with HTTP 200 verification (CONT-06)
+- [ ] 01-03-PLAN.md — Idempotency keys + dead-letter queue + cache invalidation (CONT-03, CONT-04, CONT-05)
+- [ ] 01-04-PLAN.md — Decompose ai_chat.py into 4 agent modules (CONT-02)
 
 ### Phase 2: Contador Validation
 **Goal**: El Agente Contador alcanza 8.5/10 con smoke test 20/20 pasando contra IDs reales de Alegra, clasificacion >=85% de confianza, y reconciliacion bancaria a 90%+ de match
@@ -103,7 +109,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Contador Core | 0/TBD | Not started | - |
+| 1. Contador Core | 0/4 | Planning complete | - |
 | 2. Contador Validation | 0/TBD | Not started | - |
 | 3. Orquestacion y Bus | 0/TBD | Not started | - |
 | 4. Loanbook Intelligence | 0/TBD | Not started | - |
