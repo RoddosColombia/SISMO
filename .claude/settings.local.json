@@ -88,7 +88,27 @@
       "mcp__Claude_Preview__preview_start",
       "Bash(curl -s -X POST https://sismo-backend.onrender.com/api/auth/login -H \"Content-Type: application/json\" -d '{\"\"\"\"email\"\"\"\":\"\"\"\"contabilidad@roddos.com\"\"\"\",\"\"\"\"password\"\"\"\":\"\"\"\"Admin@RODDOS2025!\"\"\"\"}')",
       "Bash(curl -i -s -X POST https://sismo-backend.onrender.com/api/auth/login -H \"Content-Type: application/json\" -d '{\"\"\"\"email\"\"\"\":\"\"\"\"test\"\"\"\",\"\"\"\"password\"\"\"\":\"\"\"\"test\"\"\"\"}')",
-      "Bash(grep -r \"PLAN_INGRESOS\\\\|plan_ingresos\" backend/routers/*.py)"
+      "Bash(grep -r \"PLAN_INGRESOS\\\\|plan_ingresos\" backend/routers/*.py)",
+      "Bash(ls routers/*.py)",
+      "Bash(git restore:*)",
+      "Bash(git config:*)",
+      "Bash(find /c/Users/AndresSanJuan/roddos-workspace/SISMO -name .env* -o -name *.env)",
+      "Bash(curl -s https://sismo-backend-40ca.onrender.com/api/health)",
+      "Bash(grep -r 'api_key = \"\"sk-' backend/ --include=\"*.py\")",
+      "Bash(/tmp/health_check_result.txt:*)",
+      "Read(//tmp/**)",
+      "Bash(PYTHONIOENCODING=utf-8 python3 smoke_test_build23.py)",
+      "Bash(curl -s https://sismo-backend-40ca.onrender.com/api/inventario -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3NDc0OGIyMy1mZDVhLTQyM2MtODM5OC00MjUyMDRiOWZkNTgiLCJlbWFpbCI6ImNvbnRhYmlsaWRhZEByb2Rkb3MuY29tIiwicm9sZSI6ImFkbWluIiwiZXhwIjoxNzc0ODg5MTQ0fQ.ix_CDD9MUiqkbdiRimUMzbcs8MpcTpwHgywtzCICk_8')",
+      "Bash(curl -s https://sismo-backend-40ca.onrender.com/api/motos)",
+      "Bash(grep \"\\\\.py$\")",
+      "Bash(curl -s https://sismo-backend-40ca.onrender.com/api/inventory/motos)",
+      "Bash(PYTHONIOENCODING=utf-8 timeout 120 python3 smoke_test_build23.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python smoke_test_build23.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python /C/Users/AndresSanJuan/roddos-workspace/SISMO/smoke_test_build23.py)",
+      "Bash(grep -n \"service.request.*contacts.*POST\\\\|POST.*contacts\" /C/Users/AndresSanJuan/roddos-workspace/SISMO/backend/routers/*.py)",
+      "Bash(git checkout:*)",
+      "Bash(git pull:*)",
+      "Bash(grep -B 10 -A 10 'estado = \"\"mora\"\"' /C/Users/AndresSanJuan/roddos-workspace/SISMO/backend/post_action_sync.py)"
     ]
   }
 }
