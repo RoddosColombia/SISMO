@@ -480,6 +480,115 @@ async def get_loan(loan_id: str, current_user=Depends(get_current_user)):
     return loan
 
 
+@router.post("/{loan_id}/recalcular")
+async def recalcular_cuotas(loan_id: str, current_user=Depends(get_current_user)):
+    """Recalculate cuotas schedule based on current modo_pago and plan.
+
+    Preserves cuota inicial (numero=0) and any already-paid cuotas.
+    Regenerates remaining cuotas with correct count, values, and Wednesday dates.
+    """
+    loan = await db.loanbook.find_one({"id": loan_id}, {"_id": 0})
+    if not loan:
+        raise HTTPException(status_code=404, detail="Plan no encontrado")
+
+    plan = loan.get("plan", "")
+    modo_pago = loan.get("modo_pago", "semanal")
+    is_contado = modo_pago == "contado" or plan == "Contado"
+    if is_contado:
+        raise HTTPException(status_code=400, detail="Contado no tiene cuotas para recalcular")
+
+    # Get correct num_cuotas from catalog
+    catalogo_plan = await db.catalogo_planes.find_one({"plan": plan}, {"_id": 0})
+    cuotas_key = f"cuotas_{modo_pago}"
+    if catalogo_plan and cuotas_key in catalogo_plan:
+        num_cuotas = catalogo_plan[cuotas_key]
+    else:
+        CUOTAS_FALLBACK = {
+            "semanal":   {"P39S": 39, "P52S": 52, "P78S": 78},
+            "quincenal": {"P39S": 20, "P52S": 26, "P78S": 39},
+            "mensual":   {"P39S": 9,  "P52S": 12, "P78S": 18},
+        }
+        num_cuotas = CUOTAS_FALLBACK.get(modo_pago, {}).get(plan, 0)
+
+    if num_cuotas == 0:
+        raise HTTPException(status_code=400, detail=f"No se pudo determinar num_cuotas para {plan}/{modo_pago}")
+
+    # Get cuota value and interval
+    cuota_base_stored = loan.get("cuota_base") or loan.get("valor_cuota") or loan.get("cuota_valor") or 0
+    valor_cuota = calcular_cuota_valor(int(cuota_base_stored), modo_pago)
+    intervalo_dias = dias_entre_cuotas(modo_pago)
+
+    # Determine first payment date
+    fecha_primer_pago_str = loan.get("fecha_primer_pago")
+    if fecha_primer_pago_str:
+        fecha_primer_pago = date.fromisoformat(fecha_primer_pago_str)
+    elif loan.get("fecha_entrega"):
+        fecha_primer_pago = _first_wednesday(date.fromisoformat(loan["fecha_entrega"]))
+    else:
+        raise HTTPException(status_code=400, detail="No hay fecha de entrega ni primer pago para calcular cronograma")
+
+    # Preserve cuota inicial and any paid cuotas
+    old_cuotas = loan.get("cuotas", [])
+    cuota_0 = next((c for c in old_cuotas if c.get("numero") == 0), None)
+    paid_cuotas = {c["numero"]: c for c in old_cuotas if c.get("estado") in ("pagada", "parcial") and c.get("numero", 0) > 0}
+
+    new_cuotas = []
+    if cuota_0:
+        new_cuotas.append(cuota_0)
+
+    today_str = date.today().isoformat()
+    for i in range(1, num_cuotas + 1):
+        fecha_cuota = fecha_primer_pago + timedelta(days=intervalo_dias * (i - 1))
+        if i in paid_cuotas:
+            # Keep paid/partial cuota as-is but update fecha_vencimiento
+            paid = paid_cuotas[i]
+            paid["fecha_vencimiento"] = fecha_cuota.isoformat()
+            paid["valor"] = valor_cuota
+            new_cuotas.append(paid)
+        else:
+            new_cuotas.append({
+                "numero": i, "tipo": modo_pago,
+                "fecha_vencimiento": fecha_cuota.isoformat(),
+                "valor": valor_cuota,
+                "estado": "vencida" if fecha_cuota.isoformat() < today_str else "pendiente",
+                "fecha_pago": None, "valor_pagado": 0.0,
+                "alegra_payment_id": None, "comprobante": None, "notas": "",
+            })
+
+    valor_financiado = valor_cuota * num_cuotas
+    saldo_pendiente = sum(
+        (c["valor"] - (c.get("valor_pagado", 0) or 0))
+        for c in new_cuotas if c.get("estado") in ("pendiente", "vencida", "parcial")
+    )
+
+    update = {
+        "cuotas": new_cuotas,
+        "num_cuotas": num_cuotas,
+        "modo_pago": modo_pago,
+        "valor_cuota": valor_cuota,
+        "cuota_valor": valor_cuota,
+        "valor_financiado": valor_financiado,
+        "saldo_pendiente": saldo_pendiente,
+        "fecha_primer_pago": fecha_primer_pago.isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.loanbook.update_one({"id": loan_id}, {"$set": update})
+    loan.update(update)
+    stats = _compute_stats(loan)
+    await db.loanbook.update_one({"id": loan_id}, {"$set": stats})
+    loan.update(stats)
+    loan.pop("_id", None)
+
+    await log_action(current_user, f"/loanbook/{loan_id}/recalcular", "POST", {
+        "num_cuotas": num_cuotas, "valor_cuota": valor_cuota, "modo_pago": modo_pago,
+    })
+
+    return {
+        **loan,
+        "message": f"Recalculado: {num_cuotas} cuotas de ${valor_cuota:,.0f} ({modo_pago}) — Saldo: ${saldo_pendiente:,.0f}",
+    }
+
+
 @router.put("/{loan_id}")
 async def edit_loan(loan_id: str, body: dict, current_user=Depends(get_current_user)):
     """Edit mutable fields on an existing loanbook (pre-delivery or active)."""

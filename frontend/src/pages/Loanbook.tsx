@@ -793,6 +793,19 @@ const LoanDetail: React.FC<{
     } finally { setLoadingEntrega(false); setShowEntrega(false); }
   };
 
+  const [recalcLoading, setRecalcLoading] = useState(false);
+  const handleRecalcular = async () => {
+    setRecalcLoading(true);
+    try {
+      const res = await axios.post(`${API}/api/loanbook/${loan.id}/recalcular`, {},
+        { headers: { Authorization: `Bearer ${token}` } });
+      toast.success(res.data?.message || "Cuotas recalculadas");
+      onRefresh();
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || "Error recalculando");
+    } finally { setRecalcLoading(false); }
+  };
+
   const handleEditCuota = async (cuota: Cuota) => {
     const newVal = parseFloat(editVal);
     if (isNaN(newVal) || newVal <= 0) { toast.error("Valor inválido"); return; }
@@ -832,6 +845,10 @@ const LoanDetail: React.FC<{
             )}
           </div>
           <div className="flex items-center gap-2 mt-1">
+            <button onClick={handleRecalcular} disabled={recalcLoading}
+              className="text-slate-300 hover:text-green-400 disabled:opacity-50" title="Recalcular cuotas">
+              <RefreshCw size={16} className={recalcLoading ? "animate-spin" : ""} />
+            </button>
             <button onClick={() => setShowEdit(true)} className="text-slate-300 hover:text-[#00A9E0]" title="Editar">
               <ClipboardList size={18} />
             </button>
