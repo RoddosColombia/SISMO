@@ -21,6 +21,49 @@ router = APIRouter(prefix="/loanbook", tags=["loanbook"])
 PLAN_CUOTAS = {"Contado": 0, "P39S": 39, "P52S": 52, "P78S": 78}
 
 
+# ─── Mora Calculation Helper ───────────────────────────────────────────────────
+
+def calcular_mora(fecha_vencimiento: str, mora_diaria: int = 2000) -> dict:
+    """
+    Calcular mora acumulada desde el día siguiente al vencimiento (jueves).
+
+    Parámetros:
+    - fecha_vencimiento: ISO date string (siempre es miércoles)
+    - mora_diaria: COP por día de atraso (default: 2000 RODDOS)
+
+    Retorna:
+    {
+        "dias_mora": número de días en atraso,
+        "mora_total": dinero acumulado (días × mora_diaria)
+    }
+
+    Nota: La mora comienza el jueves (día siguiente al miércoles de vencimiento).
+    Si hoy <= jueves, retorna 0 días y 0 mora.
+    """
+    try:
+        if isinstance(fecha_vencimiento, str):
+            fecha_vencimiento = datetime.fromisoformat(fecha_vencimiento).date()
+        elif isinstance(fecha_vencimiento, datetime):
+            fecha_vencimiento = fecha_vencimiento.date()
+
+        # Día siguiente al vencimiento (jueves)
+        inicio_mora = fecha_vencimiento + timedelta(days=1)
+        hoy = date.today()
+
+        if hoy <= inicio_mora:
+            return {"dias_mora": 0, "mora_total": 0}
+
+        dias_mora = (hoy - inicio_mora).days
+        mora_total = dias_mora * mora_diaria
+
+        return {"dias_mora": dias_mora, "mora_total": mora_total}
+    except Exception as e:
+        # Si hay error en cálculo, retorna 0
+        import logging
+        logging.error(f"Error calculando mora: {str(e)}")
+        return {"dias_mora": 0, "mora_total": 0}
+
+
 # ─── Models ───────────────────────────────────────────────────────────────────
 
 class LoanCreate(BaseModel):
@@ -118,27 +161,49 @@ def _first_wednesday(fecha_entrega: date) -> date:
         return target + timedelta(days=9 - wd)
 
 
-def _update_overdue(cuotas: list) -> list:
+def _update_overdue(cuotas: list, mora_diaria: int = 2000) -> list:
     """Mark pending cuotas as overdue if their due date has passed.
+    Calculate accumulated mora for vencida cuotas.
     Cuotas with estado 'sin_fecha' or empty fecha_vencimiento are skipped.
     """
     today_str = date.today().isoformat()
     for c in cuotas:
         if c["estado"] == "pendiente" and c.get("fecha_vencimiento") and c["fecha_vencimiento"] <= today_str:
             c["estado"] = "vencida"
+
+        # Calculate mora for vencida cuotas
+        if c["estado"] == "vencida" and c.get("fecha_vencimiento"):
+            mora_info = calcular_mora(c["fecha_vencimiento"], mora_diaria)
+            c["dias_mora"] = mora_info["dias_mora"]
+            c["mora_total"] = mora_info["mora_total"]
+        else:
+            # No mora for non-overdue or paid cuotas
+            c["dias_mora"] = c.get("dias_mora", 0)
+            c["mora_total"] = c.get("mora_total", 0)
+
     return cuotas
 
 
-def _compute_stats(loan: dict) -> dict:
-    """Recompute aggregated stats from cuotas list."""
-    cuotas = _update_overdue(loan.get("cuotas", []))
+def _compute_stats(loan: dict, mora_diaria: int = 2000) -> dict:
+    """Recompute aggregated stats from cuotas list, including mora calculations."""
+    cuotas = _update_overdue(loan.get("cuotas", []), mora_diaria)
     pagadas = sum(1 for c in cuotas if c["estado"] == "pagada")
     vencidas = sum(1 for c in cuotas if c["estado"] == "vencida")
     total_cobrado = sum(c.get("valor_pagado", 0) for c in cuotas if c["estado"] in ("pagada", "parcial"))
-    total_deuda = sum(
-        (c["valor"] - (c.get("valor_pagado", 0) or 0)) for c in cuotas
-        if c["estado"] in ("pendiente", "vencida", "parcial")
-    )
+
+    # Calcular deuda con mora incluida
+    total_deuda = 0
+    total_mora = 0
+    for c in cuotas:
+        if c["estado"] in ("pendiente", "vencida", "parcial"):
+            valor_pendiente = c["valor"] - (c.get("valor_pagado", 0) or 0)
+            total_deuda += valor_pendiente
+            # Agregar mora para cuotas vencidas
+            if c["estado"] == "vencida":
+                mora = c.get("mora_total", 0)
+                total_mora += mora
+                total_deuda += mora
+
     # Determine overall estado
     num_cuotas = loan.get("num_cuotas", 0)
     total_cuotas = num_cuotas + 1  # +1 for cuota inicial
@@ -156,6 +221,7 @@ def _compute_stats(loan: dict) -> dict:
         "num_cuotas_vencidas": vencidas,
         "total_cobrado": total_cobrado,
         "saldo_pendiente": total_deuda,
+        "total_mora": total_mora,
         "estado": estado,
     }
 
@@ -174,6 +240,7 @@ CATALOGO_DEFAULT = [
         "plan": "P39S", "modo_pago": "semanal",
         "cuotas_semanal": 39, "cuotas_quincenal": 20, "cuotas_mensual": 9,
         "multiplicadores": {"semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
+        "mora_diaria": 2000,
         "modelos": {
             "Raider 125": {"precio_venta": 7_800_000, "valor_cuota_semanal": 210_000},
             "Sport 100":  {"precio_venta": 5_750_000, "valor_cuota_semanal": 175_000},
@@ -183,6 +250,7 @@ CATALOGO_DEFAULT = [
         "plan": "P52S", "modo_pago": "semanal",
         "cuotas_semanal": 52, "cuotas_quincenal": 26, "cuotas_mensual": 12,
         "multiplicadores": {"semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
+        "mora_diaria": 2000,
         "modelos": {
             "Raider 125": {"precio_venta": 7_800_000, "valor_cuota_semanal": 179_900},
             "Sport 100":  {"precio_venta": 5_750_000, "valor_cuota_semanal": 160_000},
@@ -192,6 +260,7 @@ CATALOGO_DEFAULT = [
         "plan": "P78S", "modo_pago": "semanal",
         "cuotas_semanal": 78, "cuotas_quincenal": 39, "cuotas_mensual": 18,
         "multiplicadores": {"semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
+        "mora_diaria": 2000,
         "modelos": {
             "Raider 125": {"precio_venta": 7_800_000, "valor_cuota_semanal": 149_900},
             "Sport 100":  {"precio_venta": 5_750_000, "valor_cuota_semanal": 130_000},
@@ -200,6 +269,7 @@ CATALOGO_DEFAULT = [
     {
         "plan": "Contado", "modo_pago": "contado",
         "cuotas_semanal": 0, "cuotas_quincenal": 0, "cuotas_mensual": 0,
+        "mora_diaria": 2000,
         "modelos": {},
     },
 ]

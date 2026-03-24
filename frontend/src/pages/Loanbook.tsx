@@ -870,9 +870,9 @@ const LoanDetail: React.FC<{
             <div className="text-center"><p className="text-xs text-slate-400">Cobrado</p><p className="font-bold text-green-600 text-sm">{fmt(loan.total_cobrado)}</p></div>
             <div className="text-center"><p className="text-xs text-slate-400">Saldo</p><p className="font-bold text-red-500 text-sm">{fmt(loan.saldo_pendiente)}</p></div>
           </div>
-          {loan.interes_mora_acumulado && loan.interes_mora_acumulado > 0 && (
-            <p className="text-xs text-red-500 mt-2 text-center">
-              Interés mora acumulado: {fmt(loan.interes_mora_acumulado)} (15% EA)
+          {loan.total_mora && loan.total_mora > 0 && (
+            <p className="text-xs text-red-600 mt-2 text-center font-semibold">
+              Mora acumulada: {fmt(loan.total_mora)} ($2.000 COP/día)
             </p>
           )}
         </div>
@@ -950,6 +950,11 @@ const LoanDetail: React.FC<{
                     {c.comprobante && <span className="text-xs text-slate-400">{c.comprobante}</span>}
                     {c.dpd_al_pagar && c.dpd_al_pagar > 0 && (
                       <span className="text-xs text-red-400">DPD {c.dpd_al_pagar}d</span>
+                    )}
+                    {c.estado === "vencida" && c.dias_mora && c.dias_mora > 0 && (
+                      <span className="text-xs text-red-600 font-semibold">
+                        +{fmt(c.mora_total)} mora ({c.dias_mora}d)
+                      </span>
                     )}
                   </div>
                 </div>
@@ -1508,9 +1513,9 @@ export default function Loanbook() {
                     <ScoreBadge score={loan.score_pago} estrellas={loan.estrella_nivel} />
                   </td>
                   <td className="px-4 py-3 hidden xl:table-cell">
-                    {(loan.interes_mora_acumulado ?? 0) > 0 ? (
-                      <span className="text-xs font-semibold text-red-500">
-                        {fmt(loan.interes_mora_acumulado ?? 0)}
+                    {(loan.total_mora ?? 0) > 0 ? (
+                      <span className="text-xs font-semibold text-red-600">
+                        {fmt(loan.total_mora ?? 0)}
                       </span>
                     ) : (
                       <span className="text-xs text-slate-400">—</span>
