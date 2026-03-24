@@ -62,6 +62,25 @@ class MovimientoBancario:
     es_transferencia_interna: bool = False  # Si es True, no contabilizar (traslado entre cuentas)
 
 
+def _extraer_proveedor(descripcion: str) -> str:
+    """Helper consolidado — unica fuente de verdad para extraccion de proveedor.
+
+    Llama a accounting_engine.extract_proveedor y filtra el fallback.
+    Retorna el nombre del proveedor o string vacio si no se identifica.
+    NUNCA retorna desc[:30] truncado — eso interfiere con reglas de clasificacion.
+    """
+    from services.accounting_engine import extract_proveedor
+    resultado = extract_proveedor(descripcion)
+    # Si el resultado es simplemente la descripcion truncada (fallback),
+    # retornar string vacio para que las reglas de clasificacion no hagan
+    # match contra basura
+    if resultado == descripcion.upper().strip()[:30].lower():
+        logger.info(f"Proveedor no identificado en: '{descripcion[:50]}' (fallback filtrado)")
+        return ""
+    logger.info(f"Proveedor extraido: '{resultado}' de descripcion: '{descripcion[:50]}'")
+    return resultado
+
+
 class BancolombiParser:
     """Parser para extractos Bancolombia.
 
@@ -116,9 +135,8 @@ class BancolombiParser:
                     tipo = TipoMovimiento.INGRESO if monto_raw > 0 else TipoMovimiento.EGRESO
                     monto = abs(monto_raw)
 
-                    # Extraer proveedor desde descripción
-                    from services.accounting_engine import extract_proveedor
-                    proveedor = extract_proveedor(descripcion)
+                    # Extraer proveedor (helper consolidado — CONT-01)
+                    proveedor = _extraer_proveedor(descripcion)
 
                     movimientos.append(MovimientoBancario(
                         fecha=fecha_str,
@@ -190,9 +208,8 @@ class BBVAParser:
                     tipo = TipoMovimiento.INGRESO if monto_raw > 0 else TipoMovimiento.EGRESO
                     monto = abs(monto_raw)
 
-                    # Extraer proveedor desde descripción
-                    from services.accounting_engine import extract_proveedor
-                    proveedor = extract_proveedor(descripcion)
+                    # Extraer proveedor (helper consolidado — CONT-01)
+                    proveedor = _extraer_proveedor(descripcion)
 
                     movimientos.append(MovimientoBancario(
                         fecha=fecha_str,
@@ -245,9 +262,8 @@ class DaviviendaParser:
                     # Mapear tipo
                     tipo = TipoMovimiento.INGRESO if tipo_orig == "C" else TipoMovimiento.EGRESO
 
-                    # Extraer proveedor desde descripción
-                    from services.accounting_engine import extract_proveedor
-                    proveedor = extract_proveedor(descripcion)
+                    # Extraer proveedor (helper consolidado — CONT-01)
+                    proveedor = _extraer_proveedor(descripcion)
 
                     movimientos.append(MovimientoBancario(
                         fecha=fecha_str,
@@ -300,9 +316,8 @@ class NequiParser:
                     # Mapear tipo
                     tipo = TipoMovimiento.INGRESO if "ingreso" in tipo_orig else TipoMovimiento.EGRESO
 
-                    # Extraer proveedor desde descripción
-                    from services.accounting_engine import extract_proveedor
-                    proveedor = extract_proveedor(descripcion)
+                    # Extraer proveedor (helper consolidado — CONT-01)
+                    proveedor = _extraer_proveedor(descripcion)
 
                     movimientos.append(MovimientoBancario(
                         fecha=fecha_str,
