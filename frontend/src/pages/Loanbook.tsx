@@ -589,6 +589,7 @@ const EditLoanModal: React.FC<{
     moto_chasis: loan.moto_chasis || "",
     motor: loan.motor || "",
     placa: loan.placa || "",
+    numero_factura_alegra: loan.numero_factura_alegra || "",
     plan: loan.plan || "P39S",
     modo_pago: loan.modo_pago || "semanal",
     valor_cuota: String(loan.valor_cuota || ""),
@@ -608,6 +609,7 @@ const EditLoanModal: React.FC<{
       if (form.moto_chasis !== (loan.moto_chasis || "")) body.moto_chasis = form.moto_chasis;
       if (form.motor !== (loan.motor || "")) body.motor = form.motor;
       if (form.placa !== (loan.placa || "")) body.placa = form.placa;
+      if (form.numero_factura_alegra !== (loan.numero_factura_alegra || "")) body.numero_factura_alegra = form.numero_factura_alegra;
       if (form.plan !== (loan.plan || "")) body.plan = form.plan;
       if (form.modo_pago !== (loan.modo_pago || "")) body.modo_pago = form.modo_pago;
       if (form.valor_cuota !== String(loan.valor_cuota || "")) body.valor_cuota = parseFloat(form.valor_cuota);
@@ -688,6 +690,14 @@ const EditLoanModal: React.FC<{
               <input value={form.placa} onChange={e => setForm(f => ({ ...f, placa: e.target.value }))}
                 placeholder="ABC-123" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
             </div>
+          </div>
+
+          {/* Factura Alegra */}
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mt-2">Factura Alegra</p>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Número de factura</label>
+            <input value={form.numero_factura_alegra} onChange={e => setForm(f => ({ ...f, numero_factura_alegra: e.target.value }))}
+              placeholder="Ej: F-2026-001234" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono" />
           </div>
 
           {/* Plan / Pago */}

@@ -338,6 +338,88 @@ async def reset_catalogo_planes(
         raise HTTPException(status_code=500, detail=f"Reset failed: {str(e)}")
 
 
+@router.post("/admin/migrar-loanbooks-legacy")
+async def migrar_loanbooks_legacy(
+    current_user=Depends(require_admin),
+):
+    """ADMIN ONLY: Migrate legacy loanbooks (LB-2026-0001 to LB-2026-0010) with incomplete data.
+
+    Fixes:
+    1. Calculate precio_venta from existing cuotas if missing
+    2. Add missing fields with defaults: tipo_id, telefono, placa, motor
+    3. Does NOT modify cuotas or pagos
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    try:
+        # Find loanbooks missing precio_venta or with precio_venta=0
+        query = {
+            "$or": [
+                {"precio_venta": {"$exists": False}},
+                {"precio_venta": 0},
+                {"precio_venta": None}
+            ]
+        }
+        legacy_lbs = await db.loanbook.find(query).to_list(1000)
+        logger.warning(f"[ADMIN] Migration: Found {len(legacy_lbs)} loanbooks with missing precio_venta")
+
+        updated_lbs = []
+
+        for lb in legacy_lbs:
+            updates = {}
+            lb_id = lb.get("id", lb.get("codigo", "UNKNOWN"))
+
+            # 1. Calculate precio_venta from cuotas if missing
+            if not lb.get("precio_venta"):
+                cuotas = lb.get("cuotas", [])
+                cuota_inicial = lb.get("cuota_inicial", 0)
+                valor_cuota = lb.get("valor_cuota", 0)
+                num_cuotas = lb.get("num_cuotas", 0)
+
+                if num_cuotas > 0 and valor_cuota > 0:
+                    precio_venta = (num_cuotas * valor_cuota) + cuota_inicial
+                    updates["precio_venta"] = precio_venta
+                    logger.warning(f"[ADMIN] {lb_id}: Calculated precio_venta = {precio_venta}")
+
+            # 2. Add missing fields with defaults
+            if "tipo_id" not in lb or not lb.get("tipo_id"):
+                updates["tipo_id"] = "CC"
+            if "cliente_telefono" not in lb:
+                updates["cliente_telefono"] = ""
+            if "moto_placa" not in lb:
+                updates["moto_placa"] = ""
+            if "moto_motor" not in lb:
+                updates["moto_motor"] = ""
+
+            # Update document if there are changes
+            if updates:
+                result = await db.loanbook.update_one(
+                    {"id": lb_id},
+                    {"$set": updates}
+                )
+                if result.modified_count > 0:
+                    logger.warning(f"[ADMIN] {lb_id}: Updated with {len(updates)} fields")
+                    updated_lbs.append({
+                        "id": lb_id,
+                        "updated_fields": updates
+                    })
+
+        logger.warning(f"[ADMIN] Migration complete: {len(updated_lbs)} loanbooks updated")
+
+        return {
+            "status": "success",
+            "total_found": len(legacy_lbs),
+            "updated": len(updated_lbs),
+            "updated_loanbooks": updated_lbs,
+            "message": f"✅ Migración completada. {len(updated_lbs)} loanbooks actualizados."
+        }
+
+    except Exception as e:
+        logger.error(f"[ADMIN] Migration failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Migration failed: {str(e)}")
+
+
 @router.get("/stats")
 async def get_stats(current_user=Depends(get_current_user)):
     all_loans = await db.loanbook.find({}, {"_id": 0}).to_list(2000)
@@ -717,6 +799,7 @@ async def edit_loan(loan_id: str, body: dict, current_user=Depends(get_current_u
         "cliente_nombre", "cliente_nit", "tipo_identificacion", "cliente_telefono",
         "moto_descripcion", "moto_chasis", "motor", "placa",
         "plan", "modo_pago", "valor_cuota", "fecha_factura",
+        "numero_factura_alegra",  # Optional Alegra invoice number
     }
     update_fields: dict = {k: v for k, v in body.items() if k in EDITABLE and v is not None}
 
