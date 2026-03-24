@@ -291,6 +291,53 @@ async def get_catalogo_planes(current_user=Depends(get_current_user)):
     return planes
 
 
+@router.post("/admin/reset-catalogo")
+async def reset_catalogo_planes(
+    current_user=Depends(require_admin),
+):
+    """ADMIN ONLY: Force reset catalogo_planes to default values.
+
+    Use case: MongoDB corruption or merge issues that prevent auto-seed.
+    Deletes ALL existing documents and re-inserts clean seed data.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    try:
+        # Count existing documents
+        existing_count = await db.catalogo_planes.count_documents({})
+        logger.warning(f"[ADMIN] Reset catalogo_planes: deleting {existing_count} existing documents")
+
+        # Delete ALL documents
+        delete_result = await db.catalogo_planes.delete_many({})
+        logger.warning(f"[ADMIN] Deleted {delete_result.deleted_count} documents from catalogo_planes")
+
+        # Insert fresh CATALOGO_DEFAULT
+        insert_count = 0
+        for plan_data in CATALOGO_DEFAULT:
+            result = await db.catalogo_planes.insert_one({**plan_data})
+            insert_count += 1
+            logger.warning(f"[ADMIN] Inserted plan {plan_data.get('plan')}: {result.inserted_id}")
+
+        # Verify insertion
+        final_count = await db.catalogo_planes.count_documents({})
+        planes = await db.catalogo_planes.find({}, {"_id": 0}).to_list(20)
+
+        logger.warning(f"[ADMIN] Reset complete: {final_count} plans in catalogo_planes")
+
+        return {
+            "status": "success",
+            "deleted": delete_result.deleted_count,
+            "inserted": insert_count,
+            "total_in_db": final_count,
+            "planes": planes,
+            "message": f"✅ Catalogo reset complete. {insert_count} planes inserted."
+        }
+    except Exception as e:
+        logger.error(f"[ADMIN] Reset failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Reset failed: {str(e)}")
+
+
 @router.get("/stats")
 async def get_stats(current_user=Depends(get_current_user)):
     all_loans = await db.loanbook.find({}, {"_id": 0}).to_list(2000)
