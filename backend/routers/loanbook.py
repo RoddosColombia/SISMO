@@ -24,21 +24,32 @@ PLAN_CUOTAS = {"Contado": 0, "P39S": 39, "P52S": 52, "P78S": 78}
 # ─── Loanbook Lookup Helper ──────────────────────────────────────────────────
 
 async def find_loanbook(loan_id: str):
-    """Find loanbook by id, codigo, or _id (ObjectId). Returns dict or None."""
+    """Find loanbook by id, codigo, or _id (ObjectId).
+
+    Returns dict with synthesized 'id' and '_mongo_id' for updates, or None.
+    '_mongo_id' is the original ObjectId — use for update_one filters.
+    """
     loan = await db.loanbook.find_one({"id": loan_id})
+    if not loan:
+        loan = await db.loanbook.find_one({"codigo": loan_id})
+    if not loan:
+        try:
+            from bson import ObjectId
+            loan = await db.loanbook.find_one({"_id": ObjectId(loan_id)})
+        except Exception:
+            pass
     if loan:
-        return loan
-    loan = await db.loanbook.find_one({"codigo": loan_id})
-    if loan:
-        return loan
-    try:
-        from bson import ObjectId
-        loan = await db.loanbook.find_one({"_id": ObjectId(loan_id)})
-        if loan:
-            return loan
-    except Exception:
-        pass
-    return None
+        # Save _id as string for update_one filters
+        loan["_oid"] = str(loan["_id"])
+        if not loan.get("id"):
+            loan["id"] = loan.get("codigo") or str(loan["_id"])
+    return loan
+
+
+def _mongo_filter(loan: dict) -> dict:
+    """Build MongoDB filter from saved _oid for update_one calls."""
+    from bson import ObjectId
+    return {"_id": ObjectId(loan["_oid"])}
 
 
 # ─── Mora Calculation Helper ───────────────────────────────────────────────────
@@ -797,10 +808,10 @@ async def recalcular_cuotas(loan_id: str, current_user=Depends(get_current_user)
         "fecha_primer_pago": fecha_primer_pago.isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
-    await db.loanbook.update_one({"id": loan_id}, {"$set": update})
+    await db.loanbook.update_one(_mongo_filter(loan), {"$set": update})
     loan.update(update)
     stats = _compute_stats(loan)
-    await db.loanbook.update_one({"id": loan_id}, {"$set": stats})
+    await db.loanbook.update_one(_mongo_filter(loan), {"$set": stats})
     loan.update(stats)
     loan.pop("_id", None)
 
@@ -859,10 +870,13 @@ async def edit_loan(loan_id: str, body: dict, current_user=Depends(get_current_u
         raise HTTPException(status_code=400, detail="No hay campos para actualizar")
 
     update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
-    await db.loanbook.update_one({"id": loan_id}, {"$set": update_fields})
+    await db.loanbook.update_one(_mongo_filter(loan), {"$set": update_fields})
     await log_action(current_user, f"/loanbook/{loan_id}", "PUT", update_fields)
 
-    updated = await db.loanbook.find_one({"id": loan_id}, {"_id": 0})
+    updated = await db.loanbook.find_one(_mongo_filter(loan))
+    if not updated.get("id"):
+        updated["id"] = updated.get("codigo") or str(updated["_id"])
+    updated.pop("_id", None)
     stats = _compute_stats(updated)
     updated.update(stats)
     return updated
@@ -915,9 +929,9 @@ async def registrar_cuota_inicial(loan_id: str, req: CuotaInicialRequest, curren
         "valor": req.valor, "metodo_pago": req.metodo_pago,
     })
 
-    updated = await db.loanbook.find_one({"id": loan_id}, {"_id": 0})
+    updated = await db.loanbook.find_one(_mongo_filter(loan))
     stats = _compute_stats(updated)
-    await db.loanbook.update_one({"id": loan_id}, {"$set": stats})
+    await db.loanbook.update_one(_mongo_filter(loan), {"$set": stats})
     updated.update(stats)
     return updated
 
@@ -1086,10 +1100,10 @@ async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depen
         update["motor"] = req.motor
     if req.placa:
         update["placa"] = req.placa
-    await db.loanbook.update_one({"id": loan_id}, {"$set": update})
+    await db.loanbook.update_one(_mongo_filter(loan), {"$set": update})
     loan.update(update)
     stats = _compute_stats(loan)
-    await db.loanbook.update_one({"id": loan_id}, {"$set": stats})
+    await db.loanbook.update_one(_mongo_filter(loan), {"$set": stats})
     loan.update(stats)
     loan.pop("_id", None)
 
@@ -1314,10 +1328,10 @@ async def register_pago(loan_id: str, req: PagoRequest, current_user=Depends(get
     })
 
     # Update loanbook stats
-    await db.loanbook.update_one({"id": loan_id}, {"$set": {"cuotas": cuotas, "updated_at": datetime.now(timezone.utc).isoformat()}})
+    await db.loanbook.update_one(_mongo_filter(loan), {"$set": {"cuotas": cuotas, "updated_at": datetime.now(timezone.utc).isoformat()}})
     loan["cuotas"] = cuotas
     stats = _compute_stats(loan)
-    await db.loanbook.update_one({"id": loan_id}, {"$set": stats})
+    await db.loanbook.update_one(_mongo_filter(loan), {"$set": stats})
     loan.update(stats)
     loan.pop("_id", None)
 
