@@ -492,10 +492,12 @@ async def get_loans(
         query["plan"] = plan
     if cliente:
         query["cliente_nombre"] = {"$regex": cliente, "$options": "i"}
-    loans = await db.loanbook.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
-    # Refresh overdue status
+    loans = await db.loanbook.find(query).sort("created_at", -1).to_list(1000)
+    # Refresh overdue status + ensure 'id' field exists for all docs
     result = []
     for loan in loans:
+        loan["id"] = loan.get("id") or str(loan.get("_id", ""))
+        loan.pop("_id", None)
         stats = _compute_stats(loan)
         loan.update(stats)
         result.append(loan)

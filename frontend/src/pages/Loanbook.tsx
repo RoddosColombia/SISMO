@@ -20,6 +20,10 @@ const fdate = (d: string | null | undefined): string => {
   try { return format(parseISO(d), "dd/MMM/yy", { locale: es }); } catch { return d; }
 };
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+const loanId = (loan: { id?: string; _id?: string; codigo?: string }) =>
+  loan.id || loan._id || loan.codigo || "";
+
 // ─── Multiplicadores RODDOS (semanal base) ──────────────────────────────────
 const MULTIPLICADORES: Record<string, number> = { semanal: 1.0, quincenal: 2.2, mensual: 4.4 };
 const calcularValorCuota = (base: number, modo: string): number => {
@@ -48,6 +52,7 @@ interface Cuota {
 
 interface Loan {
   id: string;
+  _id?: string;
   codigo: string;
   moto_descripcion?: string;
   moto_chasis?: string;
@@ -233,7 +238,7 @@ const EntregaModal: React.FC<{
         if (cedula) body.cliente_nit = cedula;
         if (precioVenta) body.precio_venta = parseFloat(precioVenta);
       }
-      const res = await axios.put(`${API}/api/loanbook/${loan.id}/entrega`, body,
+      const res = await axios.put(`${API}/api/loanbook/${loanId(loan)}/entrega`, body,
         { headers: { Authorization: `Bearer ${token}` } });
       const primeraCuota = res.data?.primera_cuota_fecha;
       const msg = isContado
@@ -478,7 +483,7 @@ const PagoModal: React.FC<{
     if (val > saldoCuota) { toast.error(`El valor no puede superar el saldo de ${fmt(saldoCuota)}`); return; }
     setLoading(true);
     try {
-      await axios.post(`${API}/api/loanbook/${loan.id}/pago`,
+      await axios.post(`${API}/api/loanbook/${loanId(loan)}/pago`,
         { cuota_numero: cuota.numero, ...form, valor_pagado: val },
         { headers: { Authorization: `Bearer ${token}` } },
       );
@@ -651,7 +656,7 @@ const EditLoanModal: React.FC<{
 
       if (Object.keys(body).length === 0) { toast.info("No hay cambios"); onClose(); return; }
 
-      await axios.put(`${API}/api/loanbook/${loan.id}`, body,
+      await axios.put(`${API}/api/loanbook/${loanId(loan)}`, body,
         { headers: { Authorization: `Bearer ${token}` } });
       toast.success("Loanbook actualizado");
       onSuccess();
@@ -872,7 +877,7 @@ const CuotaInicialModal: React.FC<{
       if (form.metodo_pago === "retoma" && form.valor_retoma) {
         payload.valor_retoma = parseFloat(form.valor_retoma);
       }
-      await axios.post(`${API}/api/loanbook/${loan.id}/cuota-inicial`, payload,
+      await axios.post(`${API}/api/loanbook/${loanId(loan)}/cuota-inicial`, payload,
         { headers: { Authorization: `Bearer ${token}` } });
       toast.success("Cuota inicial registrada");
       onSuccess();
@@ -981,7 +986,7 @@ const LoanDetail: React.FC<{
     if (!entregaDate) return;
     setLoadingEntrega(true);
     try {
-      await axios.put(`${API}/api/loanbook/${loan.id}/entrega`, { fecha_entrega: entregaDate },
+      await axios.put(`${API}/api/loanbook/${loanId(loan)}/entrega`, { fecha_entrega: entregaDate },
         { headers: { Authorization: `Bearer ${token}` } });
       toast.success("Fecha de entrega registrada. Cronograma generado.");
       onRefresh();
@@ -994,7 +999,7 @@ const LoanDetail: React.FC<{
   const handleRecalcular = async () => {
     setRecalcLoading(true);
     try {
-      const res = await axios.post(`${API}/api/loanbook/${loan.id}/recalcular`, {},
+      const res = await axios.post(`${API}/api/loanbook/${loanId(loan)}/recalcular`, {},
         { headers: { Authorization: `Bearer ${token}` } });
       toast.success(res.data?.message || "Cuotas recalculadas");
       onRefresh();
@@ -1007,7 +1012,7 @@ const LoanDetail: React.FC<{
     const newVal = parseFloat(editVal);
     if (isNaN(newVal) || newVal <= 0) { toast.error("Valor inválido"); return; }
     try {
-      await axios.put(`${API}/api/loanbook/${loan.id}/cuota/${cuota.numero}`, { valor: newVal },
+      await axios.put(`${API}/api/loanbook/${loanId(loan)}/cuota/${cuota.numero}`, { valor: newVal },
         { headers: { Authorization: `Bearer ${token}` } });
       toast.success("Cuota actualizada");
       setEditCuota(null);
