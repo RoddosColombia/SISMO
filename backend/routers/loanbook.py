@@ -1168,21 +1168,13 @@ async def register_pago(loan_id: str, req: PagoRequest, current_user=Depends(get
     if not loan:
         raise HTTPException(status_code=404, detail=f"Plan de crédito no encontrado (ID: {loan_id})")
 
-    # BUILD 21: descriptive state validation
-    # Allow cuota inicial (numero == 0) even in pendiente_entrega
+    # Allow payments for pendiente_entrega, activo, mora — all operational states
     is_cuota_inicial = req.cuota_numero == 0
-    if loan.get("estado") not in ("activo", "mora"):
-        if loan.get("estado") == "pendiente_entrega" and is_cuota_inicial:
-            pass  # cuota inicial allowed before delivery
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"No puedes registrar el pago: el crédito está en estado '{loan.get('estado')}'."
-                    + (" Confirma la entrega de la moto primero."
-                       if loan.get("estado") == "pendiente_entrega" else "")
-                ),
-            )
+    if loan.get("estado") not in ("activo", "mora", "pendiente_entrega"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"No puedes registrar el pago: el crédito está en estado '{loan.get('estado')}'.",
+        )
 
     cuotas = loan.get("cuotas", [])
     cuota = next((c for c in cuotas if c["numero"] == req.cuota_numero), None)

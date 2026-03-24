@@ -1162,7 +1162,7 @@ const LoanDetail: React.FC<{
                     )}
                   </div>
                 </div>
-                {c.estado !== "pagada" && c.fecha_vencimiento && (
+                {c.estado !== "pagada" && (
                   <button onClick={() => setSelectedCuota(c)}
                     className="px-2.5 py-1 text-xs font-medium bg-[#00A9E0] text-white rounded-lg hover:bg-[#0090c0] whitespace-nowrap">
                     Registrar
