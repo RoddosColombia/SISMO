@@ -859,7 +859,6 @@ async def edit_loan(loan_id: str, body: dict, current_user=Depends(get_current_u
     if "plan" in update_fields and update_fields["plan"] in PLAN_CUOTAS:
         update_fields["num_cuotas"] = PLAN_CUOTAS[update_fields["plan"]]
     if "valor_cuota" in update_fields:
-        update_fields["cuota_base"] = int(update_fields["valor_cuota"])
         update_fields["cuota_valor"] = int(update_fields["valor_cuota"])
 
     # Retoma cleanup: if disabling retoma, clear all retoma fields
