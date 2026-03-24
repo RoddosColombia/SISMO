@@ -750,8 +750,16 @@ async def recalcular_cuotas(loan_id: str, current_user=Depends(get_current_user)
         raise HTTPException(status_code=400, detail=f"No se pudo determinar num_cuotas para {plan}/{modo_pago}")
 
     # Get cuota value and interval
-    cuota_base_stored = loan.get("cuota_base") or loan.get("valor_cuota") or loan.get("cuota_valor") or 0
-    valor_cuota = calcular_cuota_valor(int(cuota_base_stored), modo_pago)
+    # Use valor_cuota directly if set (already includes multiplier for quincenal/mensual)
+    # Only apply multiplier if we only have cuota_base (semanal base value)
+    valor_cuota_stored = loan.get("valor_cuota") or loan.get("cuota_valor") or 0
+    cuota_base_stored = loan.get("cuota_base") or 0
+    if valor_cuota_stored:
+        valor_cuota = int(valor_cuota_stored)
+    elif cuota_base_stored:
+        valor_cuota = calcular_cuota_valor(int(cuota_base_stored), modo_pago)
+    else:
+        valor_cuota = 0
     intervalo_dias = dias_entre_cuotas(modo_pago)
 
     # Determine first payment date
