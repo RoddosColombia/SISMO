@@ -140,6 +140,14 @@ class PtpRequest(BaseModel):
     registrado_por: Optional[str] = None
 
 
+class CuotaInicialRequest(BaseModel):
+    valor: float
+    metodo_pago: str = "efectivo"  # efectivo | transferencia_bancolombia | ... | retoma
+    fecha: str  # ISO date string
+    valor_retoma: Optional[float] = None  # Only if metodo_pago == "retoma"
+    notas: Optional[str] = ""
+
+
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _first_wednesday(fecha_entrega: date) -> date:
@@ -791,14 +799,33 @@ async def edit_loan(loan_id: str, body: dict, current_user=Depends(get_current_u
         "moto_descripcion", "moto_chasis", "motor", "placa",
         "plan", "modo_pago", "valor_cuota", "fecha_factura",
         "numero_factura_alegra",  # Optional Alegra invoice number
+        # Retoma fields
+        "tiene_retoma", "retoma_marca_modelo", "retoma_vin", "retoma_placa",
+        "retoma_valor", "retoma_descripcion",
     }
     update_fields: dict = {k: v for k, v in body.items() if k in EDITABLE and v is not None}
+
+    # Handle boolean tiene_retoma=False explicitly (v is not None but falsy)
+    if "tiene_retoma" in body and body["tiene_retoma"] is False:
+        update_fields["tiene_retoma"] = False
 
     if "plan" in update_fields and update_fields["plan"] in PLAN_CUOTAS:
         update_fields["num_cuotas"] = PLAN_CUOTAS[update_fields["plan"]]
     if "valor_cuota" in update_fields:
         update_fields["cuota_base"] = int(update_fields["valor_cuota"])
         update_fields["cuota_valor"] = int(update_fields["valor_cuota"])
+
+    # Retoma cleanup: if disabling retoma, clear all retoma fields
+    if update_fields.get("tiene_retoma") is False:
+        update_fields["retoma_valor"] = 0
+        update_fields["retoma_marca_modelo"] = None
+        update_fields["retoma_vin"] = None
+        update_fields["retoma_placa"] = None
+        update_fields["retoma_descripcion"] = None
+
+    # Sync retoma_descripcion from retoma_marca_modelo for consistency with Create flow
+    if "retoma_marca_modelo" in update_fields and update_fields["retoma_marca_modelo"]:
+        update_fields["retoma_descripcion"] = update_fields["retoma_marca_modelo"]
 
     if not update_fields:
         raise HTTPException(status_code=400, detail="No hay campos para actualizar")
@@ -809,6 +836,59 @@ async def edit_loan(loan_id: str, body: dict, current_user=Depends(get_current_u
 
     updated = await db.loanbook.find_one({"id": loan_id}, {"_id": 0})
     stats = _compute_stats(updated)
+    updated.update(stats)
+    return updated
+
+
+@router.post("/{loan_id}/cuota-inicial")
+async def registrar_cuota_inicial(loan_id: str, req: CuotaInicialRequest, current_user=Depends(get_current_user)):
+    """Register the initial payment (cuota 0) for a legacy loanbook that doesn't have one yet."""
+    loan = await db.loanbook.find_one({"id": loan_id}, {"_id": 0})
+    if not loan:
+        raise HTTPException(status_code=404, detail="Plan no encontrado")
+
+    # Validate cuota 0 doesn't already exist
+    if any(c.get("numero") == 0 for c in loan.get("cuotas", [])):
+        raise HTTPException(status_code=400, detail="Este loanbook ya tiene cuota inicial")
+
+    cuota_0 = {
+        "numero": 0,
+        "tipo": "inicial",
+        "fecha_vencimiento": req.fecha,
+        "valor": req.valor,
+        "estado": "pagada",
+        "fecha_pago": req.fecha,
+        "valor_pagado": req.valor,
+        "canal_pago": req.metodo_pago,
+        "notas": req.notas or "",
+    }
+
+    extra_set: dict = {
+        "cuota_inicial": req.valor,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    if req.metodo_pago == "retoma" and req.valor_retoma:
+        cuota_0["valor_retoma"] = req.valor_retoma
+        cuota_0["notas"] = f"Retoma: ${req.valor_retoma:,.0f}"
+        extra_set["retoma_valor"] = req.valor_retoma
+
+    await db.loanbook.update_one(
+        {"id": loan_id},
+        {
+            "$push": {"cuotas": {"$each": [cuota_0], "$position": 0}},
+            "$set": extra_set,
+            "$inc": {"num_cuotas_pagadas": 1},
+        },
+    )
+
+    await log_action(current_user, f"/loanbook/{loan_id}/cuota-inicial", "POST", {
+        "valor": req.valor, "metodo_pago": req.metodo_pago,
+    })
+
+    updated = await db.loanbook.find_one({"id": loan_id}, {"_id": 0})
+    stats = _compute_stats(updated)
+    await db.loanbook.update_one({"id": loan_id}, {"$set": stats})
     updated.update(stats)
     return updated
 
