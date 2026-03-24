@@ -24,7 +24,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 ### Phase 1: Contador Core
 **Goal**: Los bugs criticos que corrompen silenciosamente la contabilidad estan eliminados y el Agente Contador opera sobre una base correcta
 **Depends on**: Nothing (first phase)
-**Requirements**: CONT-01, CONT-02, CONT-03, CONT-04, CONT-05
+**Requirements**: CONT-00, CONT-01, CONT-02, CONT-03, CONT-04, CONT-05
 **Success Criteria** (what must be TRUE):
   1. El extracto bancario procesa proveedores correctamente y activa las 30+ reglas de clasificacion que estaban deshabilitadas
   2. ai_chat.py ha sido descompuesto en modulos (contador_agent.py, context_builder.py, file_parser.py, prompt_templates.py) y el sistema funciona identicamente

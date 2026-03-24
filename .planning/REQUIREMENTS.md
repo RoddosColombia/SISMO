@@ -9,6 +9,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Contador Agent (Accounting Automation)
 
+- [ ] **CONT-00**: Mandato estrategico — cobertura total de flujos contables RODDOS hacia Alegra: toda operacion de ingresos, egresos, movimientos bancarios y analisis definida en Flujos_contables_Roddos.svg debe tener un path automatizado hacia Alegra a traves del Agente Contador. Criterio de exito: los 32 flujos del SVG tienen estado Funcional. Alegra es el libro legal; SISMO es el cerebro operativo.
 - [ ] **CONT-01**: Fix proveedor extraction en bank_reconciliation.py para activar 30+ reglas de clasificacion
 - [ ] **CONT-02**: Decomposicion de ai_chat.py (5,217 lineas) en modulos: contador_agent.py, context_builder.py, file_parser.py, prompt_templates.py
 - [ ] **CONT-03**: Implementar idempotency keys para todas las operaciones Alegra (contactos, facturas, pagos, recibos)
@@ -96,6 +97,7 @@ Deferred to future release. Tracked but not in current roadmap.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
+| CONT-00 | Phase 1 | Pending |
 | CONT-01 | Phase 1 | Pending |
 | CONT-02 | Phase 1 | Pending |
 | CONT-03 | Phase 1 | Pending |
@@ -129,8 +131,8 @@ Deferred to future release. Tracked but not in current roadmap.
 | INFRA-06 | Phase 6 | Pending |
 
 **Coverage:**
-- v1 requirements: 31 total
-- Mapped to phases: 31
+- v1 requirements: 32 total
+- Mapped to phases: 32
 - Unmapped: 0
 
 ---
