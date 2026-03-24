@@ -344,39 +344,28 @@ async def migrar_loanbooks_legacy(
 ):
     """ADMIN ONLY: Migrate legacy loanbooks (LB-2026-0001 to LB-2026-0010) with incomplete data.
 
-    Fixes:
-    1. Calculate precio_venta from existing cuotas if missing
-    2. Add missing fields with defaults: tipo_id, telefono, placa, motor
-    3. Does NOT modify cuotas or pagos
+    SIMPLIFIED: FORCE update all loanbooks with missing precio_venta or incomplete fields.
     """
     import logging
     logger = logging.getLogger(__name__)
 
     try:
-        # Find loanbooks missing precio_venta or with precio_venta=0
-        query = {
-            "$or": [
-                {"precio_venta": {"$exists": False}},
-                {"precio_venta": 0},
-                {"precio_venta": None}
-            ]
-        }
-        legacy_lbs = await db.loanbook.find(query).to_list(1000)
-        logger.warning(f"[ADMIN] Migration: Found {len(legacy_lbs)} loanbooks with missing precio_venta")
+        # Find loanbooks with codigo starting with LB-2026-00
+        all_lbs = await db.loanbook.find({}).to_list(2000)
+        legacy_lbs = [lb for lb in all_lbs if str(lb.get("codigo", "")).startswith("LB-2026-00")]
+
+        logger.warning(f"[ADMIN] Migration: Found {len(legacy_lbs)} potential legacy loanbooks")
 
         updated_lbs = []
 
         for lb in legacy_lbs:
             updates = {}
             lb_codigo = lb.get("codigo", "UNKNOWN")
-            lb_id = lb.get("id") or lb.get("codigo")  # FIX: Use codigo if id is None/null
 
-            # 1. Calculate precio_venta from ACTUAL cuotas if missing
+            # 1. ALWAYS calculate precio_venta from cuotas if price is 0/null
             if not lb.get("precio_venta") or lb.get("precio_venta") == 0:
                 cuotas = lb.get("cuotas", [])
                 cuota_inicial = lb.get("cuota_inicial", 0)
-
-                # Count actual cuotas (numero > 0) and get valor from first one
                 cuotas_ordinarias = [c for c in cuotas if c.get("numero", 0) > 0]
 
                 if cuotas_ordinarias:
@@ -386,44 +375,35 @@ async def migrar_loanbooks_legacy(
                     updates["precio_venta"] = precio_venta
                     updates["num_cuotas"] = num_cuotas
                     updates["valor_cuota"] = valor_cuota
-                    logger.warning(f"[ADMIN] {lb_codigo}: Calculated precio_venta = {precio_venta} ({num_cuotas} cuotas × {valor_cuota} + {cuota_inicial})")
 
-            # 2. Add missing fields with defaults
-            if "tipo_id" not in lb or not lb.get("tipo_id"):
-                updates["tipo_id"] = "CC"
-            if "cliente_telefono" not in lb:
-                updates["cliente_telefono"] = ""
-            if "moto_placa" not in lb:
-                updates["moto_placa"] = ""
-            if "moto_motor" not in lb:
-                updates["moto_motor"] = ""
+            # 2. ALWAYS set missing fields (even if they exist but empty)
+            updates["tipo_id"] = lb.get("tipo_id") or "CC"
+            updates["cliente_telefono"] = lb.get("cliente_telefono") or ""
+            updates["moto_placa"] = lb.get("moto_placa") or ""
+            updates["moto_motor"] = lb.get("moto_motor") or ""
 
-            # Update document if there are changes
-            if updates:
-                # Use id if it's a UUID (newer), otherwise use codigo (legacy)
-                is_uuid = lb_id and lb_id != lb_codigo and '-' in str(lb_id)
-                query = {"id": lb_id} if is_uuid else {"codigo": lb_codigo}
-                result = await db.loanbook.update_one(
-                    query,
-                    {"$set": updates}
-                )
-                if result.modified_count > 0:
-                    logger.warning(f"[ADMIN] {lb_codigo}: Updated {len(updates)} fields via {list(query.keys())[0]}")
-                    updated_lbs.append({
-                        "codigo": lb_codigo,
-                        "id": lb_id if lb_id != "UNKNOWN" else None,
-                        "precio_venta_calculado": updates.get("precio_venta", lb.get("precio_venta")),
-                        "campos_agregados": list(updates.keys())
-                    })
+            # 3. ALWAYS update by codigo (legacy loanbooks don't have reliable id)
+            result = await db.loanbook.update_one(
+                {"codigo": lb_codigo},
+                {"$set": updates}
+            )
 
-        logger.warning(f"[ADMIN] Migration complete: {len(updated_lbs)} loanbooks updated")
+            if result.matched_count > 0:
+                logger.warning(f"[ADMIN] {lb_codigo}: Updated {len(updates)} fields (matched={result.matched_count}, modified={result.modified_count})")
+                updated_lbs.append({
+                    "codigo": lb_codigo,
+                    "precio_venta_calculado": updates.get("precio_venta", lb.get("precio_venta")),
+                    "campos_agregados": list(updates.keys())
+                })
+
+        logger.warning(f"[ADMIN] Migration complete: {len(updated_lbs)}/{len(legacy_lbs)} processed")
 
         return {
             "status": "success",
             "total_found": len(legacy_lbs),
             "updated": len(updated_lbs),
             "updated_loanbooks": updated_lbs,
-            "message": f"✅ Migración completada. {len(updated_lbs)} loanbooks actualizados."
+            "message": f"Migración completada. {len(updated_lbs)} loanbooks procesados."
         }
 
     except Exception as e:
