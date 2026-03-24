@@ -287,14 +287,17 @@ CATALOGO_DEFAULT = [
 
 @router.get("/catalogo-planes")
 async def get_catalogo_planes(current_user=Depends(get_current_user)):
-    """Return plan catalog from MongoDB. Seeds/updates default values if missing fields."""
+    """Return plan catalog from MongoDB. Upserts default values if missing — never deletes existing."""
     planes = await db.catalogo_planes.find({}, {"_id": 0}).to_list(20)
-    # Re-seed if empty or old format (missing modelos field)
-    needs_reseed = not planes or (planes and not any(p.get("modelos") for p in planes))
-    if needs_reseed:
-        await db.catalogo_planes.delete_many({})
+    # Upsert missing or outdated plans (never delete existing data)
+    needs_seed = not planes or not any(p.get("modelos") for p in planes)
+    if needs_seed:
         for p in CATALOGO_DEFAULT:
-            await db.catalogo_planes.insert_one({**p})
+            await db.catalogo_planes.update_one(
+                {"plan": p["plan"]},
+                {"$set": p},
+                upsert=True,
+            )
         planes = await db.catalogo_planes.find({}, {"_id": 0}).to_list(20)
     return planes
 
