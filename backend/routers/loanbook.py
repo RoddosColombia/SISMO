@@ -844,7 +844,7 @@ async def edit_loan(loan_id: str, body: dict, current_user=Depends(get_current_u
     EDITABLE = {
         "cliente_nombre", "cliente_nit", "tipo_identificacion", "cliente_telefono",
         "moto_descripcion", "moto_chasis", "motor", "placa",
-        "plan", "modo_pago", "valor_cuota", "fecha_factura",
+        "plan", "modo_pago", "valor_cuota", "fecha_factura", "fecha_primer_pago",
         "numero_factura_alegra",  # Optional Alegra invoice number
         # Retoma fields
         "tiene_retoma", "retoma_marca_modelo", "retoma_vin", "retoma_placa",
