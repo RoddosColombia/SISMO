@@ -182,22 +182,19 @@ class CuotaInicialRequest(BaseModel):
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _first_wednesday(fecha_entrega: date) -> date:
-    """Return the first Wednesday >= (fecha_entrega + 7 days).
+    """Miércoles de la semana SIGUIENTE a la semana de entrega.
 
-    Rule per RODDOS: 'fecha_entrega + 7 days → miércoles de esa semana'.
-    - If target (fecha_entrega+7) is Mon or Tue → advance to Wednesday of same week.
-    - If target is Wednesday → use it.
-    - If target is Thu/Fri/Sat/Sun → advance to Wednesday of NEXT week.
-    All RODDOS installments fall on Wednesdays without exception.
+    Regla RODDOS: primer cobro = miércoles de la próxima semana calendario.
+    Ejemplo: entrega jueves 5/mar (semana 2-8 mar)
+    → siguiente semana = 9-15 mar → miércoles 11/mar.
     """
-    target = fecha_entrega + timedelta(days=7)
-    wd = target.weekday()  # 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat, 6=Sun
-    if wd == 2:
-        return target
-    elif wd < 2:          # Mon/Tue → Wednesday same week
-        return target + timedelta(days=2 - wd)
-    else:                 # Thu/Fri/Sat/Sun → Wednesday next week
-        return target + timedelta(days=9 - wd)
+    # Ir al lunes de la semana siguiente
+    dias_hasta_lunes = (7 - fecha_entrega.weekday()) % 7
+    if dias_hasta_lunes == 0:
+        dias_hasta_lunes = 7  # si es lunes, ir al lunes siguiente
+    lunes_siguiente = fecha_entrega + timedelta(days=dias_hasta_lunes)
+    # Miércoles de esa semana = lunes + 2
+    return lunes_siguiente + timedelta(days=2)
 
 
 def _update_overdue(cuotas: list, mora_diaria: int = 2000) -> list:
