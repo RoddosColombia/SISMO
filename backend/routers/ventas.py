@@ -222,6 +222,10 @@ class CrearFacturaVentaRequest(BaseModel):
     modo_pago: str  # semanal | quincenal | mensual
     fecha_venta: Optional[str] = None
     tipo_identificacion: Optional[str] = None  # CC | CE | PPT | PP; defaults to CC
+    incluir_soat: Optional[bool] = False
+    incluir_matricula: Optional[bool] = False
+    incluir_gps: Optional[bool] = False
+    moto_modelo_key: Optional[str] = None  # raider_125 | sport_100 (for SOAT lookup)
 
 
 @router.post("/crear-factura")
@@ -387,6 +391,34 @@ async def crear_factura_venta(
                 raise HTTPException(status_code=500, detail="No se pudo crear producto en Alegra")
             logger.info(f"[F6] Producto creado en Alegra: ID {product_id}")
 
+        # ── BUILD OPTIONAL SERVICE ITEMS ─────────────────────────────────────────
+        extra_items = []
+        if payload.incluir_soat or payload.incluir_matricula or payload.incluir_gps:
+            catalogo = {}
+            async for svc in db.catalogo_servicios.find({}):
+                catalogo[svc["tipo"]] = svc
+
+            if payload.incluir_soat and "soat" in catalogo:
+                soat = catalogo["soat"]
+                modelo_key = (payload.moto_modelo_key or "raider_125").lower().replace(" ", "_")
+                soat_valor = soat.get("valores", {}).get(modelo_key, soat.get("valores", {}).get("raider_125", 0))
+                if soat_valor:
+                    extra_items.append({"name": "SOAT", "description": "Seguro Obligatorio SOAT", "price": soat_valor, "quantity": 1})
+
+            if payload.incluir_matricula and "matricula" in catalogo:
+                mat = catalogo["matricula"]
+                extra_items.append({"name": "Matrícula y trámites", "description": "Trámites de matrícula", "price": mat.get("valor", 296700), "quantity": 1})
+
+            if payload.incluir_gps and "gps" in catalogo:
+                gps = catalogo["gps"]
+                gps_item = {"name": "Instalación GPS", "description": "GPS rastreo satelital", "price": gps.get("valor_total", 82800), "quantity": 1}
+                if gps.get("incluye_iva") and tax_id:
+                    gps_item["tax"] = [{"id": tax_id, "percentage": 19}]
+                    gps_item["price"] = gps.get("valor_base", 69580)
+                extra_items.append(gps_item)
+
+            logger.info(f"[F6] Servicios adicionales: {len(extra_items)} items")
+
         # ── CREATE INVOICE in Alegra ──────────────────────────────────────────────
         fecha_venta = payload.fecha_venta or datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
@@ -412,11 +444,12 @@ async def crear_factura_venta(
             due_date = future_date.strftime("%Y-%m-%d")
             payment_form = "CREDIT"
 
+        all_items = [item] + extra_items
         invoice_payload = {
             "date": fecha_venta,
             "dueDate": due_date,
             "client": {"id": client_id},
-            "items": [item],
+            "items": all_items,
             "paymentForm": payment_form,
             "observations": f"Venta a {payload.cliente_nombre}. Plan {payload.plan} - VIN: {payload.moto_chasis}"
         }

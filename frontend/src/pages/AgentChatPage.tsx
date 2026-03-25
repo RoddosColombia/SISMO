@@ -1263,7 +1263,7 @@ export default function AgentChatPage() {
   const [docTypeHint, setDocTypeHint] = useState("auto");
   const [tareaActiva, setTareaActiva] = useState<TareaActiva | null>(null);
 
-  const sessionId = useRef(`chat-main-${user?.id || "guest"}`).current;
+  const [sessionId, setSessionId] = useState(() => `chat-main-${user?.id || "guest"}-${Date.now()}`);
   const messagesRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1643,7 +1643,8 @@ export default function AgentChatPage() {
   const clearChat = async () => {
     try {
       await api.delete(`/chat/history/${sessionId}`);
-      setMessages([{ role: "assistant", content: "Historial borrado. ¿En qué te puedo ayudar?", timestamp: new Date().toISOString() }]);
+      setSessionId(`chat-main-${user?.id || "guest"}-${Date.now()}`);
+      setMessages([{ role: "assistant", content: "Nueva conversación. ¿En qué te puedo ayudar?", timestamp: new Date().toISOString() }]);
       setPendingAction(null); setDocumentProposal(null);
     } catch { toast.error("Error al borrar historial"); }
   };

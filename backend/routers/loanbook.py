@@ -395,10 +395,10 @@ CATALOGO_SERVICIOS_DEFAULT = [
     {
         "tipo": "gps",
         "nombre": "Instalación GPS",
-        "incluye_iva": False,
+        "incluye_iva": True,
         "valor_base": 69580,
-        "iva": 0,
-        "valor_total": 69580,
+        "iva": 13220,
+        "valor_total": 82800,
         "opcional": True,
     },
 ]

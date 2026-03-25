@@ -288,10 +288,18 @@ Cuando el usuario VENDE una MOTO, ejecuta automáticamente:
        "cuota_inicial": 1500000,
        "valor_cuota": 192307.69,
        "modo_pago": "semanal",
-       "fecha_venta": "2026-03-22"
+       "fecha_venta": "2026-03-22",
+       "tipo_identificacion": "CC",
+       "incluir_soat": true,
+       "incluir_matricula": true,
+       "incluir_gps": true,
+       "moto_modelo_key": "raider_125"
      }
    }
    </action>
+   Campos opcionales: incluir_soat, incluir_matricula, incluir_gps (booleans).
+   moto_modelo_key: "raider_125" o "sport_100" (para valor del SOAT).
+   Los valores se toman de catalogo_servicios en MongoDB.
 
 5. RESPUESTA ESPERADA (si todo OK):
    {
