@@ -937,6 +937,9 @@ async def registrar_cuota_inicial(loan_id: str, req: CuotaInicialRequest, curren
     })
 
     updated = await db.loanbook.find_one(_mongo_filter(loan))
+    if not updated.get("id"):
+        updated["id"] = updated.get("codigo") or str(updated["_id"])
+    updated.pop("_id", None)
     stats = _compute_stats(updated)
     await db.loanbook.update_one(_mongo_filter(loan), {"$set": stats})
     updated.update(stats)
