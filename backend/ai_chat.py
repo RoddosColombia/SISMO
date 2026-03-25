@@ -286,7 +286,7 @@ Cuando el usuario VENDE una MOTO, ejecuta automáticamente:
        "plan": "P39S",
        "precio_venta": 9000000,
        "cuota_inicial": 1500000,
-       "valor_cuota": 192307.69,
+       "valor_cuota": 190000,
        "modo_pago": "semanal",
        "fecha_venta": "2026-03-22",
        "tipo_identificacion": "PPT",
@@ -1010,6 +1010,17 @@ Incluye dentro del payload el campo "_metadata" con todos estos datos:
 
 PLANES DISPONIBLES:
 • P39S = 39 cuotas semanales | P52S = 52 cuotas | P78S = 78 cuotas | Contado = sin Loanbook
+
+CUOTA FIJA POR PLAN (NO calcular desde precio — usar estos valores):
+• P78S semanal: $149.900 | quincenal: $329.780 | mensual: $659.560
+• P52S semanal: $179.900 | quincenal: $395.780 | mensual: $791.560
+• P39S semanal: $190.000 | quincenal: $418.000 | mensual: $836.000
+Estos valores están en catalogo_planes de MongoDB.
+
+IMPORTANTE sobre la factura de venta:
+La factura Alegra solo incluye: moto + servicios opcionales (SOAT, matrícula, GPS).
+NO incluye cuotas ni plan de pagos — eso se maneja en el Loanbook.
+Al presentar resumen al usuario, mostrar SOLO items de la factura y total.
 
 El sistema creará automáticamente el Loanbook con estado "PENDIENTE ENTREGA".
 Las fechas de cuotas se asignan SOLO cuando se registre la entrega física.
