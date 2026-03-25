@@ -378,6 +378,9 @@ async def get_daily_collection_queue(db) -> list[dict]:
 
     queue: list[dict] = []
     for loan in loans:
+        # Synthesize id for legacy docs
+        if not loan.get("id"):
+            loan["id"] = loan.get("codigo") or ""
         for cuota in loan.get("cuotas", []):
             fv           = cuota.get("fecha_vencimiento", "")
             estado_cuota = cuota.get("estado", "")
