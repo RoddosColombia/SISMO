@@ -377,6 +377,59 @@ async def reset_catalogo_planes(
         raise HTTPException(status_code=500, detail=f"Reset failed: {str(e)}")
 
 
+CATALOGO_SERVICIOS_DEFAULT = [
+    {
+        "tipo": "soat",
+        "nombre": "SOAT",
+        "incluye_iva": False,
+        "valores": {"raider_125": 363300, "sport_100": 276200},
+        "opcional": True,
+    },
+    {
+        "tipo": "matricula",
+        "nombre": "Matrícula y trámites",
+        "incluye_iva": False,
+        "valor": 225567,
+        "opcional": True,
+    },
+    {
+        "tipo": "gps",
+        "nombre": "Instalación GPS",
+        "incluye_iva": True,
+        "valor_base": 60000,
+        "iva": 11400,
+        "valor_total": 71400,
+        "opcional": True,
+    },
+]
+
+
+@router.post("/admin/seed-catalogo-servicios")
+async def seed_catalogo_servicios(current_user=Depends(require_admin)):
+    """ADMIN: Upsert catalogo_servicios with default service definitions."""
+    import logging
+    logger = logging.getLogger(__name__)
+    upserted = 0
+    for svc in CATALOGO_SERVICIOS_DEFAULT:
+        result = await db.catalogo_servicios.update_one(
+            {"tipo": svc["tipo"]},
+            {"$set": svc},
+            upsert=True,
+        )
+        if result.upserted_id or result.modified_count:
+            upserted += 1
+        logger.info(f"[ADMIN] Upserted servicio {svc['tipo']}")
+    total = await db.catalogo_servicios.count_documents({})
+    return {"status": "success", "upserted": upserted, "total": total}
+
+
+@router.get("/catalogo-servicios")
+async def get_catalogo_servicios(current_user=Depends(get_current_user)):
+    """Return all service definitions from catalogo_servicios."""
+    servicios = await db.catalogo_servicios.find({}, {"_id": 0}).to_list(50)
+    return servicios
+
+
 @router.post("/admin/fix-primer-cobro")
 async def fix_primer_cobro(body: dict, current_user=Depends(require_admin)):
     """ADMIN: Set fecha_primer_pago, revert fake payments, and recalculate.
