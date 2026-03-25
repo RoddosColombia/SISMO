@@ -425,6 +425,29 @@ async def crear_factura_venta(
 
             logger.info(f"[F6] Servicios adicionales: {len(extra_items)} items")
 
+        # ── RESOLVER CUOTA DESDE CATÁLOGO (NUNCA del payload del LLM) ──────────
+        from utils.loanbook_constants import calcular_cuota_valor
+
+        plan_cuotas_base = {"P39S": 210000, "P52S": 179900, "P78S": 149900}
+        cuotas_por_plan = {"P39S": 39, "P52S": 52, "P78S": 78}
+
+        # Leer del catálogo MongoDB primero, fallback a constantes
+        cat_plan = await db.catalogo_planes.find_one({"plan": payload.plan})
+        if cat_plan and cat_plan.get("cuota_semanal"):
+            cuota_base = int(cat_plan["cuota_semanal"])
+        else:
+            cuota_base = plan_cuotas_base.get(payload.plan, 0)
+
+        # Calcular cuota según modo_pago con multiplicador correcto
+        valor_cuota_real = calcular_cuota_valor(cuota_base, payload.modo_pago)
+        num_cuotas_real = cuotas_por_plan.get(payload.plan, 0)
+        cartera_real = valor_cuota_real * num_cuotas_real
+
+        # Sobrescribir payload — el LLM no puede interferir desde aquí
+        payload.valor_cuota = valor_cuota_real
+        logger.info(f"[F6] Cuota resuelta del catálogo: {valor_cuota_real} ({payload.plan} {payload.modo_pago})")
+        # ────────────────────────────────────────────────────────────────────────
+
         # ── CREATE INVOICE in Alegra ──────────────────────────────────────────────
         fecha_venta = payload.fecha_venta or datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
@@ -545,7 +568,8 @@ async def crear_factura_venta(
             "fecha_entrega": None,  # Set only during physical delivery registration
             "precio_venta": payload.precio_venta,
             "cuota_inicial": payload.cuota_inicial,
-            "valor_cuota": payload.valor_cuota,
+            "valor_cuota": valor_cuota_real,
+            "cartera_generada": cartera_real,
             "modo_pago": payload.modo_pago,
             "factura_alegra_id": invoice_id,
             "factura_numero": invoice_number,
