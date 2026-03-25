@@ -299,6 +299,10 @@ Cuando el usuario VENDE una MOTO, ejecuta automáticamente:
      }
    }
    </action>
+   Al mostrar datos del cliente en el resumen usa SIEMPRE este formato:
+   "Documento: [tipo_identificacion] [cliente_nit]"
+   Ejemplo: "Documento: PPT 4650762"
+   NUNCA escribir "CC/NIT:" como etiqueta genérica.
    CAMPO OBLIGATORIO: tipo_identificacion — NUNCA asumir CC por defecto.
    Valores válidos: CC, PPT, CE, PAS, NIT, TI.
    Si el usuario dice "PPT: 4650762", tipo_identificacion="PPT", cliente_nit="4650762".
