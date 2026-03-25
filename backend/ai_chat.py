@@ -289,7 +289,7 @@ Cuando el usuario VENDE una MOTO, ejecuta automáticamente:
        "valor_cuota": 192307.69,
        "modo_pago": "semanal",
        "fecha_venta": "2026-03-22",
-       "tipo_identificacion": "CC",
+       "tipo_identificacion": "PPT",
        "incluir_soat": true,
        "incluir_matricula": true,
        "incluir_gps": true,
@@ -297,6 +297,10 @@ Cuando el usuario VENDE una MOTO, ejecuta automáticamente:
      }
    }
    </action>
+   CAMPO OBLIGATORIO: tipo_identificacion — NUNCA asumir CC por defecto.
+   Valores válidos: CC, PPT, CE, PAS, NIT, TI.
+   Si el usuario dice "PPT: 4650762", tipo_identificacion="PPT", cliente_nit="4650762".
+   Si el usuario NO especifica tipo, PREGUNTAR antes de generar la acción.
    Campos opcionales: incluir_soat, incluir_matricula, incluir_gps (booleans).
    moto_modelo_key: "raider_125" o "sport_100" (para valor del SOAT).
    Los valores se toman de catalogo_servicios en MongoDB.

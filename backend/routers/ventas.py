@@ -289,25 +289,31 @@ async def crear_factura_venta(
         service = AlegraService(db)
 
         # ── Determine identification type ────────────────────────────────────────────
+        VALID_TIPOS_ALEGRA = {"CC", "CE", "PPT", "PAS", "NIT", "TI", "PP"}
         tipo_id_map = {
             "colombiano": "CC",
             "extranjero_venezolano": "PPT",
             "extranjero_otro": "CE",
-            "pasaporte": "PP"
+            "pasaporte": "PAS",
         }
 
-        # Use provided tipo_identificacion, map if needed, default to CC
-        tipo_id_alegra = "CC"  # Default
-        if payload.tipo_identificacion:
-            # Check if it's a mapping key or direct Alegra type
-            if payload.tipo_identificacion.lower() in tipo_id_map:
-                tipo_id_alegra = tipo_id_map[payload.tipo_identificacion.lower()]
-            elif payload.tipo_identificacion.upper() in ["CC", "CE", "PPT", "PP", "NIT"]:
-                tipo_id_alegra = payload.tipo_identificacion.upper()
-            else:
-                # Invalid type, log warning and use default
-                logger.warning(f"[F6] Tipo de ID no reconocido: {payload.tipo_identificacion}, usando CC por defecto")
-                tipo_id_alegra = "CC"
+        # tipo_identificacion is required — never assume CC
+        if not payload.tipo_identificacion:
+            raise HTTPException(
+                status_code=400,
+                detail="tipo_identificacion es obligatorio (CC, PPT, CE, PAS, NIT, TI)"
+            )
+
+        raw_tipo = payload.tipo_identificacion.strip()
+        if raw_tipo.upper() in VALID_TIPOS_ALEGRA:
+            tipo_id_alegra = raw_tipo.upper()
+        elif raw_tipo.lower() in tipo_id_map:
+            tipo_id_alegra = tipo_id_map[raw_tipo.lower()]
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Tipo de ID '{raw_tipo}' no válido. Usar: CC, PPT, CE, PAS, NIT, TI"
+            )
 
         logger.info(f"[F6] Tipo de identificación: {tipo_id_alegra}")
 
