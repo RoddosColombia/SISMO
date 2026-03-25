@@ -138,7 +138,9 @@ def _detectar_identificacion(msg: str) -> str | None:
     m = _ID_PATTERN.search(msg)
     return m.group(1) if m else None
 
-AGENT_SYSTEM_PROMPT = """Eres el Agente Contable IA de RODDOS Colombia — actúas como un contador experto en NIIF Colombia.
+AGENT_SYSTEM_PROMPT = """REGLA INVIOLABLE ROG-1: NUNCA reportar exito sin incluir el ID real de Alegra (journal_id, factura_numero, o loanbook_id) en tu respuesta. Si el resultado no tiene un ID real, reporta el error exacto.
+
+Eres el Agente Contable IA de RODDOS Colombia — actúas como un contador experto en NIIF Colombia.
 Tienes acceso DIRECTO a Alegra ERP y EJECUTAS acciones reales, no solo sugieres.
 
 DATOS DE CONTEXTO ALEGRA (actualizados al inicio de cada mensaje):
@@ -3996,12 +3998,14 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
             f"cliente {payload.get('cliente_nombre')}, plan {payload.get('plan')}"
         )
 
-        # Call the /ventas/crear-factura endpoint directly
+        # Call internal router function directly (per D1: import directo, not HTTP)
         try:
-            # The endpoint is POST /api/ventas/crear-factura, but via service it's just /ventas/crear-factura
-            result = await service.request("ventas/crear-factura", "POST", payload)
+            from routers.ventas import crear_factura_venta as _crear_factura, CrearFacturaVentaRequest
+            req_obj = CrearFacturaVentaRequest(**payload)
+            result = await _crear_factura(req_obj, current_user=user)
+            result = dict(result) if not isinstance(result, dict) else result
         except Exception as e:
-            logger.error(f"[F6] POST a /ventas/crear-factura falló: {str(e)}")
+            logger.error(f"[F6] crear_factura_venta falló: {str(e)}")
             return {
                 "success": False,
                 "error": f"❌ Error al crear factura venta: {str(e)}"
@@ -4058,11 +4062,19 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
             f"monto ${payload.get('monto_pago')}"
         )
 
-        # Call the /cartera/registrar-pago endpoint directly
+        # Call internal router function directly (per D1: import directo, not HTTP)
         try:
-            result = await service.request("cartera/registrar-pago", "POST", payload)
+            from routers.cartera import registrar_pago_cartera as _registrar_pago, RegistrarPagoRequest
+            req_obj = RegistrarPagoRequest(**payload)
+            result = await _registrar_pago(req_obj, current_user=user)
+            result = dict(result) if not isinstance(result, dict) else result
         except Exception as e:
-            logger.error(f"[F7] POST a /cartera/registrar-pago falló: {str(e)}")
+            logger.error(f"[F7] registrar_pago_cartera falló: {str(e)}")
+            if "409" in str(e) or "ya registrad" in str(e):
+                return {
+                    "success": False,
+                    "error": f"⚠️ Pago ya registrado en el sistema"
+                }
             return {
                 "success": False,
                 "error": f"❌ Error registrando pago: {str(e)}"
@@ -4127,12 +4139,22 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
             f"{len(payload.get('empleados', []))} empleados"
         )
 
-        # Call the /nomina/registrar endpoint directly
+        # Call internal router function directly (per D1: import directo, not HTTP)
         try:
-            result = await service.request("nomina/registrar", "POST", payload)
+            from routers.nomina import registrar_nomina as _registrar_nomina, RegistrarNominaRequest, Empleado
+            # Convert raw empleados dicts to Empleado objects
+            empleados_raw = payload.get("empleados", [])
+            empleados_typed = [Empleado(**e) if isinstance(e, dict) else e for e in empleados_raw]
+            req_obj = RegistrarNominaRequest(
+                mes=payload["mes"],
+                empleados=empleados_typed,
+                banco_pago=payload.get("banco_pago", "Bancolombia"),
+                observaciones=payload.get("observaciones")
+            )
+            result = await _registrar_nomina(req_obj, current_user=user)
+            result = dict(result) if not isinstance(result, dict) else result
         except Exception as e:
-            logger.error(f"[F4] POST a /nomina/registrar falló: {str(e)}")
-            # Check if it's a 409 (duplicate)
+            logger.error(f"[F4] registrar_nomina falló: {str(e)}")
             if "409" in str(e) or "ya registrada" in str(e):
                 return {
                     "success": False,
@@ -4299,10 +4321,14 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
             f"${payload.get('monto'):,.0f}"
         )
 
+        # Call internal router function directly (per D1: import directo, not HTTP)
         try:
-            result = await service.request("ingresos/no-operacional", "POST", payload)
+            from routers.ingresos import registrar_ingreso_no_operacional as _registrar_ingreso, RegistrarIngresoNoOperacionalRequest
+            req_obj = RegistrarIngresoNoOperacionalRequest(**payload)
+            result = await _registrar_ingreso(req_obj, current_user=user)
+            result = dict(result) if not isinstance(result, dict) else result
         except Exception as e:
-            logger.error(f"[F9] POST /ingresos/no-operacional falló: {str(e)}")
+            logger.error(f"[F9] registrar_ingreso_no_operacional falló: {str(e)}")
             return {
                 "success": False,
                 "error": f"❌ Error registrando ingreso: {str(e)}"
