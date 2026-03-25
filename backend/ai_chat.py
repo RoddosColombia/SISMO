@@ -3047,6 +3047,61 @@ async def process_chat(
         )
 
 
+    # ── MODULE VIN-ENRICH: Inyectar datos reales de MongoDB cuando hay VIN ────
+    import re as _re_vin
+    _vin_match = _re_vin.search(r'\b[A-HJ-NPR-Z0-9]{17}\b', user_message.upper())
+    if _vin_match:
+        _vin_detected = _vin_match.group()
+        try:
+            _moto_doc = await db.inventario_motos.find_one({"chasis": _vin_detected})
+            _planes_docs = await db.catalogo_planes.find({}).to_list(10)
+            _servicios_docs = await db.catalogo_servicios.find({}).to_list(10)
+
+            _enrich_lines = [
+                "\n═══════════════════════════════════════════════════",
+                "DATOS REALES DE MONGODB — USAR EXACTAMENTE ESTOS VALORES:",
+                "═══════════════════════════════════════════════════",
+            ]
+
+            if _moto_doc:
+                _enrich_lines.append(
+                    f"Moto VIN {_vin_detected}: {_moto_doc.get('version', '?')} {_moto_doc.get('color', '?')}, "
+                    f"precio ${_moto_doc.get('precio_venta', 0):,.0f}"
+                )
+
+            # Cuotas desde catálogo
+            _cuotas_fallback = {"P78S": 149900, "P52S": 179900, "P39S": 210000}
+            for _cp in _planes_docs:
+                _plan_code = _cp.get("plan", "")
+                _cuota_sem = _cp.get("cuota_semanal", _cuotas_fallback.get(_plan_code, 0))
+                if _plan_code and _cuota_sem:
+                    _cuotas_fallback[_plan_code] = int(_cuota_sem)
+            for _pk, _pv in _cuotas_fallback.items():
+                _enrich_lines.append(f"Cuota {_pk} semanal: ${_pv:,}")
+
+            # Servicios adicionales
+            for _svc in _servicios_docs:
+                _svc_nombre = _svc.get("nombre", _svc.get("tipo", ""))
+                if "soat" in _svc_nombre.lower():
+                    _vals = _svc.get("valores", {})
+                    _enrich_lines.append(
+                        f"SOAT Raider: ${_vals.get('raider_125', 0):,.0f} | "
+                        f"Sport: ${_vals.get('sport_100', 0):,.0f}"
+                    )
+                elif "matrícula" in _svc_nombre.lower() or "matricula" in _svc_nombre.lower():
+                    _enrich_lines.append(f"Matrícula: ${_svc.get('valor', 0):,.0f}")
+                elif "gps" in _svc_nombre.lower():
+                    _enrich_lines.append(f"GPS total: ${_svc.get('valor_total', 0):,.0f}")
+
+            _enrich_lines.append("PROHIBIDO calcular o estimar cualquier valor que aparezca aquí.")
+            _enrich_lines.append("═══════════════════════════════════════════════════")
+
+            system_prompt += "\n" + "\n".join(_enrich_lines)
+            logger.info(f"[VIN-ENRICH] Inyectados datos reales para VIN {_vin_detected}")
+        except Exception as _e_vin:
+            logger.warning(f"[VIN-ENRICH] Error consultando MongoDB para VIN {_vin_detected}: {_e_vin}")
+    # ────────────────────────────────────────────────────────────────────────────
+
     # ── MEJORA 4: Comandos especiales de contexto ─────────────────────────────
     msg_lower_cmd = user_message.lower().strip()
 
