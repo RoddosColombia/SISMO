@@ -377,6 +377,50 @@ async def reset_catalogo_planes(
         raise HTTPException(status_code=500, detail=f"Reset failed: {str(e)}")
 
 
+@router.post("/admin/fix-primer-cobro")
+async def fix_primer_cobro(body: dict, current_user=Depends(require_admin)):
+    """ADMIN: Set fecha_primer_pago, revert fake payments, and recalculate.
+
+    Body: {"updates": [{"codigo": "LB-2026-0001", "primer_cobro": "2026-03-11",
+                         "revert_cuotas": ["2026-03-25"]}]}
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    results = []
+    for item in body.get("updates", []):
+        codigo = item["codigo"]
+        primer = item.get("primer_cobro")
+        revert_dates = set(item.get("revert_cuotas", []))
+
+        loan = await db.loanbook.find_one({"codigo": codigo})
+        if not loan:
+            results.append({"codigo": codigo, "status": "not_found"})
+            continue
+
+        update: dict = {}
+        if primer:
+            update["fecha_primer_pago"] = primer
+
+        cuotas = loan.get("cuotas", [])
+        reverted = 0
+        for c in cuotas:
+            fv = c.get("fecha_vencimiento", "")
+            if fv in revert_dates and c.get("estado") == "pagada":
+                c["estado"] = "pendiente"
+                c.pop("fecha_pago", None)
+                c.pop("metodo_pago", None)
+                c.pop("valor_pagado", None)
+                reverted += 1
+
+        update["cuotas"] = cuotas
+        update["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await db.loanbook.update_one({"_id": loan["_id"]}, {"$set": update})
+        results.append({"codigo": codigo, "primer_cobro": primer, "reverted": reverted})
+        logger.warning(f"[ADMIN] fix-primer-cobro {codigo}: primer={primer} reverted={reverted}")
+
+    return {"results": results}
+
+
 @router.post("/admin/migrar-loanbooks-legacy")
 async def migrar_loanbooks_legacy(
     current_user=Depends(require_admin),
