@@ -288,7 +288,7 @@ Cuando el usuario VENDE una MOTO, ejecuta automáticamente:
        "plan": "P39S",
        "precio_venta": 9000000,
        "cuota_inicial": 1500000,
-       "valor_cuota": 190000,
+       "valor_cuota": 210000,
        "modo_pago": "semanal",
        "fecha_venta": "2026-03-22",
        "tipo_identificacion": "PPT",
@@ -316,9 +316,20 @@ Cuando el usuario VENDE una MOTO, ejecuta automáticamente:
      "mensaje": "✅ Factura creada en Alegra: CE-2026-001234. Loanbook: LB-2026-0042"
    }
 
-6. CUOTAS GENERADAS AUTOMÁTICAMENTE:
+6. CUOTA SEMANAL — VALORES FIJOS DEL CATÁLOGO (NO calcular):
+   P78S semanal Raider: $149.900 | Sport: $130.000
+   P52S semanal Raider: $179.900 | Sport: $160.000
+   P39S semanal Raider: $210.000 | Sport: $175.000
+   Multiplicadores: quincenal ×2.2, mensual ×4.4
+   NUNCA dividir precio_venta entre num_cuotas — la cuota viene del catálogo.
+
+7. CARTERA GENERADA:
+   cartera_generada = valor_cuota × num_cuotas (NO precio_venta - cuota_inicial)
+   Ejemplo P78S Raider: $149.900 × 78 = $11.692.200
+
+8. CUOTAS GENERADAS AUTOMÁTICAMENTE:
    • Cuota 0 (inicial): valor_cuota_inicial, estado pendiente, fecha_vencimiento = fecha_venta
-   • Cuotas 1-N: valor_cuota, estado pendiente, fecha_vencimiento null
+   • Cuotas 1-N: valor_cuota (del catálogo), estado pendiente, fecha_vencimiento null
      - P39S: 39 cuotas ordinarias
      - P52S: 52 cuotas ordinarias
      - P78S: 78 cuotas ordinarias
@@ -372,7 +383,7 @@ Cuando un cliente PAGA UNA CUOTA, registra automáticamente:
      "payload": {
        "loanbook_id": "LB-2026-0042",
        "cliente_nombre": "Juan Pérez",
-       "monto_pago": 192307.69,
+       "monto_pago": 149900,
        "numero_cuota": 1,
        "metodo_pago": "transferencia",
        "banco_origen": "Bancolombia",
@@ -389,9 +400,9 @@ Cuando un cliente PAGA UNA CUOTA, registra automáticamente:
      "journal_id": "JE-2026-005678",
      "loanbook_id": "LB-2026-0042",
      "cuota_numero": 1,
-     "saldo_pendiente": 7307692.31,
+     "saldo_pendiente": 11542300,
      "fecha_pago": "2026-03-22",
-     "mensaje": "✅ Pago cuota #1 registrado. Journal: JE-2026-005678. Saldo: $7.307.692"
+     "mensaje": "✅ Pago cuota #1 registrado. Journal: JE-2026-005678. Saldo: $11.542.300"
    }
 
 7. EVENTO PUBLICADO EN roddos_events:
@@ -399,10 +410,10 @@ Cuando un cliente PAGA UNA CUOTA, registra automáticamente:
      "event_type": "pago.cuota.registrado",
      "loanbook_id": "LB-2026-0042",
      "cuota_numero": 1,
-     "monto_pago": 192307.69,
+     "monto_pago": 149900,
      "cliente_nombre": "Juan Pérez",
      "alegra_journal_id": "JE-2026-005678",
-     "saldo_pendiente": 7307692.31,
+     "saldo_pendiente": 11542300,
      "metodo_pago": "transferencia",
      "fecha_pago": "2026-03-22"
    }
