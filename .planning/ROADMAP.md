@@ -49,8 +49,11 @@ Plans:
   3. La reconciliacion bancaria batch usa asyncio.gather para llamadas Alegra y $in para MongoDB, completando en tiempo aceptable para el volumen actual
   4. Cada agente (Contador, CFO, RADAR, Loanbook) tiene su propio system prompt con identidad, herramientas y restricciones especificas
   5. El router no despacha al agente equivocado: si confianza < 0.7 el sistema pregunta al usuario antes de ejecutar
-**Plans**: TBD
+**Plans**: 1 plan (Plan 01 created; remaining requirements CONT-07, CONT-08, ORQU-05, ORQU-06 need additional plans)
 **UI hint**: yes
+
+Plans:
+- [ ] 02-01-PLAN.md — Rewire 4 broken action handlers to import directo + ROG-1 rule + smoke test script (CONT-06)
 
 ### Phase 3: Orquestacion y Bus
 **Goal**: El bus de eventos es confiable, monitoreable y cada operacion de backoffice tiene un flujo documentado con trazabilidad completa hasta Alegra
@@ -110,7 +113,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Contador Core | 0/4 | Planning complete | - |
-| 2. Contador Validation | 0/TBD | Not started | - |
+| 2. Contador Validation | 0/1 | Planning in progress | - |
 | 3. Orquestacion y Bus | 0/TBD | Not started | - |
 | 4. Loanbook Intelligence | 0/TBD | Not started | - |
 | 5. WhatsApp 360 | 0/TBD | Not started | - |
