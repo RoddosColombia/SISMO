@@ -1,13 +1,13 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: planning
-stopped_at: Phase 1 context updated with execution priority and business rules
-last_updated: "2026-03-24T15:13:46.284Z"
-last_activity: 2026-03-24 - Completed quick task 260324-kaq: Agregar RETOMA en EditLoanModal y modal cuota inicial legacy
+milestone: v2.0
+milestone_name: BUILD 24 — Cimientos Definitivos
+status: defining_requirements
+stopped_at: Milestone v2.0 started — defining requirements
+last_updated: "2026-03-26"
+last_activity: 2026-03-26 - Milestone v2.0 BUILD 24 started
 progress:
-  total_phases: 6
+  total_phases: 0
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -18,17 +18,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-24)
+See: .planning/PROJECT.md (updated 2026-03-26)
 
 **Core value:** Contabilidad automatizada sin intervencion humana + visibilidad financiera en tiempo real + orquestacion confiable de agentes via bus de eventos
-**Current focus:** Phase 1 — Contador Core
+**Current focus:** Milestone v2.0 — BUILD 24 Cimientos Definitivos
 
 ## Current Position
 
-Phase: 1 of 6 (Contador Core)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-03-24 - Completed quick task 260324-kaq: Agregar RETOMA en EditLoanModal y modal cuota inicial legacy
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-26 — Milestone v2.0 BUILD 24 started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -40,17 +40,6 @@ Progress: [░░░░░░░░░░] 0%
 - Average duration: N/A
 - Total execution time: 0 hours
 
-**By Phase:**
-
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| - | - | - | - |
-
-**Recent Trend:**
-
-- Last 5 plans: N/A
-- Trend: N/A
-
 *Updated after each plan completion*
 
 ## Accumulated Context
@@ -58,31 +47,7 @@ Progress: [░░░░░░░░░░] 0%
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.
-Recent decisions affecting current work:
 
-- [Init]: Bus de eventos append-only MongoDB — trazabilidad completa, ningun agente acoplado
-- [Init]: Alegra como sistema contable de record — toda operacion contable pasa por Alegra API
-- [Init]: Smoke test 20/20 con IDs reales de Alegra como gate de calidad del Contador
+### Previous Milestone (v1.0)
 
-### Pending Todos
-
-None yet.
-
-### Blockers/Concerns
-
-- [Pre-Phase 1]: proveedor extraction bug activo en bank_reconciliation.py linea 357 — silently disables 30+ classification rules
-- [Pre-Phase 1]: ai_chat.py 5,217 lineas — single point of failure para toda la inteligencia de agentes
-- [Pre-Phase 5]: WhatsApp automation bajo Ley 1480 requiere validacion legal antes de mensajes autonomos en produccion
-- [Pre-Phase 6]: In-memory cache en shared_state.py se rompe bajo multi-worker — verificar antes de containerizar
-
-### Quick Tasks Completed
-
-| # | Description | Date | Commit | Directory |
-|---|-------------|------|--------|-----------|
-| 260324-kaq | Agregar RETOMA en EditLoanModal y modal cuota inicial legacy | 2026-03-24 | 2ba5fa4 | [260324-kaq-agregar-retoma-en-editloanmodal-y-modal-](./quick/260324-kaq-agregar-retoma-en-editloanmodal-y-modal-/) |
-
-## Session Continuity
-
-Last session: 2026-03-24T15:13:46.280Z
-Stopped at: Phase 1 context updated with execution priority and business rules
-Resume file: .planning/phases/01-contador-core/01-CONTEXT.md
+Phase 1 (Contador Core) and Phase 2 (Contador Validation) had context and plans created but not yet executed. BUILD 24 supersedes with new scope focused on structural foundations.
