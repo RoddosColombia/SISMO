@@ -63,7 +63,12 @@ Plans:
   3. catalogo_planes contains real weekly/biweekly/monthly plans with correct multipliers (1.0, 2.2, 4.4)
   4. plan_cuentas_roddos contains 28 real account IDs, ID 5495 is absent, and fallback defaults to 5493
   5. All 13 MongoDB init tests pass (test_mongodb_init.py)
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 03-01-PLAN.md -- Rewrite init_mongodb_sismo.py (30+ collections, indices, seed data)
+- [ ] 03-02-PLAN.md -- Remove index/seed code from server.py, loanbook.py, gastos.py
+- [ ] 03-03-PLAN.md -- 13 MongoDB init tests (test_mongodb_init.py)
 
 ### Phase 4: Agents, Router, Scheduler & Pipeline
 **Goal**: Each agent operates with its own system prompt, the router delegates with measurable confidence, and the CFO reads pre-computed summaries instead of calling Alegra directly
@@ -98,6 +103,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 |-------|----------------|--------|-----------|
 | 1. Models & Contracts | 0/3 | Planned | - |
 | 2. Event Bus Refactoring | 0/3 | Planned | - |
-| 3. MongoDB Completo | 0/TBD | Not started | - |
+| 3. MongoDB Completo | 0/3 | Planned | - |
 | 4. Agents, Router, Scheduler & Pipeline | 0/TBD | Not started | - |
 | 5. GitHub Production-Ready | 0/TBD | Not started | - |
