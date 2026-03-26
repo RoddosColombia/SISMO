@@ -8,7 +8,9 @@ import uuid
 import asyncio
 from datetime import datetime, timezone, date
 
-from services.shared_state import emit_state_change
+from services.event_bus_service import EventBusService
+from event_models import RoddosEvent
+from services.shared_state import handle_state_side_effects
 
 
 def normalizar_telefono(telefono: str) -> str:
@@ -210,10 +212,15 @@ async def registrar_ptp(db, loanbook_id: str, ptp_fecha: str, ptp_monto: float, 
             ]},
             {"$set": {"ptp_activo": ptp_doc, "updated_at": now}},
         )
-    await emit_state_change(
-        db, "ptp.registrado", loanbook_id, ptp_fecha, registrado_por,
-        metadata={"monto": ptp_monto, "fecha": ptp_fecha},
-    )
+    bus = EventBusService(db)
+    await bus.emit(RoddosEvent(
+        source_agent="crm",
+        event_type="ptp.registrado",
+        actor=registrado_por,
+        target_entity=loanbook_id,
+        payload={"new_state": ptp_fecha, "monto": ptp_monto, "fecha": ptp_fecha},
+    ))
+    await handle_state_side_effects(db, "ptp.registrado", loanbook_id, ptp_fecha)
     return ptp_doc
 
 

@@ -9,7 +9,9 @@ from pydantic import BaseModel
 from alegra_service import AlegraService
 from database import db
 from dependencies import get_current_user, require_admin, log_action
-from event_bus import emit_event
+from services.event_bus_service import EventBusService
+from event_models import RoddosEvent
+from services.shared_state import handle_state_side_effects
 from services.crm_service import normalizar_telefono
 from utils.loanbook_constants import (
     calcular_cuota_valor, dias_entre_cuotas, resumen_cuota,
@@ -765,18 +767,25 @@ async def create_loan(req: LoanCreate, current_user=Depends(get_current_user)):
 
     # Emit retoma event if applicable
     if retoma_inventario_id:
-        await emit_event(db, "loanbook", "retoma.registrada", {
-            "loanbook_id": doc["id"],
-            "codigo": codigo,
-            "cliente_nombre": req.cliente_nombre,
-            "moto_retoma": {
-                "marca_modelo": req.retoma_marca_modelo,
-                "vin": req.retoma_vin,
-                "placa": req.retoma_placa,
-                "valor": req.retoma_valor,
+        bus = EventBusService(db)
+        await bus.emit(RoddosEvent(
+            source_agent="loanbook",
+            event_type="inventario.moto.actualizada",
+            actor="sistema",
+            target_entity=retoma_inventario_id,
+            payload={
+                "loanbook_id": doc["id"],
+                "codigo": codigo,
+                "cliente_nombre": req.cliente_nombre,
+                "moto_retoma": {
+                    "marca_modelo": req.retoma_marca_modelo,
+                    "vin": req.retoma_vin,
+                    "placa": req.retoma_placa,
+                    "valor": req.retoma_valor,
+                },
+                "inventario_id_creado": retoma_inventario_id,
             },
-            "inventario_id_creado": retoma_inventario_id,
-        })
+        ))
 
     # Store pattern for AI learning
     await db.agent_memory.update_one(
@@ -1230,27 +1239,41 @@ async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depen
         )
 
     # Emit loanbook.activado event
-    await emit_event(db, "loanbook", "loanbook.activado", {
-        "loanbook_id": loan_id,
-        "codigo": loan["codigo"],
-        "cliente_nombre": loan["cliente_nombre"],
-        "fecha_entrega": req.fecha_entrega,
-        "primera_cuota": fecha_primer_pago.isoformat() if fecha_primer_pago else None,
-        "num_cuotas": num_cuotas,
-        "modo_pago": modo_pago,
-    })
+    bus = EventBusService(db)
+    await bus.emit(RoddosEvent(
+        source_agent="loanbook",
+        event_type="loanbook.activado",
+        actor="sistema",
+        target_entity=loan_id,
+        payload={
+            "loanbook_id": loan_id,
+            "codigo": loan["codigo"],
+            "cliente_nombre": loan["cliente_nombre"],
+            "fecha_entrega": req.fecha_entrega,
+            "primera_cuota": fecha_primer_pago.isoformat() if fecha_primer_pago else None,
+            "num_cuotas": num_cuotas,
+            "modo_pago": modo_pago,
+        },
+    ))
+    await handle_state_side_effects(db, "loanbook.activado", loan_id, "activo")
 
-    # Emit moto.entregada event
-    await emit_event(db, "loanbook", "moto.entregada", {
-        "loanbook_id": loan_id,
-        "codigo": loan["codigo"],
-        "cliente_nombre": loan["cliente_nombre"],
-        "moto_descripcion": loan.get("moto_descripcion", ""),
-        "moto_chasis": chasis or loan.get("moto_chasis", ""),
-        "motor": req.motor or loan.get("motor", ""),
-        "placa": req.placa or loan.get("placa", ""),
-        "fecha_entrega": req.fecha_entrega,
-    })
+    # Emit inventario.moto.entrada event (replaces moto.entregada — not in EventType catalog)
+    await bus.emit(RoddosEvent(
+        source_agent="loanbook",
+        event_type="inventario.moto.entrada",
+        actor="sistema",
+        target_entity=chasis or loan.get("moto_chasis", ""),
+        payload={
+            "loanbook_id": loan_id,
+            "codigo": loan["codigo"],
+            "cliente_nombre": loan["cliente_nombre"],
+            "moto_descripcion": loan.get("moto_descripcion", ""),
+            "moto_chasis": chasis or loan.get("moto_chasis", ""),
+            "motor": req.motor or loan.get("motor", ""),
+            "placa": req.placa or loan.get("placa", ""),
+            "fecha_entrega": req.fecha_entrega,
+        },
+    ))
 
     # Invalidate CFO cache
     await invalidar_cache_cfo()
@@ -1448,17 +1471,25 @@ async def register_pago(loan_id: str, req: PagoRequest, current_user=Depends(get
     })
 
     # Emit event to bus
-    await emit_event(db, "loanbook", "pago.cuota.registrado", {
-        "loanbook_id": loan_id,
-        "codigo": loan["codigo"],
-        "cuota_numero": req.cuota_numero,
-        "total_cuotas": loan["num_cuotas"],
-        "valor_pagado": req.valor_pagado,
-        "metodo_pago": req.metodo_pago,
-        "cliente_nombre": loan["cliente_nombre"],
-        "comprobante": comprobante_num,
-        "registrado_por": current_user.get("email"),
-    })
+    bus = EventBusService(db)
+    await bus.emit(RoddosEvent(
+        source_agent="loanbook",
+        event_type="pago.cuota.registrado",
+        actor=current_user.get("email", "sistema"),
+        target_entity=loan_id,
+        payload={
+            "loanbook_id": loan_id,
+            "codigo": loan["codigo"],
+            "cuota_numero": req.cuota_numero,
+            "total_cuotas": loan["num_cuotas"],
+            "valor_pagado": req.valor_pagado,
+            "metodo_pago": req.metodo_pago,
+            "cliente_nombre": loan["cliente_nombre"],
+            "comprobante": comprobante_num,
+            "registrado_por": current_user.get("email"),
+        },
+    ))
+    await handle_state_side_effects(db, "pago.cuota.registrado", loan_id, "activo")
 
     return {**loan, "comprobante": comprobante_num, "alegra_payment_id": alegra_payment_id}
 
@@ -1508,8 +1539,6 @@ async def register_gestion(loan_id: str, req: GestionRequest, current_user=Depen
 @router.post("/{loan_id}/ptp")
 async def register_ptp(loan_id: str, req: PtpRequest, current_user=Depends(get_current_user)):
     """Registra un compromiso de pago (PTP) + emite evento al bus."""
-    from services.shared_state import emit_state_change
-
     loan = await find_loanbook(loan_id)
     if not loan:
         raise HTTPException(status_code=404, detail="Plan no encontrado")
@@ -1526,11 +1555,16 @@ async def register_ptp(loan_id: str, req: PtpRequest, current_user=Depends(get_c
         }},
     )
 
-    await emit_state_change(
-        db, "ptp.registrado", loan_id, "ptp_activo", current_user.get("email"),
-        {"ptp_fecha": req.ptp_fecha, "ptp_monto": req.ptp_monto,
-         "codigo": loan.get("codigo")},
-    )
+    bus = EventBusService(db)
+    await bus.emit(RoddosEvent(
+        source_agent="loanbook",
+        event_type="ptp.registrado",
+        actor=current_user.get("email", "sistema"),
+        target_entity=loan_id,
+        payload={"new_state": "ptp_activo", "ptp_fecha": req.ptp_fecha,
+                 "ptp_monto": req.ptp_monto, "codigo": loan.get("codigo")},
+    ))
+    await handle_state_side_effects(db, "ptp.registrado", loan_id, "ptp_activo")
 
     await log_action(current_user, f"/loanbook/{loan_id}/ptp", "POST",
                      {"ptp_fecha": req.ptp_fecha, "ptp_monto": req.ptp_monto})
