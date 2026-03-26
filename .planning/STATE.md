@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: BUILD 24 — Cimientos Definitivos
-status: defining_requirements
-stopped_at: Milestone v2.0 started — defining requirements
+status: ready_to_plan
+stopped_at: Roadmap created with 5 phases, ready to plan Phase 1
 last_updated: "2026-03-26"
-last_activity: 2026-03-26 - Milestone v2.0 BUILD 24 started
+last_activity: 2026-03-26 - Roadmap created for BUILD 24
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-26)
 
 **Core value:** Contabilidad automatizada sin intervencion humana + visibilidad financiera en tiempo real + orquestacion confiable de agentes via bus de eventos
-**Current focus:** Milestone v2.0 — BUILD 24 Cimientos Definitivos
+**Current focus:** Phase 1 - Models & Contracts
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-03-26 — Milestone v2.0 BUILD 24 started
+Phase: 1 of 5 (Models & Contracts)
+Plan: 0 of TBD in current phase
+Status: Ready to plan
+Last activity: 2026-03-26 — Roadmap created for BUILD 24
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -48,6 +48,16 @@ Progress: [░░░░░░░░░░] 0%
 
 Decisions are logged in PROJECT.md Key Decisions table.
 
-### Previous Milestone (v1.0)
+### Pending Todos
 
-Phase 1 (Contador Core) and Phase 2 (Contador Validation) had context and plans created but not yet executed. BUILD 24 supersedes with new scope focused on structural foundations.
+None yet.
+
+### Blockers/Concerns
+
+None yet.
+
+## Session Continuity
+
+Last session: 2026-03-26
+Stopped at: Roadmap created -- ready to plan Phase 1
+Resume file: None
