@@ -29,7 +29,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Only the 28 event types defined in EVENT_TYPES are accepted; any other string is rejected at model level
   3. An agent attempting to write to a collection or Alegra endpoint not in its WRITE_PERMISSIONS gets a PermissionError before any I/O happens
   4. All 8 permission tests pass (test_permissions.py) covering each agent's allowed and denied operations
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 01-01-PLAN.md -- Event models (RoddosEvent, DLQEvent) and EVENT_TYPES catalog
+- [ ] 01-02-PLAN.md -- Agent write permissions (WRITE_PERMISSIONS, validate functions)
+- [ ] 01-03-PLAN.md -- Permission and model tests (test_permissions.py, 8 tests)
 
 ### Phase 2: Event Bus Refactoring
 **Goal**: All event publishing flows through a single EventBusService with idempotency, DLQ, and health metrics -- the old event_bus.py and emit_state_change() no longer exist
@@ -86,7 +91,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Models & Contracts | 0/TBD | Not started | - |
+| 1. Models & Contracts | 0/3 | Planned | - |
 | 2. Event Bus Refactoring | 0/TBD | Not started | - |
 | 3. MongoDB Completo | 0/TBD | Not started | - |
 | 4. Agents, Router, Scheduler & Pipeline | 0/TBD | Not started | - |
