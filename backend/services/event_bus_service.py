@@ -232,6 +232,19 @@ class EventBusService:
             "status": status,
         }
 
+    async def get_recent_events(self, limit: int = 15) -> list:
+        """Return recent events from roddos_events, sorted by timestamp descending.
+
+        Provides the same functionality as the old event_bus.get_recent_events().
+        """
+        events = (
+            await self.db.roddos_events.find({}, {"_id": 0})
+            .sort("timestamp_utc", -1)
+            .limit(limit)
+            .to_list(limit)
+        )
+        return events
+
     # ── Private helpers ───────────────────────────────────────────────────────
 
     async def _send_to_dlq(self, event: RoddosEvent, error: Exception) -> None:
