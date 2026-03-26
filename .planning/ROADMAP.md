@@ -46,7 +46,12 @@ Plans:
   3. get_bus_health() returns live metrics (dlq_pending, events_last_hour, status) from MongoDB
   4. Searching the codebase for "from backend.event_bus import" or "emit_state_change" returns zero results
   5. All 11 event bus tests pass (test_event_bus.py)
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 02-01-PLAN.md -- EventBusService core (emit, DLQ, retry, health) + scheduler job + health endpoint
+- [ ] 02-02-PLAN.md -- Migrate all 14 callers to bus.emit(), delete event_bus.py, clean shared_state.py
+- [ ] 02-03-PLAN.md -- 11 event bus tests (test_event_bus.py)
 
 ### Phase 3: MongoDB Completo
 **Goal**: MongoDB has all 30+ collections with ESR indices, schema validation, and seeded production data -- the single source of truth for SISMO's data layer
@@ -92,7 +97,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Models & Contracts | 0/3 | Planned | - |
-| 2. Event Bus Refactoring | 0/TBD | Not started | - |
+| 2. Event Bus Refactoring | 0/3 | Planned | - |
 | 3. MongoDB Completo | 0/TBD | Not started | - |
 | 4. Agents, Router, Scheduler & Pipeline | 0/TBD | Not started | - |
 | 5. GitHub Production-Ready | 0/TBD | Not started | - |
