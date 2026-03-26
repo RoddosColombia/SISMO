@@ -12,7 +12,6 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from starlette.middleware.cors import CORSMiddleware
 
-from auth import hash_password
 from database import db, client
 from routers import auth, settings, alegra, chat, inventory, taxes, budget, dashboard, audit
 from routers import repuestos, loanbook, telegram, radar as radar_router, cfo as cfo_router
@@ -93,163 +92,11 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup():
-    count = await db.users.count_documents({})
-    if count == 0:
-        users = [
-            {
-                "id": str(uuid.uuid4()),
-                "email": "contabilidad@roddos.com",
-                "password_hash": hash_password("Admin@RODDOS2025!"),
-                "name": "Contabilidad RODDOS",
-                "role": "admin",
-                "is_active": True,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            },
-            {
-                "id": str(uuid.uuid4()),
-                "email": "compras@roddos.com",
-                "password_hash": hash_password("Contador@2025!"),
-                "name": "Compras RODDOS",
-                "role": "user",
-                "is_active": True,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            },
-        ]
-        await db.users.insert_many(users)
-        logger.info("Default users created")
-
-    if not await db.alegra_credentials.find_one({}):
-        await db.alegra_credentials.insert_one({
-            "id": str(uuid.uuid4()),
-            "email": "",
-            "token": "",
-            "is_demo_mode": True,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        })
-
-    # ── Catálogo de motos (seed once) ─────────────────────────────────────────
-    if not await db.catalogo_motos.find_one({}):
-        now = datetime.now(timezone.utc).isoformat()
-        await db.catalogo_motos.insert_many([
-            {
-                "id": str(uuid.uuid4()),
-                "modelo": "Sport 100",
-                "marca": "Auteco",
-                "costo": 4157461,
-                "pvp": 5749900,
-                "cuota_inicial": 500000,
-                "matricula": 660000,
-                "planes": {
-                    "P39S": {"semanas": 39, "cuota": 175000},
-                    "P52S": {"semanas": 52, "cuota": 160000},
-                    "P78S": {"semanas": 78, "cuota": 130000},
-                },
-                "activo": True,
-                "actualizado_en": now,
-                "actualizado_por": "sistema",
-            },
-            {
-                "id": str(uuid.uuid4()),
-                "modelo": "Raider 125",
-                "marca": "Auteco",
-                "costo": 5638974,
-                "pvp": 7800000,
-                "cuota_inicial": 800000,
-                "matricula": 660000,
-                "planes": {
-                    "P39S": {"semanas": 39, "cuota": 210000},
-                    "P52S": {"semanas": 52, "cuota": 179900},
-                    "P78S": {"semanas": 78, "cuota": 149900},
-                },
-                "activo": True,
-                "actualizado_en": now,
-                "actualizado_por": "sistema",
-            },
-        ])
-        logger.info("catalogo_motos initialized with 2 default models")
-
-    try:
-        await db.agent_memory.create_index([("user_id", 1), ("tipo", 1)])
-        await db.agent_memory.create_index([("frecuencia_count", -1)])
-        await db.agent_memory.create_index([("ultima_ejecucion", -1)])
-        await db.audit_logs.create_index([("timestamp", -1)])
-        await db.audit_logs.create_index([("user_email", 1), ("timestamp", -1)])
-        await db.chat_messages.create_index([("session_id", 1), ("timestamp", 1)])
-        await db.inventario_motos.create_index([("estado", 1)])
-        await db.inventario_motos.create_index([("chasis", 1)], unique=True, sparse=True)
-        await db.catalogo_motos.create_index([("activo", 1)])
-        await db.roddos_events.create_index([("estado", 1), ("timestamp", -1)])
-        await db.loanbook.create_index([("dpd_bucket", 1)])
-        await db.loanbook.create_index([("score_pago", 1)])
-
-        # ── Anti-duplicados: Conciliación bancaria ─────────────────────────────────
-        await db.conciliacion_extractos_procesados.create_index([("hash", 1)], unique=True)
-        await db.conciliacion_extractos_procesados.create_index([("banco", 1), ("fecha", 1)])
-        await db.conciliacion_movimientos_procesados.create_index([("hash", 1)], unique=True)
-        await db.conciliacion_movimientos_procesados.create_index([("banco", 1), ("fecha", 1)])
-
-        # ── Reintentos de movimientos (cuando Alegra está caído) ────────────────────
-        await db.conciliacion_reintentos.create_index([("movimiento_hash", 1)], unique=True)
-        await db.conciliacion_reintentos.create_index([("estado", 1), ("proximo_intento", 1)])
-        await db.conciliacion_reintentos.create_index([("banco", 1), ("fecha", 1)])
-        logger.info("MongoDB indexes ensured (including anti-duplicados + reintentos conciliacion)")
-    except Exception as e:
-        logger.warning(f"Index creation (non-fatal): {e}")
-
-    # ── Seed proveedores_config con AUTECO KAWASAKI como autoretenedor ────────
-    existing_auteco = await db.proveedores_config.find_one(
-        {"nombre": {"$regex": "auteco", "$options": "i"}}
-    )
-    if not existing_auteco:
-        await db.proveedores_config.insert_one({
-            "nombre": "AUTECO KAWASAKI S.A.S.",
-            "nit": "860024781",
-            "es_autoretenedor": True,
-            "tipo_retencion": "ninguna",
-            "notas": "Autoretenedor — no aplicar ReteFuente",
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-            "updated_by": "sistema",
-        })
-        logger.info("proveedores_config: AUTECO KAWASAKI seeded as autoretenedor")
-
-    # ── Migración: asegurar que IVA config sea cuatrimestral ─────────────────
-    _iva_cfg = await db.iva_config.find_one({}, {"_id": 0})
-    if _iva_cfg and _iva_cfg.get("tipo_periodo") == "bimestral":
-        await db.iva_config.update_one(
-            {},
-            {"$set": {
-                "tipo_periodo": "cuatrimestral",
-                "periodos": [
-                    {"nombre": "Ene–Abr", "inicio_mes": 1, "fin_mes": 4, "dia_limite": 30, "mes_limite_offset": 1},
-                    {"nombre": "May–Ago", "inicio_mes": 5, "fin_mes": 8, "dia_limite": 30, "mes_limite_offset": 1},
-                    {"nombre": "Sep–Dic", "inicio_mes": 9, "fin_mes": 12, "dia_limite": 30, "mes_limite_offset": 1},
-                ],
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-                "updated_by": "migración_cuatrimestral",
-            }}
-        )
-        logger.info("IVA config migrated from bimestral to cuatrimestral")
+    # MongoDB collections, indices, and seed data are managed by init_mongodb_sismo.py
+    # Run: MONGO_URL="..." python init_mongodb_sismo.py
+    # This startup only connects and initializes runtime services.
 
     await run_migration_v24(db)
-
-    # ── Inicializar plan_cuentas_roddos ───────────────────────────────────────
-    plan_count = await db.plan_cuentas_roddos.count_documents({})
-    if plan_count == 0:
-        from routers.gastos import PLAN_CUENTAS_RODDOS
-        now = datetime.now(timezone.utc).isoformat()
-        docs = [{**e, "activo": True, "creado_en": now} for e in PLAN_CUENTAS_RODDOS]
-        await db.plan_cuentas_roddos.insert_many(docs)
-        await db.plan_cuentas_roddos.create_index([("categoria", 1), ("subcategoria", 1)])
-        logger.info("plan_cuentas_roddos initialized with %d entries", len(docs))
-    else:
-        # Update existing entries with current data (idempotent upsert)
-        from routers.gastos import PLAN_CUENTAS_RODDOS
-        for entry in PLAN_CUENTAS_RODDOS:
-            await db.plan_cuentas_roddos.update_one(
-                {"categoria": entry["categoria"], "subcategoria": entry["subcategoria"]},
-                {"$set": {**entry, "activo": True}},
-                upsert=True,
-            )
 
     start_scheduler()
     start_loanbook_scheduler()
@@ -257,30 +104,7 @@ async def startup():
     # Event bus — exposes health metrics and holds bus instance for health endpoint
     app.state.event_bus = EventBusService(db)
 
-    await db.cxc_socios.create_index([("socio", 1), ("estado", 1)])
-    await db.cxc_socios.create_index([("fecha", 1)])
-    await db.cxc_clientes.create_index([("nit_cliente", 1)])
-    await db.cxc_clientes.create_index([("vencimiento", 1)])
-    await db.ingresos_registrados.create_index([("fecha", 1), ("tipo_ingreso", 1)])
-    logger.info("MongoDB indexes for CXC/Ingresos ensured")
-
-    # ── BUILD 21: Memoria conversacional persistente (MODULE 4) ──────────────
-    await db.agent_pending_topics.create_index([("user_id", 1), ("estado", 1)])
-    await db.agent_pending_topics.create_index([("user_id", 1), ("topic_key", 1)])
-    # TTL index: expires_at field — documents auto-deleted after 72h + buffer
-    try:
-        await db.agent_pending_topics.create_index(
-            [("expires_at", 1)],
-            expireAfterSeconds=0,
-            name="ttl_pending_topics",
-        )
-    except Exception:
-        pass  # Index may already exist
-
-    # ── BUILD 21: CFO alertas (Module 5) ────────────────────────────────────
-    await db.cfo_alertas.create_index([("created_at", -1)])
-    await db.cfo_alertas.create_index([("tipo", 1), ("leido", 1)])
-    logger.info("MongoDB indexes for BUILD 21 (pending_topics + cfo_alertas) ensured")
+    logger.info("SISMO startup complete — runtime services initialized")
 
 
 @app.on_event("shutdown")
