@@ -68,6 +68,7 @@ from routers import auditoria as auditoria_router
 from routers import sync_manual as sync_manual_router
 from routers import diagnostico as diagnostico_router
 from services.scheduler import start_scheduler, stop_scheduler
+from services.event_bus_service import EventBusService
 from services.loanbook_scheduler import start_loanbook_scheduler, stop_loanbook_scheduler
 from migration_v24 import run_migration_v24
 
@@ -253,6 +254,9 @@ async def startup():
     start_scheduler()
     start_loanbook_scheduler()
 
+    # Event bus — exposes health metrics and holds bus instance for health endpoint
+    app.state.event_bus = EventBusService(db)
+
     await db.cxc_socios.create_index([("socio", 1), ("estado", 1)])
     await db.cxc_socios.create_index([("fecha", 1)])
     await db.cxc_clientes.create_index([("nit_cliente", 1)])
@@ -372,6 +376,15 @@ app.include_router(conciliacion_router.router,                 prefix=PREFIX)
 app.include_router(auditoria_router.router,                    prefix=PREFIX)
 app.include_router(sync_manual_router.router,                  prefix=PREFIX)
 app.include_router(diagnostico_router.router,                  prefix=PREFIX)
+
+
+# ─── Bus Health (BUS-05 / D-11) ──────────────────────────────────────────────
+
+@app.get(f"{PREFIX}/health/bus")
+async def bus_health():
+    """Live Event Bus health metrics — DLQ pending count, events last hour, status."""
+    bus = app.state.event_bus
+    return await bus.get_bus_health()
 
 
 # ─── Smoke Test (PASO 5 — verificación post-deploy) ───────────────────────────
