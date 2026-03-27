@@ -99,7 +99,12 @@ Plans:
   3. dependabot.yml exists and monitors both pip and npm dependencies
   4. README.md contains no references to "Emergent" or "BUILD 18" and reflects BUILD 24 architecture
   5. All 6 smoke tests pass (test_smoke_build24.py)
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 05-01-PLAN.md -- Smoke endpoint improvements (collections, bus, indices, catalogo) + 6 tests
+- [ ] 05-02-PLAN.md -- CI/CD pipeline (pytest job, anti-pending, curl post-deploy) + dependabot.yml
+- [ ] 05-03-PLAN.md -- Documentation (README.md rewrite + CLAUDE.md update)
 
 ## Progress
 
@@ -111,5 +116,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | 1. Models & Contracts | 0/3 | Planned | - |
 | 2. Event Bus Refactoring | 0/3 | Planned | - |
 | 3. MongoDB Completo | 0/3 | Planned | - |
-| 4. Agents, Router, Scheduler & Pipeline | 0/TBD | Not started | - |
-| 5. GitHub Production-Ready | 0/TBD | Not started | - |
+| 4. Agents, Router, Scheduler & Pipeline | 4/4 | Complete | 2026-03-26 |
+| 5. GitHub Production-Ready | 0/3 | Planned | - |
