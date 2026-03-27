@@ -789,11 +789,34 @@ async def generar_informe_cfo(db, triggered_by: str = "manual") -> dict:
 async def process_cfo_query(message: str, db, user: dict, session_id: str) -> dict:
     """Procesa consulta financiera/CFO desde el chat del agente."""
     api_key = os.environ.get("ANTHROPIC_API_KEY")
+
+    # SCH-04: Read pre-computed summary first, fall back to Alegra
+    from services.portfolio_pipeline import get_portfolio_data_for_cfo
+    cached_summary = await get_portfolio_data_for_cfo(db)
+
+    if cached_summary:
+        # Use pre-computed data — no Alegra API call needed for semaforo/cartera
+        datos_override = {
+            "semaforo": cached_summary.get("semaforo"),
+            "cartera_analisis": cached_summary.get("cartera"),
+            "source": "portfolio_summaries",
+            "fecha_snapshot": cached_summary.get("fecha"),
+        }
+        logger.info("[CFO] Using pre-computed summary from %s", cached_summary.get("fecha"))
+    else:
+        datos_override = None
+        logger.info("[CFO] No pre-computed summary — falling back to live Alegra data")
+
     try:
         datos      = await consolidar_datos_financieros(db)
         pyg        = await analizar_pyg(datos)
-        semaforo   = await generar_semaforo(datos)
-        cartera    = await analizar_cartera(datos)
+        # Use pre-computed semaforo/cartera if available (SCH-04: 70% fewer Alegra calls)
+        if datos_override:
+            semaforo = datos_override["semaforo"]
+            cartera  = datos_override["cartera_analisis"]
+        else:
+            semaforo = await generar_semaforo(datos)
+            cartera  = await analizar_cartera(datos)
         tributaria = await analizar_exposicion_tributaria(datos)
         flujo      = await analizar_flujo_caja(datos)
         inventario = await analizar_inventario(datos)

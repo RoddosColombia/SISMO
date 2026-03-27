@@ -337,6 +337,26 @@ async def _retry_dlq_events() -> None:
         logger.error("[Scheduler] DLQ retry failed: %s", e)
 
 
+async def _compute_portfolio_summary() -> None:
+    """Daily 11:30 PM — portfolio snapshot (SCH-01)."""
+    from database import db
+    from services.portfolio_pipeline import compute_portfolio_summary
+    try:
+        await compute_portfolio_summary(db)
+    except Exception as e:
+        logger.error("[Scheduler] Portfolio summary failed: %s", e)
+
+
+async def _compute_financial_report_mensual() -> None:
+    """Monthly day 1 — P&L report (SCH-02)."""
+    from database import db
+    from services.portfolio_pipeline import compute_financial_report_mensual
+    try:
+        await compute_financial_report_mensual(db)
+    except Exception as e:
+        logger.error("[Scheduler] Monthly financial report failed: %s", e)
+
+
 def start_scheduler() -> None:
     """Registra el job y arranca el scheduler. Llamar desde startup de FastAPI."""
     _scheduler.add_job(
@@ -462,12 +482,38 @@ def start_scheduler() -> None:
         replace_existing=True, max_instances=1, misfire_grace_time=3600,
     )
 
+    # ── Portfolio summary daily 11:30 PM (SCH-01) ──────────────────────────────
+    _scheduler.add_job(
+        _compute_portfolio_summary,
+        trigger="cron",
+        hour=23, minute=30,
+        timezone="America/Bogota",
+        id="portfolio_summary_diario",
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=3600,
+    )
+
+    # ── Financial report monthly day 1, 6:00 AM (SCH-02) ──────────────────────
+    _scheduler.add_job(
+        _compute_financial_report_mensual,
+        trigger="cron",
+        day=1,
+        hour=6, minute=0,
+        timezone="America/Bogota",
+        id="financial_report_mensual",
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=3600,
+    )
+
     _scheduler.start()
     logger.info(
         "[Scheduler] APScheduler iniciado — "
         "process_pending_events@60s | informe_cfo@día1 08:00 | "
         "WA: T1@lun08 T2@mié08 T3@jue09 T5@sab09 | "
         "inventario@lun07 | sync_pagos@5min | sync_facturas@5min | reintentos_alegra@5min | dian@23:00 | "
+        "BUILD24: portfolio_summary@23:30 | financial_report@día1 06:00 | "
         "BUILD21: resumen_semanal_cfo@lun08 | anomalias_diarias@23:30 (COT)"
     )
 
