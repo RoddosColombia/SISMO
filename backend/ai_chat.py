@@ -2830,10 +2830,20 @@ async def process_chat(
             db, user
         )
 
-    # ── CFO intent detection (antes del flujo contable normal) ───────────────
-    from services.cfo_agent import is_cfo_query, process_cfo_query
-    if is_cfo_query(user_message):
+    # ── Intent Router (LLM-based confidence scoring) ─────────────────────────
+    from agent_router import classify_intent
+    route = await classify_intent(user_message)
+
+    if route["needs_clarification"]:
+        return {"message": route["clarification_message"], "source": "router"}
+
+    if route["agent"] == "cfo":
+        from services.cfo_agent import process_cfo_query
         return await process_cfo_query(user_message, db, user, session_id)
+
+    # For radar and loanbook agents, fall through to contador for now
+    # (dedicated handlers will be added in future phases)
+    # route["agent"] in {"radar", "loanbook"} → falls through to contador flow
     # ─────────────────────────────────────────────────────────────────────────
 
     api_key = os.environ.get("EMERGENT_LLM_KEY")
