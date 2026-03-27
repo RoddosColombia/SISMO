@@ -53,9 +53,9 @@
 
 ### GitHub CI/CD (GIT)
 
-- [ ] **GIT-01**: ci.yml expandido con pytest, anti-emergent check, anti-pending-status check
-- [ ] **GIT-02**: Smoke test job en CI verifica /api/health/smoke (status, collections, bus)
-- [ ] **GIT-03**: dependabot.yml creado para pip y npm
+- [x] **GIT-01**: ci.yml expandido con pytest, anti-emergent check, anti-pending-status check
+- [x] **GIT-02**: Smoke test job en CI verifica /api/health/smoke (status, collections, bus)
+- [x] **GIT-03**: dependabot.yml creado para pip y npm
 - [x] **GIT-04**: /api/health/smoke endpoint mejorado con checks de colecciones, bus, indices, catalogo
 - [x] **GIT-05**: README.md actualizado a BUILD 24 (eliminar referencias Emergent y BUILD 18)
 - [x] **GIT-06**: CLAUDE.md actualizado con protocolo nuevo bus, worktrees, errores documentados

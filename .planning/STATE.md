@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
-status: Ready to execute
-stopped_at: "Completed 05-01-PLAN.md: smoke endpoint + 6 unit tests"
-last_updated: "2026-03-27T03:26:13.589Z"
+status: Phase complete — ready for verification
+stopped_at: Completed 05-02-PLAN.md
+last_updated: "2026-03-27T03:30:09.709Z"
 progress:
   total_phases: 5
   completed_phases: 4
@@ -51,6 +51,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase 05]: Full README rewrite (not surgical cleanup) to eliminate Emergent/BUILD18/concesionario identity drift
 - [Phase 05]: CLAUDE.md appended with bus.emit() protocol and known errors — existing content preserved
 - [Phase 05-github-production-ready]: smoke_test bus health placed outside main DB try block — bus errors give 'degradado' not 'critico'
+- [Phase 05-02]: pytest-build24 job depends on backend-check to fail fast on syntax errors before running tests
+- [Phase 05-02]: smoke-post-deploy runs only on push to main to prevent hitting production on branch pushes
 
 ### Pending Todos
 
@@ -62,6 +64,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T03:26:13.585Z
-Stopped at: Completed 05-01-PLAN.md: smoke endpoint + 6 unit tests
+Last session: 2026-03-27T03:30:05.213Z
+Stopped at: Completed 05-02-PLAN.md
 Resume file: None
