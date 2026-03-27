@@ -3601,6 +3601,29 @@ async def process_chat(
         except Exception:
             history_msgs = history_msgs[-(KEEP_RECENT_PAIRS * 2):]
 
+    # ── AGT-04: Inyectar reglas de sismo_knowledge (RAG) al system prompt ────────
+    try:
+        from agent_prompts import AGENT_KNOWLEDGE_TAGS
+        _rag_tags = AGENT_KNOWLEDGE_TAGS.get("contador", [])
+        if _rag_tags:
+            _rag_cursor = db.sismo_knowledge.find(
+                {"tags": {"$in": _rag_tags}},
+                {"_id": 0, "titulo": 1, "contenido": 1},
+            )
+            _rag_rules = await _rag_cursor.to_list(length=50)
+            if _rag_rules:
+                _rag_text = "\n".join(
+                    f"• {r['titulo']}: {r['contenido']}" for r in _rag_rules
+                )
+                system_prompt += (
+                    "\n\n═══════════════════════════════════════════════════\n"
+                    "REGLAS DE NEGOCIO RODDOS (conocimiento operativo):\n"
+                    "═══════════════════════════════════════════════════\n"
+                    + _rag_text
+                )
+    except Exception as _rag_err:
+        logger.warning("[AGT-04] RAG injection failed (non-fatal): %s", _rag_err)
+
     # Build initial_messages for this request
     initial_messages: list = [{"role": "system", "content": system_prompt}]
     if summary_msg:
