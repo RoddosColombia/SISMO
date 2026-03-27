@@ -271,64 +271,17 @@ async def _get_next_codigo():
     return f"LB-{year}-{str(count).zfill(4)}"
 
 
-# ─── Default plan catalog (seeded on first read) ─────────────────────────────
-
-CATALOGO_DEFAULT = [
-    {
-        "plan": "P39S", "modo_pago": "semanal",
-        "cuotas_semanal": 39, "cuotas_quincenal": 20, "cuotas_mensual": 9,
-        "multiplicadores": {"semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
-        "mora_diaria": 2000,
-        "modelos": {
-            "Raider 125": {"precio_venta": 7_800_000, "valor_cuota_semanal": 210_000},
-            "Sport 100":  {"precio_venta": 5_750_000, "valor_cuota_semanal": 175_000},
-        },
-    },
-    {
-        "plan": "P52S", "modo_pago": "semanal",
-        "cuotas_semanal": 52, "cuotas_quincenal": 26, "cuotas_mensual": 12,
-        "multiplicadores": {"semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
-        "mora_diaria": 2000,
-        "modelos": {
-            "Raider 125": {"precio_venta": 7_800_000, "valor_cuota_semanal": 179_900},
-            "Sport 100":  {"precio_venta": 5_750_000, "valor_cuota_semanal": 160_000},
-        },
-    },
-    {
-        "plan": "P78S", "modo_pago": "semanal",
-        "cuotas_semanal": 78, "cuotas_quincenal": 39, "cuotas_mensual": 18,
-        "multiplicadores": {"semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
-        "mora_diaria": 2000,
-        "modelos": {
-            "Raider 125": {"precio_venta": 7_800_000, "valor_cuota_semanal": 149_900},
-            "Sport 100":  {"precio_venta": 5_750_000, "valor_cuota_semanal": 130_000},
-        },
-    },
-    {
-        "plan": "Contado", "modo_pago": "contado",
-        "cuotas_semanal": 0, "cuotas_quincenal": 0, "cuotas_mensual": 0,
-        "mora_diaria": 2000,
-        "modelos": {},
-    },
-]
-
-
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.get("/catalogo-planes")
 async def get_catalogo_planes(current_user=Depends(get_current_user)):
-    """Return plan catalog from MongoDB. Upserts default values if missing — never deletes existing."""
+    """Return plan catalog from MongoDB (seeded by init_mongodb_sismo.py)."""
     planes = await db.catalogo_planes.find({}, {"_id": 0}).to_list(20)
-    # Upsert missing or outdated plans (never delete existing data)
-    needs_seed = not planes or not any(p.get("modelos") for p in planes)
-    if needs_seed:
-        for p in CATALOGO_DEFAULT:
-            await db.catalogo_planes.update_one(
-                {"plan": p["plan"]},
-                {"$set": p},
-                upsert=True,
-            )
-        planes = await db.catalogo_planes.find({}, {"_id": 0}).to_list(20)
+    if not planes:
+        raise HTTPException(
+            status_code=404,
+            detail="Catálogo de planes no encontrado. Ejecute init_mongodb_sismo.py para inicializar.",
+        )
     return planes
 
 
@@ -340,9 +293,50 @@ async def reset_catalogo_planes(
 
     Use case: MongoDB corruption or merge issues that prevent auto-seed.
     Deletes ALL existing documents and re-inserts clean seed data.
+    Source of truth: init_mongodb_sismo.py (data mirrored here for emergency reset).
     """
     import logging
     logger = logging.getLogger(__name__)
+
+    # Seed data mirrors init_mongodb_sismo.py — single source of truth for recovery
+    _catalogo_seed = [
+        {
+            "plan": "P39S", "modo_pago": "semanal",
+            "cuotas_semanal": 39, "cuotas_quincenal": 20, "cuotas_mensual": 9,
+            "multiplicadores": {"semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
+            "mora_diaria": 2000,
+            "modelos": {
+                "Raider 125": {"precio_venta": 7_800_000, "valor_cuota_semanal": 210_000},
+                "Sport 100":  {"precio_venta": 5_750_000, "valor_cuota_semanal": 175_000},
+            },
+        },
+        {
+            "plan": "P52S", "modo_pago": "semanal",
+            "cuotas_semanal": 52, "cuotas_quincenal": 26, "cuotas_mensual": 12,
+            "multiplicadores": {"semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
+            "mora_diaria": 2000,
+            "modelos": {
+                "Raider 125": {"precio_venta": 7_800_000, "valor_cuota_semanal": 179_900},
+                "Sport 100":  {"precio_venta": 5_750_000, "valor_cuota_semanal": 160_000},
+            },
+        },
+        {
+            "plan": "P78S", "modo_pago": "semanal",
+            "cuotas_semanal": 78, "cuotas_quincenal": 39, "cuotas_mensual": 18,
+            "multiplicadores": {"semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
+            "mora_diaria": 2000,
+            "modelos": {
+                "Raider 125": {"precio_venta": 7_800_000, "valor_cuota_semanal": 149_900},
+                "Sport 100":  {"precio_venta": 5_750_000, "valor_cuota_semanal": 130_000},
+            },
+        },
+        {
+            "plan": "Contado", "modo_pago": "contado",
+            "cuotas_semanal": 0, "cuotas_quincenal": 0, "cuotas_mensual": 0,
+            "mora_diaria": 2000,
+            "modelos": {},
+        },
+    ]
 
     try:
         # Count existing documents
@@ -353,9 +347,9 @@ async def reset_catalogo_planes(
         delete_result = await db.catalogo_planes.delete_many({})
         logger.warning(f"[ADMIN] Deleted {delete_result.deleted_count} documents from catalogo_planes")
 
-        # Insert fresh CATALOGO_DEFAULT
+        # Insert fresh seed data
         insert_count = 0
-        for plan_data in CATALOGO_DEFAULT:
+        for plan_data in _catalogo_seed:
             result = await db.catalogo_planes.insert_one({**plan_data})
             insert_count += 1
             logger.warning(f"[ADMIN] Inserted plan {plan_data.get('plan')}: {result.inserted_id}")

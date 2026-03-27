@@ -43,55 +43,20 @@ CUENTAS_GASTO = {
     "otros":         {"id": 5493, "nombre": "Gastos generales (5195)"},  # FIXED: was 5495 Gastos de representación
 }
 
-# Plan de cuentas RODDOS — mapeado a IDs reales de Alegra
-# Usado para categoria+subcategoria del nuevo template
-PLAN_CUENTAS_RODDOS = [
-    # PERSONAL
-    {"categoria": "Personal", "subcategoria": "Salarios",          "alegra_id": 5462, "cuenta_codigo": "510506", "cuenta_nombre": "Sueldos y salarios", "tipo_retefuente": "nomina"},
-    {"categoria": "Personal", "subcategoria": "Honorarios",        "alegra_id": 5475, "cuenta_codigo": "511025", "cuenta_nombre": "Honorarios (asesoría)", "tipo_retefuente": "honorarios_pn"},
-    {"categoria": "Personal", "subcategoria": "Honorarios_PJ",     "alegra_id": 5476, "cuenta_codigo": "511030", "cuenta_nombre": "Honorarios PJ", "tipo_retefuente": "honorarios_pj"},
-    {"categoria": "Personal", "subcategoria": "Seguridad_Social",  "alegra_id": 5472, "cuenta_codigo": "510570", "cuenta_nombre": "Aportes seguridad social", "tipo_retefuente": "nomina"},
-    {"categoria": "Personal", "subcategoria": "Dotacion",          "alegra_id": 5470, "cuenta_codigo": "510551", "cuenta_nombre": "Dotación a trabajadores", "tipo_retefuente": "nomina"},
-    {"categoria": "Personal", "subcategoria": "Vacaciones",        "alegra_id": 5469, "cuenta_codigo": "510539", "cuenta_nombre": "Vacaciones", "tipo_retefuente": "nomina"},
-    {"categoria": "Personal", "subcategoria": "Prima",             "alegra_id": 5468, "cuenta_codigo": "510536", "cuenta_nombre": "Prima de servicios", "tipo_retefuente": "nomina"},
-    {"categoria": "Personal", "subcategoria": "Cesantias",         "alegra_id": 5466, "cuenta_codigo": "510530", "cuenta_nombre": "Cesantías", "tipo_retefuente": "nomina"},
-    # OPERACIONES
-    {"categoria": "Operaciones", "subcategoria": "Arriendo",          "alegra_id": 5480, "cuenta_codigo": "512010", "cuenta_nombre": "Arrendamientos", "tipo_retefuente": "arrendamiento"},
-    {"categoria": "Operaciones", "subcategoria": "Servicios_Publicos", "alegra_id": 5485, "cuenta_codigo": "513525", "cuenta_nombre": "Alcantarillado/Acueducto/Servicios públicos", "tipo_retefuente": "servicios"},
-    {"categoria": "Operaciones", "subcategoria": "Telefonia",          "alegra_id": 5487, "cuenta_codigo": "513535", "cuenta_nombre": "Teléfono/Internet/Comunicaciones", "tipo_retefuente": "servicios"},
-    {"categoria": "Operaciones", "subcategoria": "Mantenimiento",      "alegra_id": 5483, "cuenta_codigo": "513515", "cuenta_nombre": "Asistencia técnica/Mantenimiento", "tipo_retefuente": "servicios"},
-    {"categoria": "Operaciones", "subcategoria": "Transporte",         "alegra_id": 5499, "cuenta_codigo": "519545", "cuenta_nombre": "Taxis y buses/Transporte", "tipo_retefuente": "otros"},
-    {"categoria": "Operaciones", "subcategoria": "Papeleria",          "alegra_id": 5497, "cuenta_codigo": "519530", "cuenta_nombre": "Útiles, papelería y fotocopia", "tipo_retefuente": "compras"},
-    {"categoria": "Operaciones", "subcategoria": "Aseo",               "alegra_id": 5482, "cuenta_codigo": "513505", "cuenta_nombre": "Aseo y vigilancia", "tipo_retefuente": "servicios"},
-    {"categoria": "Operaciones", "subcategoria": "Combustible",        "alegra_id": 5498, "cuenta_codigo": "519535", "cuenta_nombre": "Combustibles y lubricantes", "tipo_retefuente": "compras"},
-    # MARKETING
-    {"categoria": "Marketing", "subcategoria": "Publicidad",  "alegra_id": 5495, "cuenta_codigo": "519520", "cuenta_nombre": "Gastos de representación/Publicidad", "tipo_retefuente": "otros"},
-    {"categoria": "Marketing", "subcategoria": "Eventos",     "alegra_id": 5495, "cuenta_codigo": "519520", "cuenta_nombre": "Gastos de representación/Eventos", "tipo_retefuente": "otros"},
-    # IMPUESTOS
-    {"categoria": "Impuestos", "subcategoria": "ICA",        "alegra_id": 5478, "cuenta_codigo": "511505", "cuenta_nombre": "Industria y Comercio (ICA)", "tipo_retefuente": "impuesto"},
-    {"categoria": "Impuestos", "subcategoria": "Predial",    "alegra_id": 5478, "cuenta_codigo": "511505", "cuenta_nombre": "Industria y Comercio (predial)", "tipo_retefuente": "impuesto"},
-    # FINANCIERO
-    {"categoria": "Financiero", "subcategoria": "Intereses",           "alegra_id": 5533, "cuenta_codigo": "615020", "cuenta_nombre": "Intereses (créditos directos)", "tipo_retefuente": "otros"},
-    {"categoria": "Financiero", "subcategoria": "Comisiones_Bancarias", "alegra_id": 5508, "cuenta_codigo": "530515", "cuenta_nombre": "Comisiones bancarias", "tipo_retefuente": "otros"},
-    {"categoria": "Financiero", "subcategoria": "Gastos_Bancarios",    "alegra_id": 5507, "cuenta_codigo": "530505", "cuenta_nombre": "Gastos bancarios", "tipo_retefuente": "otros"},
-    {"categoria": "Financiero", "subcategoria": "Seguros",             "alegra_id": 5493, "cuenta_codigo": "5195",   "cuenta_nombre": "Gastos generales (seguros)", "tipo_retefuente": "otros"},
-    {"categoria": "Financiero", "subcategoria": "GMF",                 "alegra_id": 5509, "cuenta_codigo": "531520", "cuenta_nombre": "Gravamen al movimiento financiero", "tipo_retefuente": "otros"},
-    # OTROS
-    {"categoria": "Otros", "subcategoria": "Varios",         "alegra_id": 5493, "cuenta_codigo": "5195",   "cuenta_nombre": "Gastos generales", "tipo_retefuente": "otros"},
-    {"categoria": "Otros", "subcategoria": "Representacion", "alegra_id": 5495, "cuenta_codigo": "519520", "cuenta_nombre": "Gastos de representación", "tipo_retefuente": "otros"},
-    {"categoria": "Otros", "subcategoria": "Depreciacion",   "alegra_id": 5501, "cuenta_codigo": "5160",   "cuenta_nombre": "Depreciación", "tipo_retefuente": None},
-]
+async def _get_plan_cuentas_db() -> list:
+    """Fetch plan de cuentas from MongoDB (seeded by init_mongodb_sismo.py)."""
+    return await db.plan_cuentas_roddos.find({"activo": True}, {"_id": 0}).to_list(100)
 
 
-def _lookup_plan_cuentas_local(categoria: str, subcategoria: str):
-    """Lookup account from local PLAN_CUENTAS_RODDOS (no DB needed)."""
+def _lookup_plan_cuentas(plan_list: list, categoria: str, subcategoria: str):
+    """Lookup account entry from a plan_cuentas list by categoria + subcategoria."""
     cat_n = _normalize(categoria)
     sub_n = _normalize(subcategoria)
-    for entry in PLAN_CUENTAS_RODDOS:
+    for entry in plan_list:
         if _normalize(entry["categoria"]) == cat_n and _normalize(entry["subcategoria"]) == sub_n:
             return entry
     # partial subcategoria match
-    for entry in PLAN_CUENTAS_RODDOS:
+    for entry in plan_list:
         if _normalize(entry["categoria"]) == cat_n and sub_n in _normalize(entry["subcategoria"]):
             return entry
     return None
@@ -221,8 +186,8 @@ CSV_COLUMNS_CANONICAL = ["fecha", "categoria", "subcategoria", "descripcion", "m
 
 REQUIRED_FIELDS = ["proveedor", "monto_sin_iva"]
 
-_CATEGORIAS_VALIDAS = sorted(set(e["categoria"] for e in PLAN_CUENTAS_RODDOS))
-_SUBCATEGORIAS_VALIDAS = sorted(set(e["subcategoria"] for e in PLAN_CUENTAS_RODDOS))
+# Categorías válidas (matches plan_cuentas_roddos collection, seeded by init_mongodb_sismo.py)
+_CATEGORIAS_VALIDAS = ["Financiero", "Impuestos", "Marketing", "Operaciones", "Otros", "Personal"]
 
 _INSTRUCT_ROWS = [
     ("Fecha",            "Fecha del gasto YYYY-MM-DD",                    "2026-01-15",       "✅"),
@@ -249,6 +214,7 @@ async def descargar_plantilla_gastos(current_user=Depends(get_current_user)):
     """Genera y descarga la plantilla CSV oficial para carga masiva de gastos RODDOS.
     7 columnas: fecha, categoria, subcategoria, descripcion, monto, proveedor, referencia
     """
+    plan_cuentas = await _get_plan_cuentas_db()
     lines = [
         "fecha,categoria,subcategoria,descripcion,monto,proveedor,referencia",
         "# EJEMPLO (esta fila será ignorada al cargar):",
@@ -257,7 +223,7 @@ async def descargar_plantilla_gastos(current_user=Depends(get_current_user)):
         "# Valores válidos para Categoria: Operaciones | Personal | Marketing | Impuestos | Financiero | Otros",
         "# Valores válidos de Subcategoria (por Categoria):",
     ]
-    for entry in PLAN_CUENTAS_RODDOS:
+    for entry in plan_cuentas:
         lines.append(f"#   {entry['categoria']} / {entry['subcategoria']} → {entry['cuenta_nombre']} ({entry['cuenta_codigo']})")
     lines.append("#")
     lines.append("# Completa tus datos desde esta línea (sin el # al inicio):")
@@ -360,11 +326,14 @@ async def cargar_gastos_csv(
     auto_nombres = {a["nombre"].lower() for a in autoretenedores_db}
     auto_nits    = {str(a.get("nit", "")).replace("-", "") for a in autoretenedores_db if a.get("nit")}
 
-    # Build valid combos from PLAN_CUENTAS_RODDOS for validation
+    # Load plan de cuentas from MongoDB (seeded by init_mongodb_sismo.py)
+    plan_cuentas = await _get_plan_cuentas_db()
+
+    # Build valid combos from plan_cuentas_roddos for validation
     valid_cat_sub: set[tuple] = {
-        (_normalize(e["categoria"]), _normalize(e["subcategoria"])) for e in PLAN_CUENTAS_RODDOS
+        (_normalize(e["categoria"]), _normalize(e["subcategoria"])) for e in plan_cuentas
     }
-    valid_categorias: set[str] = {_normalize(e["categoria"]) for e in PLAN_CUENTAS_RODDOS}
+    valid_categorias: set[str] = {_normalize(e["categoria"]) for e in plan_cuentas}
     FALLBACK_SUBCATEGORIA_ID   = 5493   # Otros/Varios
 
     gastos_preview = []
@@ -404,7 +373,7 @@ async def cargar_gastos_csv(
         # ── Validate & resolve account from plan_cuentas ──────────────────────
         cat_n = _normalize(raw_categoria)
         sub_n = _normalize(raw_subcategoria)
-        plan_entry = _lookup_plan_cuentas_local(raw_categoria, raw_subcategoria)
+        plan_entry = _lookup_plan_cuentas(plan_cuentas, raw_categoria, raw_subcategoria)
 
         if plan_entry:
             cuenta_gasto_id      = plan_entry["alegra_id"]
@@ -448,8 +417,7 @@ async def cargar_gastos_csv(
 
         # Honorarios split by persona type — only when tipo_persona explicitly provided
         if plan_entry and _normalize(raw_subcategoria) == "honorarios" and tipo_persona in ("PJ", "EMPRESA"):
-            entry_pj = _lookup_plan_cuentas_local(raw_categoria, "Honorarios_PJ")
-            entry_pj = _lookup_plan_cuentas_local(raw_categoria, "Honorarios_PJ")
+            entry_pj = _lookup_plan_cuentas(plan_cuentas, raw_categoria, "Honorarios_PJ")
             if entry_pj:
                 cuenta_gasto_id     = entry_pj["alegra_id"]
                 cuenta_gasto_nombre = entry_pj["cuenta_nombre"]
@@ -873,12 +841,13 @@ async def get_journals_creados(
 
 @router.get("/plan-cuentas")
 async def get_plan_cuentas(current_user=Depends(get_current_user)):
-    """Devuelve el plan de cuentas RODDOS con IDs reales de Alegra."""
+    """Devuelve el plan de cuentas RODDOS con IDs reales de Alegra (desde MongoDB)."""
+    plan_cuentas = await _get_plan_cuentas_db()
     return {
-        "total": len(PLAN_CUENTAS_RODDOS),
+        "total": len(plan_cuentas),
         "plan": [
             {k: v for k, v in entry.items() if k != "tipo_retefuente"}
-            for entry in PLAN_CUENTAS_RODDOS
+            for entry in plan_cuentas
         ],
     }
 
