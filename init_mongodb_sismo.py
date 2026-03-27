@@ -93,46 +93,79 @@ COLLECTIONS = [
 # INDICES — definiciones completas por coleccion
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _safe_index(collection, keys, **kwargs):
+    """create_index with automatic drop+recreate on name conflict.
+
+    pymongo's create_index is idempotent ONLY if the index name matches.
+    If the same key pattern exists with a different name (e.g. auto-generated
+    'field_1_field2_1' vs our custom name), it raises OperationFailure.
+    This helper catches that, drops the conflicting index, and retries.
+    """
+    from pymongo.errors import OperationFailure
+    try:
+        collection.create_index(keys, **kwargs)
+    except OperationFailure as e:
+        if "already exists with a different name" in str(e) or e.code == 85:
+            # Find and drop the conflicting index by key pattern
+            target_keys = list(keys) if not isinstance(keys, list) else keys
+            for idx in collection.list_indexes():
+                if idx.get("key") and list(idx["key"].items()) == target_keys and idx["name"] != kwargs.get("name"):
+                    collection.drop_index(idx["name"])
+                    break
+            else:
+                # Fallback: drop by the name pymongo reports
+                name = kwargs.get("name")
+                if name:
+                    try:
+                        collection.drop_index(name)
+                    except OperationFailure:
+                        pass
+            # Retry
+            collection.create_index(keys, **kwargs)
+        else:
+            raise
+
+
 def _create_indexes(db):
-    """Crea todos los indices. create_index es idempotente por diseno en pymongo."""
+    """Crea todos los indices. Usa _safe_index para manejar conflictos de nombre."""
     from pymongo import ASCENDING as ASC, DESCENDING as DESC
 
     total_indexes = 0
 
     # ── users ──────────────────────────────────────────────────────────────
-    db.users.create_index([("email", ASC)], unique=True, name="users_email_unique")
+    _safe_index(db.users, [("email", ASC)], unique=True, name="users_email_unique")
     total_indexes += 1
 
     # ── chat_messages ───────────────────────────────────────────────────────
-    db.chat_messages.create_index([("session_id", ASC), ("timestamp", ASC)],
+    _safe_index(db.chat_messages, [("session_id", ASC), ("timestamp", ASC)],
                                    name="chat_session_ts")
-    db.chat_messages.create_index([("session_id", ASC), ("timestamp", DESC)],
+    _safe_index(db.chat_messages, [("session_id", ASC), ("timestamp", DESC)],
                                    name="chat_session_ts_desc")
     total_indexes += 2
 
     # ── cfo_chat_historia ───────────────────────────────────────────────────
-    db.cfo_chat_historia.create_index([("session_id", ASC), ("ts", ASC)],
+    _safe_index(db.cfo_chat_historia, [("session_id", ASC), ("ts", ASC)],
                                        name="cfo_chat_session_ts")
     total_indexes += 1
 
     # ── agent_memory ────────────────────────────────────────────────────────
-    db.agent_memory.create_index([("user_id", ASC), ("tipo", ASC)],
+    _safe_index(db.agent_memory, [("user_id", ASC), ("tipo", ASC)],
                                   name="agent_memory_user_tipo")
-    db.agent_memory.create_index([("frecuencia_count", DESC)],
+    _safe_index(db.agent_memory, [("frecuencia_count", DESC)],
                                   name="agent_memory_freq")
-    db.agent_memory.create_index([("ultima_ejecucion", DESC)],
+    _safe_index(db.agent_memory, [("ultima_ejecucion", DESC)],
                                   name="agent_memory_ultima_ej")
     total_indexes += 3
 
     # ── agent_pending_topics ─────────────────────────────────────────────────
-    db.agent_pending_topics.create_index([("user_id", ASC), ("estado", ASC)],
+    _safe_index(db.agent_pending_topics, [("user_id", ASC), ("estado", ASC)],
                                           name="pending_topics_user_estado")
-    db.agent_pending_topics.create_index([("user_id", ASC), ("topic_key", ASC)],
+    _safe_index(db.agent_pending_topics, [("user_id", ASC), ("topic_key", ASC)],
                                           name="pending_topics_user_topic")
     # TTL: documentos auto-eliminados al vencer expires_at (expireAfterSeconds=0
     # significa que se usa el valor del campo como timestamp de expiracion)
     try:
-        db.agent_pending_topics.create_index(
+        _safe_index(db.agent_pending_topics, 
             [("expires_at", ASC)],
             expireAfterSeconds=0,
             name="ttl_pending_topics",
@@ -143,33 +176,33 @@ def _create_indexes(db):
     total_indexes += 2
 
     # ── audit_log / audit_logs ───────────────────────────────────────────────
-    db.audit_log.create_index([("timestamp", DESC)], name="audit_log_ts")
-    db.audit_logs.create_index([("timestamp", DESC)], name="audit_logs_ts")
-    db.audit_logs.create_index([("user_email", ASC), ("timestamp", DESC)],
+    _safe_index(db.audit_log, [("timestamp", DESC)], name="audit_log_ts")
+    _safe_index(db.audit_logs, [("timestamp", DESC)], name="audit_logs_ts")
+    _safe_index(db.audit_logs, [("user_email", ASC), ("timestamp", DESC)],
                                 name="audit_logs_user_ts")
     total_indexes += 3
 
     # ── loanbook — ESR indices (MDB-03) ─────────────────────────────────────
     # ESR compuesto principal: Equality (estado) + Sort (dpd) + Range (score_pago)
-    db.loanbook.create_index(
+    _safe_index(db.loanbook, 
         [("estado", ASC), ("dpd", ASC), ("score_pago", DESC)],
         name="loanbook_esr_estado_dpd_score",
     )
     # Indice simple para migraciones y consultas rapidas
-    db.loanbook.create_index([("codigo", ASC)], name="loanbook_codigo")
-    db.loanbook.create_index([("dpd_bucket", ASC)], name="loanbook_dpd_bucket")
-    db.loanbook.create_index([("score_pago", ASC)], name="loanbook_score_pago")
+    _safe_index(db.loanbook, [("codigo", ASC)], name="loanbook_codigo")
+    _safe_index(db.loanbook, [("dpd_bucket", ASC)], name="loanbook_dpd_bucket")
+    _safe_index(db.loanbook, [("score_pago", ASC)], name="loanbook_score_pago")
     # Unico sparse: chasis (motocicleta puede no tener chasis en staging)
-    db.loanbook.create_index([("chasis", ASC)], unique=True, sparse=True,
+    _safe_index(db.loanbook, [("chasis", ASC)], unique=True, sparse=True,
                               name="loanbook_chasis_unique")
     # Indice parcial: morosos activos (DPD > 0) — optimiza cobranza
-    db.loanbook.create_index(
+    _safe_index(db.loanbook, 
         [("dpd", DESC), ("score_pago", ASC)],
         partialFilterExpression={"dpd": {"$gt": 0}},
         name="loanbook_morosos_partial",
     )
     # Indice parcial: cola de cobranza (activos con mora > 7 dias)
-    db.loanbook.create_index(
+    _safe_index(db.loanbook, 
         [("dpd", DESC)],
         partialFilterExpression={"estado": "activo", "dpd": {"$gt": 7}},
         name="loanbook_cola_cobranza_partial",
@@ -177,106 +210,115 @@ def _create_indexes(db):
     total_indexes += 7
 
     # ── cartera_pagos ────────────────────────────────────────────────────────
-    db.cartera_pagos.create_index([("loan_id", ASC), ("fecha_pago", DESC)],
+    _safe_index(db.cartera_pagos, [("loan_id", ASC), ("fecha_pago", DESC)],
                                    name="cartera_loan_fecha")
     total_indexes += 1
 
     # ── inventario_motos ─────────────────────────────────────────────────────
-    db.inventario_motos.create_index([("estado", ASC)], name="inventario_estado")
-    db.inventario_motos.create_index([("chasis", ASC)], unique=True, sparse=True,
+    _safe_index(db.inventario_motos, [("estado", ASC)], name="inventario_estado")
+    _safe_index(db.inventario_motos, [("chasis", ASC)], unique=True, sparse=True,
                                       name="inventario_chasis_unique")
     total_indexes += 2
 
     # ── catalogo_motos ───────────────────────────────────────────────────────
-    db.catalogo_motos.create_index([("activo", ASC)], name="catalogo_motos_activo")
-    db.catalogo_motos.create_index([("modelo", ASC)], unique=True,
+    _safe_index(db.catalogo_motos, [("activo", ASC)], name="catalogo_motos_activo")
+    _safe_index(db.catalogo_motos, [("modelo", ASC)], unique=True,
                                     name="catalogo_motos_modelo_unique")
     total_indexes += 2
 
     # ── catalogo_planes ──────────────────────────────────────────────────────
-    db.catalogo_planes.create_index([("plan", ASC)], unique=True,
+    _safe_index(db.catalogo_planes, [("plan", ASC)], unique=True,
                                      name="catalogo_planes_plan_unique")
     total_indexes += 1
 
     # ── conciliacion bancaria ────────────────────────────────────────────────
-    db.conciliacion_extractos_procesados.create_index([("hash", ASC)], unique=True,
+    _safe_index(db.conciliacion_extractos_procesados, [("hash", ASC)], unique=True,
                                                        name="ext_hash_unique")
-    db.conciliacion_extractos_procesados.create_index([("banco", ASC), ("fecha", ASC)],
+    _safe_index(db.conciliacion_extractos_procesados, [("banco", ASC), ("fecha", ASC)],
                                                        name="ext_banco_fecha")
-    db.conciliacion_movimientos_procesados.create_index([("hash", ASC)], unique=True,
+    _safe_index(db.conciliacion_movimientos_procesados, [("hash", ASC)], unique=True,
                                                          name="mov_hash_unique")
-    db.conciliacion_movimientos_procesados.create_index([("banco", ASC), ("fecha", ASC)],
+    _safe_index(db.conciliacion_movimientos_procesados, [("banco", ASC), ("fecha", ASC)],
                                                          name="mov_banco_fecha")
-    db.conciliacion_reintentos.create_index([("movimiento_hash", ASC)], unique=True,
+    _safe_index(db.conciliacion_reintentos, [("movimiento_hash", ASC)], unique=True,
                                              name="reintentos_hash_unique")
-    db.conciliacion_reintentos.create_index([("estado", ASC), ("proximo_intento", ASC)],
+    _safe_index(db.conciliacion_reintentos, [("estado", ASC), ("proximo_intento", ASC)],
                                              name="reintentos_estado_proximo")
-    db.conciliacion_reintentos.create_index([("banco", ASC), ("fecha", ASC)],
+    _safe_index(db.conciliacion_reintentos, [("banco", ASC), ("fecha", ASC)],
                                              name="reintentos_banco_fecha")
     total_indexes += 7
 
     # ── plan_cuentas_roddos ──────────────────────────────────────────────────
-    db.plan_cuentas_roddos.create_index([("categoria", ASC), ("subcategoria", ASC)],
+    _safe_index(db.plan_cuentas_roddos, [("categoria", ASC), ("subcategoria", ASC)],
                                          unique=True, name="plan_cuentas_cat_subcat")
-    db.plan_cuentas_roddos.create_index([("alegra_id", ASC)], name="plan_cuentas_alegra_id")
+    _safe_index(db.plan_cuentas_roddos, [("alegra_id", ASC)], name="plan_cuentas_alegra_id")
     total_indexes += 2
 
     # ── ingresos_registrados ─────────────────────────────────────────────────
-    db.ingresos_registrados.create_index([("fecha", ASC), ("tipo_ingreso", ASC)],
+    _safe_index(db.ingresos_registrados, [("fecha", ASC), ("tipo_ingreso", ASC)],
                                           name="ingresos_fecha_tipo")
     total_indexes += 1
 
     # ── proveedores_config ───────────────────────────────────────────────────
-    db.proveedores_config.create_index([("nit", ASC)], unique=True,
+    _safe_index(db.proveedores_config, [("nit", ASC)], unique=True,
                                         name="proveedores_nit_unique")
     total_indexes += 1
 
     # ── cfo_informes ────────────────────────────────────────────────────────
-    db.cfo_informes.create_index([("fecha_generacion", DESC)], name="cfo_informes_fecha")
+    _safe_index(db.cfo_informes, [("fecha_generacion", DESC)], name="cfo_informes_fecha")
     total_indexes += 1
 
     # ── cfo_alertas ─────────────────────────────────────────────────────────
-    db.cfo_alertas.create_index([("resuelta", ASC), ("periodo", ASC)],
+    _safe_index(db.cfo_alertas, [("resuelta", ASC), ("periodo", ASC)],
                                   name="cfo_alertas_resuelta_periodo")
-    db.cfo_alertas.create_index([("created_at", DESC)], name="cfo_alertas_created")
-    db.cfo_alertas.create_index([("tipo", ASC), ("leido", ASC)],
+    _safe_index(db.cfo_alertas, [("created_at", DESC)], name="cfo_alertas_created")
+    _safe_index(db.cfo_alertas, [("tipo", ASC), ("leido", ASC)],
                                   name="cfo_alertas_tipo_leido")
     total_indexes += 3
 
     # ── cfo_instrucciones ────────────────────────────────────────────────────
-    db.cfo_instrucciones.create_index([("activa", ASC)], name="cfo_instrucciones_activa")
+    _safe_index(db.cfo_instrucciones, [("activa", ASC)], name="cfo_instrucciones_activa")
     total_indexes += 1
 
     # ── cfo_compromisos ──────────────────────────────────────────────────────
-    db.cfo_compromisos.create_index([("activo", ASC)], name="cfo_compromisos_activo")
+    _safe_index(db.cfo_compromisos, [("activo", ASC)], name="cfo_compromisos_activo")
     total_indexes += 1
 
     # ── cxc_socios ───────────────────────────────────────────────────────────
-    db.cxc_socios.create_index([("socio", ASC), ("estado", ASC)],
+    _safe_index(db.cxc_socios, [("socio", ASC), ("estado", ASC)],
                                  name="cxc_socios_socio_estado")
-    db.cxc_socios.create_index([("fecha", ASC)], name="cxc_socios_fecha")
+    _safe_index(db.cxc_socios, [("fecha", ASC)], name="cxc_socios_fecha")
     total_indexes += 2
 
     # ── cxc_clientes ─────────────────────────────────────────────────────────
-    db.cxc_clientes.create_index([("nit_cliente", ASC)], name="cxc_clientes_nit")
-    db.cxc_clientes.create_index([("vencimiento", ASC)], name="cxc_clientes_vencimiento")
+    _safe_index(db.cxc_clientes, [("nit_cliente", ASC)], name="cxc_clientes_nit")
+    _safe_index(db.cxc_clientes, [("vencimiento", ASC)], name="cxc_clientes_vencimiento")
     total_indexes += 2
 
     # ── roddos_events — ESR + TTL (MDB-02, D-08) ────────────────────────────
-    # Unico en event_id — deduplicacion de eventos
-    db.roddos_events.create_index([("event_id", ASC)], unique=True,
+    # Limpiar docs legacy sin event_id antes de crear indice unique
+    _backfill_null = db.roddos_events.find(
+        {"$or": [{"event_id": None}, {"event_id": {"$exists": False}}]}
+    )
+    for doc in _backfill_null:
+        db.roddos_events.update_one(
+            {"_id": doc["_id"]},
+            {"$set": {"event_id": str(uuid.uuid4())}},
+        )
+    # Unico en event_id — sparse=True ignora docs legacy sin el campo
+    _safe_index(db.roddos_events, [("event_id", ASC)], unique=True, sparse=True,
                                    name="roddos_events_event_id_unique")
     # Compuesto: event_type + timestamp_utc para filtrado cronologico por tipo
-    db.roddos_events.create_index(
+    _safe_index(db.roddos_events, 
         [("event_type", ASC), ("timestamp_utc", DESC)],
         name="roddos_events_type_ts",
     )
     # Indice de estado para cola de procesamiento
-    db.roddos_events.create_index([("estado", ASC), ("timestamp_utc", DESC)],
+    _safe_index(db.roddos_events, [("estado", ASC), ("timestamp_utc", DESC)],
                                    name="roddos_events_estado_ts")
     # TTL: 90 dias = 7776000 segundos — expiracion automatica de eventos
     try:
-        db.roddos_events.create_index(
+        _safe_index(db.roddos_events, 
             [("timestamp_utc", ASC)],
             expireAfterSeconds=7776000,
             name="ttl_timestamp_90d",
@@ -287,46 +329,46 @@ def _create_indexes(db):
     total_indexes += 3
 
     # ── roddos_events_dlq — Dead Letter Queue (MDB-09, D-09) ─────────────────
-    db.roddos_events_dlq.create_index([("next_retry", ASC)],
+    _safe_index(db.roddos_events_dlq, [("next_retry", ASC)],
                                        name="dlq_next_retry")
-    db.roddos_events_dlq.create_index([("retry_count", ASC), ("status", ASC)],
+    _safe_index(db.roddos_events_dlq, [("retry_count", ASC), ("status", ASC)],
                                        name="dlq_retry_count_status")
-    db.roddos_events_dlq.create_index([("status", ASC)], name="dlq_status")
-    db.roddos_events_dlq.create_index([("original_event_id", ASC)],
+    _safe_index(db.roddos_events_dlq, [("status", ASC)], name="dlq_status")
+    _safe_index(db.roddos_events_dlq, [("original_event_id", ASC)],
                                        name="dlq_original_event_id")
     total_indexes += 4
 
     # ── portfolio_summaries — resumen de cartera pre-calculado (MDB-07, D-11) ─
-    db.portfolio_summaries.create_index([("date", ASC)], unique=True,
+    _safe_index(db.portfolio_summaries, [("date", ASC)], unique=True,
                                          name="portfolio_date_unique")
-    db.portfolio_summaries.create_index([("created_at", DESC)],
+    _safe_index(db.portfolio_summaries, [("created_at", DESC)],
                                          name="portfolio_created_at")
     total_indexes += 2
 
     # ── financial_reports — P&L y balances mensuales (MDB-08, D-11) ──────────
-    db.financial_reports.create_index(
+    _safe_index(db.financial_reports, 
         [("year", ASC), ("month", ASC)],
         unique=True,
         name="financial_reports_year_month_unique",
     )
-    db.financial_reports.create_index([("created_at", DESC)],
+    _safe_index(db.financial_reports, [("created_at", DESC)],
                                        name="financial_reports_created_at")
     total_indexes += 2
 
     # ── sismo_knowledge — base RAG de reglas de negocio (MDB-06) ─────────────
-    db.sismo_knowledge.create_index([("rule_id", ASC)], unique=True,
+    _safe_index(db.sismo_knowledge, [("rule_id", ASC)], unique=True,
                                      name="sismo_knowledge_rule_id_unique")
-    db.sismo_knowledge.create_index([("categoria", ASC)], name="sismo_knowledge_categoria")
+    _safe_index(db.sismo_knowledge, [("categoria", ASC)], name="sismo_knowledge_categoria")
     total_indexes += 2
 
     # ── notifications ────────────────────────────────────────────────────────
-    db.notifications.create_index([("user_id", ASC), ("leido", ASC)],
+    _safe_index(db.notifications, [("user_id", ASC), ("leido", ASC)],
                                    name="notifications_user_leido")
-    db.notifications.create_index([("created_at", DESC)], name="notifications_created")
+    _safe_index(db.notifications, [("created_at", DESC)], name="notifications_created")
     total_indexes += 2
 
     # ── user_settings ────────────────────────────────────────────────────────
-    db.user_settings.create_index([("user_id", ASC)], unique=True,
+    _safe_index(db.user_settings, [("user_id", ASC)], unique=True,
                                    name="user_settings_user_unique")
     total_indexes += 1
 
@@ -344,8 +386,12 @@ CATALOGO_DEFAULT = [
         "multiplicadores": {"semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
         "mora_diaria": 2000,
         "modelos": {
-            "Raider 125": {"precio_venta": 7_800_000, "valor_cuota_semanal": 210_000},
-            "Sport 100":  {"precio_venta": 5_750_000, "valor_cuota_semanal": 175_000},
+            "Sport 100": {
+                "precio_venta": 5_750_000,
+                "valor_cuota_semanal": 175_000,
+                "valor_cuota_quincenal": 385_000,
+                "valor_cuota_mensual": 770_000,
+            },
         },
     },
     {
@@ -354,18 +400,36 @@ CATALOGO_DEFAULT = [
         "multiplicadores": {"semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
         "mora_diaria": 2000,
         "modelos": {
-            "Raider 125": {"precio_venta": 7_800_000, "valor_cuota_semanal": 179_900},
-            "Sport 100":  {"precio_venta": 5_750_000, "valor_cuota_semanal": 160_000},
+            "Sport 100": {
+                "precio_venta": 5_750_000,
+                "valor_cuota_semanal": 160_000,
+                "valor_cuota_quincenal": 352_000,
+                "valor_cuota_mensual": 704_000,
+            },
         },
     },
     {
-        "plan": "P78S", "modo_pago": "semanal",
+        "plan": "P78S_Raider", "modo_pago": "semanal",
         "cuotas_semanal": 78, "cuotas_quincenal": 39, "cuotas_mensual": 18,
         "multiplicadores": {"semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
         "mora_diaria": 2000,
         "modelos": {
-            "Raider 125": {"precio_venta": 7_800_000, "valor_cuota_semanal": 149_900},
-            "Sport 100":  {"precio_venta": 5_750_000, "valor_cuota_semanal": 130_000},
+            "Raider 125": {
+                "precio_venta": 7_800_000,
+                "valor_cuota_semanal": 149_900,
+            },
+        },
+    },
+    {
+        "plan": "P78S_Sport", "modo_pago": "semanal",
+        "cuotas_semanal": 78, "cuotas_quincenal": 39, "cuotas_mensual": 18,
+        "multiplicadores": {"semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
+        "mora_diaria": 2000,
+        "modelos": {
+            "Sport 100": {
+                "precio_venta": 5_750_000,
+                "valor_cuota_semanal": 130_000,
+            },
         },
     },
     {
@@ -379,16 +443,13 @@ CATALOGO_DEFAULT = [
 
 def seed_catalogo_planes(db) -> int:
     """Siembra los planes de financiacion con multiplicadores reales. Upsert por plan."""
-    count = 0
     for plan in CATALOGO_DEFAULT:
-        result = db.catalogo_planes.update_one(
+        db.catalogo_planes.update_one(
             {"plan": plan["plan"]},
             {"$set": plan},
             upsert=True,
         )
-        if result.upserted_id or result.modified_count:
-            count += 1
-    return count
+    return db.catalogo_planes.count_documents({})
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -438,17 +499,14 @@ PLAN_CUENTAS_RODDOS = [
 
 def seed_plan_cuentas(db) -> int:
     """Siembra el plan de cuentas contable. Upsert por (categoria, subcategoria)."""
-    count = 0
     now = datetime.now(timezone.utc).isoformat()
     for entry in PLAN_CUENTAS_RODDOS:
-        result = db.plan_cuentas_roddos.update_one(
+        db.plan_cuentas_roddos.update_one(
             {"categoria": entry["categoria"], "subcategoria": entry["subcategoria"]},
             {"$set": {**entry, "activo": True, "actualizado_en": now}},
             upsert=True,
         )
-        if result.upserted_id or result.modified_count:
-            count += 1
-    return count
+    return db.plan_cuentas_roddos.count_documents({})
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -585,17 +643,14 @@ SISMO_KNOWLEDGE = [
 
 def seed_sismo_knowledge(db) -> int:
     """Siembra las 10 reglas de negocio para RAG. Upsert por rule_id."""
-    count = 0
     now = datetime.now(timezone.utc).isoformat()
     for rule in SISMO_KNOWLEDGE:
-        result = db.sismo_knowledge.update_one(
+        db.sismo_knowledge.update_one(
             {"rule_id": rule["rule_id"]},
             {"$set": {**rule, "actualizado_en": now}},
             upsert=True,
         )
-        if result.upserted_id or result.modified_count:
-            count += 1
-    return count
+    return db.sismo_knowledge.count_documents({})
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -724,17 +779,14 @@ CATALOGO_MOTOS_DEFAULT = [
 
 def seed_catalogo_motos(db) -> int:
     """Siembra los 2 modelos de moto disponibles. Upsert por modelo."""
-    count = 0
     now = datetime.now(timezone.utc).isoformat()
     for moto in CATALOGO_MOTOS_DEFAULT:
-        result = db.catalogo_motos.update_one(
+        db.catalogo_motos.update_one(
             {"modelo": moto["modelo"]},
             {"$set": {**moto, "actualizado_en": now, "actualizado_por": "sistema"}},
             upsert=True,
         )
-        if result.upserted_id or result.modified_count:
-            count += 1
-    return count
+    return db.catalogo_motos.count_documents({})
 
 
 # ─────────────────────────────────────────────────────────────────────────────
