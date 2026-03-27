@@ -67,23 +67,6 @@ COSTO_MODELOS: dict[str, float] = {
     "raider 125": 5_638_974.0,
 }
 
-# ── CFO intent keywords ───────────────────────────────────────────────────────
-CFO_KEYWORDS: frozenset[str] = frozenset({
-    "plan", "financiero", "cómo vamos", "como vamos",
-    "margen", "flujo de caja", "rentabilidad", "presupuesto",
-    "meta", "mora total", "semáforo", "semaforo", "informe cfo",
-    "pérdida", "perdida", "ganancia", "ebitda",
-    "iva total", "impuesto", "resultado neto", "utilidad",
-    "cartera total", "cómo está la empresa", "balance",
-})
-
-
-def is_cfo_query(message: str) -> bool:
-    """Retorna True si el mensaje contiene keywords financieros/CFO."""
-    msg_lower = message.lower()
-    return any(kw in msg_lower for kw in CFO_KEYWORDS)
-
-
 # ── 1. consolidar_datos_financieros ──────────────────────────────────────────
 
 async def consolidar_datos_financieros(db) -> dict:
