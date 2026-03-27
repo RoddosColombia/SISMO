@@ -80,7 +80,14 @@ Plans:
   3. compute_portfolio_summary() produces a snapshot document in portfolio_summaries with today's date
   4. CFO agent's get_portfolio_data_for_cfo() reads from portfolio_summaries before falling back to Alegra
   5. build_agent_prompt() injects relevant sismo_knowledge rules into the system prompt for any agent
-**Plans**: TBD
+**Plans**: 4 plans
+**Status**: Complete — 2026-03-26
+
+Plans:
+- [x] 04-01-PLAN.md -- agent_prompts.py (SYSTEM_PROMPTS 4 agents, build_agent_prompt RAG+caching)
+- [x] 04-02-PLAN.md -- agent_router.py (LLM confidence router, INTENT_THRESHOLD=0.7)
+- [x] 04-03-PLAN.md -- portfolio_pipeline.py (compute_portfolio_summary, CFO cache-first)
+- [x] 04-04-PLAN.md -- 28 tests (test_phase4_agents.py, all 5 success criteria)
 
 ### Phase 5: GitHub Production-Ready
 **Goal**: Every push is validated by CI (pytest + smoke test + anti-pending check), dependencies are monitored, and documentation reflects BUILD 24
