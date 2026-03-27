@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 2: Event Bus Refactoring** - EventBusService with DLQ and retry replaces fake event_bus.py; all callers migrated
 - [ ] **Phase 3: MongoDB Completo** - 30+ collections with ESR indices, schema validation, and seeded production data
 - [ ] **Phase 4: Agents, Router, Scheduler & Pipeline** - Differentiated system prompts, confidence router, portfolio summaries, financial reports, and RAG
-- [ ] **Phase 5: GitHub Production-Ready** - Expanded CI/CD with pytest, smoke test, anti-pending check, Dependabot, and updated docs
+- [x] **Phase 5: GitHub Production-Ready** - Expanded CI/CD with pytest, smoke test, anti-pending check, Dependabot, and updated docs (completed 2026-03-27)
 
 ## Phase Details
 
@@ -105,4 +105,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | 2. Event Bus Refactoring | 0/3 | Planned | - |
 | 3. MongoDB Completo | 0/3 | Planned | - |
 | 4. Agents, Router, Scheduler & Pipeline | 0/TBD | Not started | - |
-| 5. GitHub Production-Ready | 2/3 | In Progress|  |
+| 5. GitHub Production-Ready | 2/3 | Complete    | 2026-03-27 |
