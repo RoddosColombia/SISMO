@@ -56,7 +56,7 @@
 - [ ] **GIT-01**: ci.yml expandido con pytest, anti-emergent check, anti-pending-status check
 - [ ] **GIT-02**: Smoke test job en CI verifica /api/health/smoke (status, collections, bus)
 - [ ] **GIT-03**: dependabot.yml creado para pip y npm
-- [ ] **GIT-04**: /api/health/smoke endpoint mejorado con checks de colecciones, bus, indices, catalogo
+- [x] **GIT-04**: /api/health/smoke endpoint mejorado con checks de colecciones, bus, indices, catalogo
 - [x] **GIT-05**: README.md actualizado a BUILD 24 (eliminar referencias Emergent y BUILD 18)
 - [x] **GIT-06**: CLAUDE.md actualizado con protocolo nuevo bus, worktrees, errores documentados
 
@@ -66,7 +66,7 @@
 - [ ] **TST-02**: test_permissions.py — 8 tests (write permissions, alegra permissions por agente)
 - [ ] **TST-03**: test_mongodb_init.py — 13 tests (idempotencia, indices, datos sembrados)
 - [x] **TST-04**: test_agent_router.py — 7 tests (routing correcto, clarificacion, system prompts)
-- [ ] **TST-05**: test_smoke_build24.py — 6 tests (health endpoint, colecciones, bus)
+- [x] **TST-05**: test_smoke_build24.py — 6 tests (health endpoint, colecciones, bus)
 - [x] **TST-06**: test_usage_integration.py — 15 tests (portfolio summary, RAG, eventos end-to-end)
 
 ## Future Requirements (deferred)

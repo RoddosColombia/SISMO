@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: Ready to execute
-stopped_at: Completed 05-03-PLAN.md (README + CLAUDE.md documentation rewrite)
-last_updated: "2026-03-27T03:23:43.845Z"
+stopped_at: "Completed 05-01-PLAN.md: smoke endpoint + 6 unit tests"
+last_updated: "2026-03-27T03:26:13.589Z"
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 16
-  completed_plans: 14
+  completed_plans: 15
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 ## Current Position
 
 Phase: 5 (GitHub Production-Ready) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 
 ## Performance Metrics
 
@@ -50,6 +50,7 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase 04]: SC1 test validates CFO router entry via P&L/semaforo terms (cartera routes to RADAR)
 - [Phase 05]: Full README rewrite (not surgical cleanup) to eliminate Emergent/BUILD18/concesionario identity drift
 - [Phase 05]: CLAUDE.md appended with bus.emit() protocol and known errors — existing content preserved
+- [Phase 05-github-production-ready]: smoke_test bus health placed outside main DB try block — bus errors give 'degradado' not 'critico'
 
 ### Pending Todos
 
@@ -61,6 +62,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-27T03:23:43.840Z
-Stopped at: Completed 05-03-PLAN.md (README + CLAUDE.md documentation rewrite)
+Last session: 2026-03-27T03:26:13.585Z
+Stopped at: Completed 05-01-PLAN.md: smoke endpoint + 6 unit tests
 Resume file: None
