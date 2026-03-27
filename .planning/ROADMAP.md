@@ -15,8 +15,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 1: Models & Contracts** - Pydantic event models, event type catalog, and agent write permissions enforced in Python code
 - [ ] **Phase 2: Event Bus Refactoring** - EventBusService with DLQ and retry replaces fake event_bus.py; all callers migrated
 - [ ] **Phase 3: MongoDB Completo** - 30+ collections with ESR indices, schema validation, and seeded production data
-- [ ] **Phase 4: Agents, Router, Scheduler & Pipeline** - Differentiated system prompts, confidence router, portfolio summaries, financial reports, and RAG
-- [x] **Phase 5: GitHub Production-Ready** - Expanded CI/CD with pytest, smoke test, anti-pending check, Dependabot, and updated docs (completed 2026-03-27)
+- [x] **Phase 4: Agents, Router, Scheduler & Pipeline** - Differentiated system prompts, confidence router, portfolio summaries, financial reports, and RAG (completed 2026-03-26)
+- [x] **Phase 5: GitHub Production-Ready** - Expanded CI/CD with pytest, smoke test, anti-pending check, Dependabot, and updated docs (completed 2026-03-27)
 
 ## Phase Details
 
@@ -80,7 +80,14 @@ Plans:
   3. compute_portfolio_summary() produces a snapshot document in portfolio_summaries with today's date
   4. CFO agent's get_portfolio_data_for_cfo() reads from portfolio_summaries before falling back to Alegra
   5. build_agent_prompt() injects relevant sismo_knowledge rules into the system prompt for any agent
-**Plans**: TBD
+**Plans**: 4 plans
+**Status**: Complete -- 2026-03-26
+
+Plans:
+- [x] 04-01-PLAN.md -- agent_prompts.py (SYSTEM_PROMPTS 4 agents, build_agent_prompt RAG+caching)
+- [x] 04-02-PLAN.md -- agent_router.py (LLM confidence router, INTENT_THRESHOLD=0.7)
+- [x] 04-03-PLAN.md -- portfolio_pipeline.py (compute_portfolio_summary, CFO cache-first)
+- [x] 04-04-PLAN.md -- 28 tests (test_phase4_agents.py, all 5 success criteria)
 
 ### Phase 5: GitHub Production-Ready
 **Goal**: Every push is validated by CI (pytest + smoke test + anti-pending check), dependencies are monitored, and documentation reflects BUILD 24
@@ -92,7 +99,13 @@ Plans:
   3. dependabot.yml exists and monitors both pip and npm dependencies
   4. README.md contains no references to "Emergent" or "BUILD 18" and reflects BUILD 24 architecture
   5. All 6 smoke tests pass (test_smoke_build24.py)
-**Plans**: TBD
+**Plans**: 3 plans
+**Status**: Complete -- 2026-03-27
+
+Plans:
+- [x] 05-01-PLAN.md -- /api/health/smoke mejorado + test_smoke_build24.py (6 tests)
+- [x] 05-02-PLAN.md -- ci.yml (4 jobs: pytest, anti-pending, smoke) + dependabot.yml
+- [x] 05-03-PLAN.md -- README.md rewrite BUILD 24 + CLAUDE.md bus protocol
 
 ## Progress
 
@@ -101,8 +114,8 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Models & Contracts | 0/3 | Planned | - |
-| 2. Event Bus Refactoring | 0/3 | Planned | - |
-| 3. MongoDB Completo | 0/3 | Planned | - |
-| 4. Agents, Router, Scheduler & Pipeline | 0/TBD | Not started | - |
-| 5. GitHub Production-Ready | 2/3 | Complete    | 2026-03-27 |
+| 1. Models & Contracts | 3/3 | Complete | 2026-03-26 |
+| 2. Event Bus Refactoring | 3/3 | Complete | 2026-03-26 |
+| 3. MongoDB Completo | 3/3 | Complete | 2026-03-26 |
+| 4. Agents, Router, Scheduler & Pipeline | 4/4 | Complete | 2026-03-26 |
+| 5. GitHub Production-Ready | 3/3 | Complete | 2026-03-27 |

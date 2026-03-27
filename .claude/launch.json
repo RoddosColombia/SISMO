@@ -17,12 +17,14 @@
       "port": 8001
     },
     {
-      "name": "Frontend (React + Craco)",
-      "runtimeExecutable": "yarn",
+      "name": "frontend",
+      "runtimeExecutable": "node",
       "runtimeArgs": [
+        "node_modules/@craco/craco/dist/bin/craco.js",
         "start"
       ],
-      "port": 3000
+      "port": 3000,
+      "cwd": "frontend"
     }
   ]
 }

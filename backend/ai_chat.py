@@ -2830,10 +2830,20 @@ async def process_chat(
             db, user
         )
 
-    # ── CFO intent detection (antes del flujo contable normal) ───────────────
-    from services.cfo_agent import is_cfo_query, process_cfo_query
-    if is_cfo_query(user_message):
+    # ── Intent Router (LLM-based confidence scoring) ─────────────────────────
+    from agent_router import classify_intent
+    route = await classify_intent(user_message)
+
+    if route["needs_clarification"]:
+        return {"message": route["clarification_message"], "source": "router"}
+
+    if route["agent"] == "cfo":
+        from services.cfo_agent import process_cfo_query
         return await process_cfo_query(user_message, db, user, session_id)
+
+    # For radar and loanbook agents, fall through to contador for now
+    # (dedicated handlers will be added in future phases)
+    # route["agent"] in {"radar", "loanbook"} → falls through to contador flow
     # ─────────────────────────────────────────────────────────────────────────
 
     api_key = os.environ.get("EMERGENT_LLM_KEY")
@@ -3590,6 +3600,29 @@ async def process_chat(
             history_msgs = recent_msgs
         except Exception:
             history_msgs = history_msgs[-(KEEP_RECENT_PAIRS * 2):]
+
+    # ── AGT-04: Inyectar reglas de sismo_knowledge (RAG) al system prompt ────────
+    try:
+        from agent_prompts import AGENT_KNOWLEDGE_TAGS
+        _rag_tags = AGENT_KNOWLEDGE_TAGS.get("contador", [])
+        if _rag_tags:
+            _rag_cursor = db.sismo_knowledge.find(
+                {"tags": {"$in": _rag_tags}},
+                {"_id": 0, "titulo": 1, "contenido": 1},
+            )
+            _rag_rules = await _rag_cursor.to_list(length=50)
+            if _rag_rules:
+                _rag_text = "\n".join(
+                    f"• {r['titulo']}: {r['contenido']}" for r in _rag_rules
+                )
+                system_prompt += (
+                    "\n\n═══════════════════════════════════════════════════\n"
+                    "REGLAS DE NEGOCIO RODDOS (conocimiento operativo):\n"
+                    "═══════════════════════════════════════════════════\n"
+                    + _rag_text
+                )
+    except Exception as _rag_err:
+        logger.warning("[AGT-04] RAG injection failed (non-fatal): %s", _rag_err)
 
     # Build initial_messages for this request
     initial_messages: list = [{"role": "system", "content": system_prompt}]
