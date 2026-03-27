@@ -324,8 +324,30 @@ async def _procesar_reintentos_alegra() -> None:
         logger.error(f"[Scheduler] procesar_reintentos_alegra error general: {e}")
 
 
+async def _retry_dlq_events() -> None:
+    """Retry failed DLQ events every 5 minutes (per D-07/BUS-04)."""
+    from database import db
+    from services.event_bus_service import EventBusService
+    bus = EventBusService(db)
+    try:
+        retried = await bus.retry_dlq()
+        if retried > 0:
+            logger.info("[Scheduler] DLQ retry: %d events re-published", retried)
+    except Exception as e:
+        logger.error("[Scheduler] DLQ retry failed: %s", e)
+
+
 def start_scheduler() -> None:
     """Registra el job y arranca el scheduler. Llamar desde startup de FastAPI."""
+    _scheduler.add_job(
+        _retry_dlq_events,
+        trigger="interval",
+        minutes=5,
+        id="dlq_retry",
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=60,
+    )
     _scheduler.add_job(
         _process_pending_events,
         trigger="interval",

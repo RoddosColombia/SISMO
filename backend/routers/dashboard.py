@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from alegra_service import AlegraService
 from database import db
 from dependencies import get_current_user
-from event_bus import get_recent_events
+from services.event_bus_service import EventBusService
 
 router = APIRouter(tags=["dashboard"])
 
@@ -184,7 +184,8 @@ async def mark_all_read(current_user=Depends(get_current_user)):
 @router.get("/events/recent")
 async def get_events(limit: int = 20, current_user=Depends(get_current_user)):
     """Return recent events from roddos_events bus (all modules)."""
-    events = await get_recent_events(db, limit=min(limit, 50))
+    bus = EventBusService(db)
+    events = await bus.get_recent_events(limit=min(limit, 50))
     return events
 
 

@@ -102,7 +102,9 @@ async def _wa(telefono: str, mensaje: str, config: dict | None = None, job: str 
 async def calcular_dpd_todos() -> None:
     """Calcula DPD, bucket e interés mora 15%EA para todos los loanbooks activo/mora."""
     from database import db
-    from services.shared_state import emit_state_change
+    from services.event_bus_service import EventBusService
+    from event_models import RoddosEvent
+    from services.shared_state import handle_state_side_effects
 
     try:
         hoy     = date.today()
@@ -165,16 +167,33 @@ async def calcular_dpd_todos() -> None:
             await db.loanbook.update_one({"id": loan_id}, {"$set": update_fields})
 
             if bucket != prev_bucket:
-                await emit_state_change(
-                    db, "loanbook.bucket_change", loan_id, bucket, "scheduler",
-                    {"prev_bucket": prev_bucket, "dpd_actual": dpd_actual,
-                     "codigo": loan["codigo"]},
+                bus = EventBusService(db)
+                await bus.emit(RoddosEvent(
+                    source_agent="scheduler",
+                    event_type="loanbook.bucket_change",
+                    actor="scheduler",
+                    target_entity=loan_id,
+                    payload={"new_state": bucket, "prev_bucket": prev_bucket,
+                             "dpd_actual": dpd_actual, "codigo": loan["codigo"]},
+                ))
+                await handle_state_side_effects(
+                    db, "loanbook.bucket_change", loan_id, bucket,
+                    {"prev_bucket": prev_bucket, "dpd_actual": dpd_actual},
                 )
 
             if dpd_actual >= 22 and estado_actual not in ("recuperacion",):
-                await emit_state_change(
-                    db, "protocolo_recuperacion", loan_id, "recuperacion", "scheduler",
-                    {"dpd_actual": dpd_actual, "codigo": loan["codigo"]},
+                bus = EventBusService(db)
+                await bus.emit(RoddosEvent(
+                    source_agent="scheduler",
+                    event_type="protocolo_recuperacion",
+                    actor="scheduler",
+                    target_entity=loan_id,
+                    payload={"new_state": "recuperacion", "dpd_actual": dpd_actual,
+                             "codigo": loan["codigo"]},
+                ))
+                await handle_state_side_effects(
+                    db, "protocolo_recuperacion", loan_id, "recuperacion",
+                    {"dpd_actual": dpd_actual},
                 )
 
             updated += 1

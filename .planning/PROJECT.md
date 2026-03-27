@@ -27,12 +27,16 @@ Contabilidad automatizada sin intervencion humana (cada operacion financiera ref
 - [x] Registro de pagos de cuotas con sync a Alegra — existing
 - [x] Scheduler para tareas en background (APScheduler) — existing
 
-### Active
+### Active (BUILD 24 — Cimientos Definitivos)
 
-- [ ] Agente Contador 8.5/10 con smoke test 20/20 (ciclo completo contable)
-- [ ] Sistema financiero completo (FASE 1)
-- [ ] Inteligencia de cartera (FASE 2)
-- [ ] Soberania digital con infraestructura propia (FASE 3)
+- [ ] Bus de eventos tipado y validado (EventBusService + DLQ + retry, reemplaza event_bus.py falso)
+- [ ] Permisos de escritura de agentes validados en codigo Python (no en prompts del LLM)
+- [ ] MongoDB completo: 30+ colecciones con indices ESR, schema validation, datos sembrados
+- [ ] System prompts diferenciados por agente + router con confidence threshold 0.7
+- [ ] Portfolio summaries pre-calculados (Computed Pattern) + financial reports mensuales
+- [ ] sismo_knowledge como base RAG para reglas de negocio de los agentes
+- [ ] GitHub CI/CD expandido: pytest, smoke test, anti-pending check, Dependabot
+- [ ] CFO leyendo portfolio_summaries en vez de Alegra directo (70% menos llamadas API)
 
 ### Out of Scope
 
@@ -41,9 +45,25 @@ Contabilidad automatizada sin intervencion humana (cada operacion financiera ref
 - Integracion con bancos directa — se usa reconciliacion via CSV/Excel
 - Facturacion electronica DIAN en produccion — DIAN stubbed, se implementara cuando haya certificado
 
+## Current Milestone: v2.0 BUILD 24 — Cimientos Definitivos
+
+**Goal:** Establecer los cimientos estructurales de SISMO para escalar como fintech: MongoDB completo, bus de eventos real, permisos de agentes en codigo, system prompts diferenciados, y CI/CD con pytest.
+
+**Target features:**
+- Bus de eventos real (EventBusService + DLQ + retry)
+- Permisos de escritura de agentes en codigo (WRITE_PERMISSIONS)
+- MongoDB 30+ colecciones con indices, validation, datos sembrados
+- System prompts diferenciados + confidence router 0.7
+- Portfolio summaries + financial reports pre-calculados
+- sismo_knowledge base RAG
+- GitHub CI/CD expandido + Dependabot
+- CFO lee portfolio_summaries, no Alegra directo
+
+**Score objetivo:** 9.0/10 → 9.3/10
+
 ## Context
 
-- **Estado actual:** BUILD 23 — Agente Contador 6.5/10
+- **Estado actual:** BUILD 23 completado — Score 9.0/10
 - **Produccion:** 10 loanbooks activos, $94M COP cartera, 34 motos TVS
 - **Stack:** FastAPI + React 19 + TypeScript + MongoDB Atlas + Alegra API + Mercately + Claude Sonnet
 - **Arquitectura:** 6 capas horizontales + 5 nodos de negocio verticales + bus de eventos append-only
@@ -92,4 +112,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-24 after initialization*
+*Last updated: 2026-03-26 — Milestone v2.0 BUILD 24 started*

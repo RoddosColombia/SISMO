@@ -7,11 +7,10 @@ Expone exactamente 6 funciones asíncronas:
   get_moto_status(db, chasis)                -> dict
   get_portfolio_health(db)                   -> dict
   get_daily_collection_queue(db)             -> list[dict]
-  emit_state_change(db, event_type, entity_id, new_state, actor, metadata={})
-    -> actualiza DB + inserta roddos_events(estado='processed') + invalida caché
+  handle_state_side_effects(db, event_type, entity_id, new_state, metadata=None)
+    -> actualiza DB + invalida caché (llamado después de bus.emit() per D-03)
 """
 import time
-import uuid
 import logging
 from datetime import datetime, timezone, date, timedelta
 
@@ -125,23 +124,6 @@ _STATE_RULES: dict[str, dict] = {
         "col": None,
         "invalidate": [],
     },
-}
-
-_EVENT_LABELS: dict[str, str] = {
-    "factura.venta.creada":       "Factura de venta creada",
-    "factura.venta.anulada":      "Factura de venta anulada",
-    "pago.cuota.registrado":      "Pago de cuota registrado",
-    "loanbook.activado":          "Loanbook activado — fechas de cuota asignadas",
-    "loanbook.bucket_change":     "Loanbook — cambio de bucket DPD",
-    "protocolo_recuperacion":     "Protocolo de recuperación activado (DPD ≥ 22)",
-    "ptp.registrado":             "Compromiso de pago (PTP) registrado",
-    "inventario.moto.entrada":    "Moto ingresada al inventario",
-    "inventario.moto.baja":       "Moto dada de baja",
-    "cliente.mora.detectada":     "Cliente en mora detectado",
-    "asiento.contable.creado":    "Asiento contable creado",
-    "agente_ia.accion.ejecutada": "Agente IA ejecutó acción",
-    "factura.compra.creada":      "Factura de compra creada",
-    "repuesto.vendido":           "Repuesto vendido",
 }
 
 
@@ -469,27 +451,26 @@ async def get_daily_collection_queue(db) -> list[dict]:
     return queue
 
 
-# ─── 6. emit_state_change ─────────────────────────────────────────────────────
+# ─── 6. handle_state_side_effects ────────────────────────────────────────────
 
-async def emit_state_change(
+async def handle_state_side_effects(
     db,
     event_type: str,
     entity_id: str,
     new_state: str,
-    actor: str,
     metadata: dict | None = None,
 ) -> None:
+    """Apply DB state update and cache invalidation for an event type.
+
+    This is the side-effect layer (per D-03). Called AFTER bus.emit()
+    by callers that need MongoDB state updates and cache invalidation.
+    Event persistence is handled by EventBusService — this function
+    only does DB field updates and cache key invalidation.
     """
-    Acción atómica que realiza 3 pasos:
-      1. Actualiza el campo de estado en MongoDB según event_type.
-      2. Inserta el evento en roddos_events con estado='processed'.
-      3. Invalida las keys de caché afectadas.
-    """
-    meta    = metadata or {}
     rule    = _STATE_RULES.get(event_type, {"col": None, "invalidate": []})
     now_iso = datetime.now(timezone.utc).isoformat()
 
-    # ── Paso 1: actualizar MongoDB ────────────────────────────────────────────
+    # Step 1: update MongoDB document state
     col_name = rule.get("col")
     if col_name and entity_id and new_state:
         id_field    = rule.get("id_field", "id")
@@ -502,26 +483,9 @@ async def emit_state_change(
             )
         except Exception as e:
             logger.error(
-                f"[shared_state] emit_state_change: fallo DB update "
+                "[shared_state] handle_state_side_effects: fallo DB update "
                 f"{event_type}/{entity_id}: {e}"
             )
 
-    # ── Paso 2: insertar en roddos_events (ya procesado) ─────────────────────
-    try:
-        await db.roddos_events.insert_one({
-            "event_id":   str(uuid.uuid4()),
-            "timestamp":  now_iso,
-            "source":     actor,
-            "event_type": event_type,
-            "label":      _EVENT_LABELS.get(event_type, event_type),
-            "entity_id":  entity_id,
-            "new_state":  new_state,
-            "actor":      actor,
-            "metadata":   meta,
-            "estado":     "processed",
-        })
-    except Exception as e:
-        logger.error(f"[shared_state] emit_state_change: fallo roddos_events insert: {e}")
-
-    # ── Paso 3: invalidar caché ───────────────────────────────────────────────
+    # Step 2: invalidate cache keys
     _invalidate_keys(rule.get("invalidate", []))

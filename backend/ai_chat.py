@@ -2068,14 +2068,19 @@ async def gather_context(user_message: str, alegra_service, db) -> dict:
             ]
         except Exception:
             pass
-        # Always include RODDOS plan de cuentas (static, no API needed)
-        from routers.gastos import PLAN_CUENTAS_RODDOS
-        context["plan_cuentas_roddos"] = [
-            {"categoria": e["categoria"], "subcategoria": e["subcategoria"],
-             "alegra_id": e["alegra_id"], "cuenta_codigo": e["cuenta_codigo"],
-             "cuenta_nombre": e["cuenta_nombre"]}
-            for e in PLAN_CUENTAS_RODDOS
-        ]
+        # Always include RODDOS plan de cuentas (from MongoDB, seeded by init_mongodb_sismo.py)
+        try:
+            _plan_cuentas = await db.plan_cuentas_roddos.find(
+                {"activo": True}, {"_id": 0}
+            ).to_list(100)
+            context["plan_cuentas_roddos"] = [
+                {"categoria": e["categoria"], "subcategoria": e["subcategoria"],
+                 "alegra_id": e["alegra_id"], "cuenta_codigo": e["cuenta_codigo"],
+                 "cuenta_nombre": e["cuenta_nombre"]}
+                for e in _plan_cuentas
+            ]
+        except Exception:
+            pass
         # Include plan_ingresos + CXC socios context
         from routers.ingresos import PLAN_INGRESOS_RODDOS
         context["plan_ingresos_roddos"] = PLAN_INGRESOS_RODDOS

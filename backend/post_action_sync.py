@@ -1,7 +1,7 @@
 """post_action_sync — syncs internal modules after every AI action in Alegra.
 
 Flow: AI confirms action → execute_chat_action calls Alegra → calls this function
-→ updates MongoDB (loanbook, cartera_pagos, inventario) → emit_state_change (último paso)
+→ updates MongoDB (loanbook, cartera_pagos, inventario) → bus.emit + handle_state_side_effects (último paso)
 → returns sync_messages list for the AI to report to the user.
 
 Supports metadata dict (passed from execute_chat_action after stripping _metadata from payload).
@@ -11,7 +11,9 @@ import uuid
 from datetime import datetime, timezone, date, timedelta
 from math import ceil
 
-from services.shared_state import emit_state_change
+from services.event_bus_service import EventBusService
+from event_models import RoddosEvent
+from services.shared_state import handle_state_side_effects
 
 logger = logging.getLogger(__name__)
 
@@ -297,16 +299,19 @@ async def post_action_sync(
         else:
             sync_msgs.append("ℹ️ Factura creada. Si es crédito, asegúrate de incluir _metadata con plan, cuotas y valor.")
 
-        # emit_state_change — ÚLTIMO PASO CASO 1
-        await emit_state_change(
-            db,
-            "factura.venta.creada",
-            moto_chasis or alegra_id,
-            "Vendida",
-            user.get("email", ""),
-            {"alegra_id": alegra_id, "factura_numero": numero,
-             "cliente_nombre": cliente_nombre, "plan": plan, "total": total},
-        )
+        # bus.emit + handle_state_side_effects — ÚLTIMO PASO CASO 1
+        _entity_id_1 = moto_chasis or alegra_id
+        bus = EventBusService(db)
+        await bus.emit(RoddosEvent(
+            source_agent="contador",
+            event_type="factura.venta.creada",
+            actor=user.get("email", ""),
+            target_entity=_entity_id_1,
+            payload={"new_state": "Vendida", "alegra_id": alegra_id,
+                     "factura_numero": numero, "cliente_nombre": cliente_nombre,
+                     "plan": plan, "total": total},
+        ))
+        await handle_state_side_effects(db, "factura.venta.creada", _entity_id_1, "Vendida")
         # Evento específico de baja de inventario (para auditoría y ML)
         if moto_id or moto_chasis:
             await db.roddos_events.insert_one({
@@ -409,15 +414,17 @@ async def post_action_sync(
             except Exception as _wa_err:
                 logger.warning("[PostAction] Template4 WA error: %s", _wa_err)
 
-        # emit_state_change — ÚLTIMO PASO CASO 2
-        await emit_state_change(
-            db,
-            "pago.cuota.registrado",
-            alegra_id,
-            "pagada",
-            user.get("email", ""),
-            {"monto": monto, "metodo": metodo, "invoice_ids": invoice_ids},
-        )
+        # bus.emit + handle_state_side_effects — ÚLTIMO PASO CASO 2
+        bus = EventBusService(db)
+        await bus.emit(RoddosEvent(
+            source_agent="contador",
+            event_type="pago.cuota.registrado",
+            actor=user.get("email", ""),
+            target_entity=alegra_id,
+            payload={"new_state": "pagada", "monto": monto,
+                     "metodo": metodo, "invoice_ids": invoice_ids},
+        ))
+        await handle_state_side_effects(db, "pago.cuota.registrado", alegra_id, "pagada")
 
     # ── CASO 3 y 5: Causación contable ───────────────────────────────────────
     elif action_type == "crear_causacion":
@@ -425,15 +432,16 @@ async def post_action_sync(
         modules.append("dashboard")
         sync_msgs.append(f"✅ **Asiento contable** '{descripcion}' creado en Alegra (ID: {alegra_id})")
         sync_msgs.append("✅ Dashboard notificado")
-        # emit_state_change — ÚLTIMO PASO CASO 3
-        await emit_state_change(
-            db,
-            "asiento.contable.creado",
-            alegra_id,
-            "creado",
-            user.get("email", ""),
-            {"descripcion": descripcion},
-        )
+        # bus.emit + handle_state_side_effects — ÚLTIMO PASO CASO 3
+        bus = EventBusService(db)
+        await bus.emit(RoddosEvent(
+            source_agent="contador",
+            event_type="asiento.contable.creado",
+            actor=user.get("email", ""),
+            target_entity=alegra_id,
+            payload={"new_state": "creado", "descripcion": descripcion},
+        ))
+        await handle_state_side_effects(db, "asiento.contable.creado", alegra_id, "creado")
 
     # ── CASO 4: Factura de Compra → Inventario ────────────────────────────────
     elif action_type == "registrar_factura_compra":
@@ -480,15 +488,16 @@ async def post_action_sync(
             sync_msgs.append(f"✅ Plazo de pago: {plazo_dias} días — vence **{vencimiento}**")
 
         modules.append("dashboard")
-        # emit_state_change — ÚLTIMO PASO CASO 4
-        await emit_state_change(
-            db,
-            "factura.compra.creada",
-            alegra_id,
-            "creada",
-            user.get("email", ""),
-            {"proveedor": proveedor, "total": total},
-        )
+        # bus.emit + handle_state_side_effects — ÚLTIMO PASO CASO 4
+        bus = EventBusService(db)
+        await bus.emit(RoddosEvent(
+            source_agent="contador",
+            event_type="factura.compra.creada",
+            actor=user.get("email", ""),
+            target_entity=alegra_id,
+            payload={"new_state": "creada", "proveedor": proveedor, "total": total},
+        ))
+        await handle_state_side_effects(db, "factura.compra.creada", alegra_id, "creada")
 
     # ── CASO 6 (entrega interna — no Alegra) ──────────────────────────────────
     elif action_type == "registrar_entrega":
@@ -499,15 +508,18 @@ async def post_action_sync(
         sync_msgs.append(f"✅ **Loanbook {codigo}** activado — Primera cuota: **{primera_cuota}** (miércoles)")
         sync_msgs.append("✅ Cliente ahora visible en la Cola de Gestión Remota")
         modules += ["loanbook", "cartera", "dashboard"]
-        # emit_state_change — ÚLTIMO PASO CASO 6
-        await emit_state_change(
-            db,
-            "loanbook.activado",
-            payload.get("loanbook_id", ""),
-            "activo",
-            user.get("email", ""),
-            {"codigo": codigo, "cliente_nombre": cliente, "primera_cuota": primera_cuota},
-        )
+        # bus.emit + handle_state_side_effects — ÚLTIMO PASO CASO 6
+        _lb_id_6 = payload.get("loanbook_id", "")
+        bus = EventBusService(db)
+        await bus.emit(RoddosEvent(
+            source_agent="contador",
+            event_type="loanbook.activado",
+            actor=user.get("email", ""),
+            target_entity=_lb_id_6,
+            payload={"new_state": "activo", "codigo": codigo,
+                     "cliente_nombre": cliente, "primera_cuota": primera_cuota},
+        ))
+        await handle_state_side_effects(db, "loanbook.activado", _lb_id_6, "activo")
 
     elif action_type == "crear_contacto":
         nombre = payload.get("name", "")

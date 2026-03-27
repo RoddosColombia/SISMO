@@ -9,7 +9,9 @@ from pydantic import BaseModel
 from alegra_service import AlegraService
 from database import db
 from dependencies import get_current_user, require_admin, log_action
-from event_bus import emit_event
+from services.event_bus_service import EventBusService
+from event_models import RoddosEvent
+from services.shared_state import handle_state_side_effects
 from services.crm_service import normalizar_telefono
 from utils.loanbook_constants import (
     calcular_cuota_valor, dias_entre_cuotas, resumen_cuota,
@@ -269,64 +271,17 @@ async def _get_next_codigo():
     return f"LB-{year}-{str(count).zfill(4)}"
 
 
-# ─── Default plan catalog (seeded on first read) ─────────────────────────────
-
-CATALOGO_DEFAULT = [
-    {
-        "plan": "P39S", "modo_pago": "semanal",
-        "cuotas_semanal": 39, "cuotas_quincenal": 20, "cuotas_mensual": 9,
-        "multiplicadores": {"semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
-        "mora_diaria": 2000,
-        "modelos": {
-            "Raider 125": {"precio_venta": 7_800_000, "valor_cuota_semanal": 210_000},
-            "Sport 100":  {"precio_venta": 5_750_000, "valor_cuota_semanal": 175_000},
-        },
-    },
-    {
-        "plan": "P52S", "modo_pago": "semanal",
-        "cuotas_semanal": 52, "cuotas_quincenal": 26, "cuotas_mensual": 12,
-        "multiplicadores": {"semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
-        "mora_diaria": 2000,
-        "modelos": {
-            "Raider 125": {"precio_venta": 7_800_000, "valor_cuota_semanal": 179_900},
-            "Sport 100":  {"precio_venta": 5_750_000, "valor_cuota_semanal": 160_000},
-        },
-    },
-    {
-        "plan": "P78S", "modo_pago": "semanal",
-        "cuotas_semanal": 78, "cuotas_quincenal": 39, "cuotas_mensual": 18,
-        "multiplicadores": {"semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
-        "mora_diaria": 2000,
-        "modelos": {
-            "Raider 125": {"precio_venta": 7_800_000, "valor_cuota_semanal": 149_900},
-            "Sport 100":  {"precio_venta": 5_750_000, "valor_cuota_semanal": 130_000},
-        },
-    },
-    {
-        "plan": "Contado", "modo_pago": "contado",
-        "cuotas_semanal": 0, "cuotas_quincenal": 0, "cuotas_mensual": 0,
-        "mora_diaria": 2000,
-        "modelos": {},
-    },
-]
-
-
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.get("/catalogo-planes")
 async def get_catalogo_planes(current_user=Depends(get_current_user)):
-    """Return plan catalog from MongoDB. Upserts default values if missing — never deletes existing."""
+    """Return plan catalog from MongoDB (seeded by init_mongodb_sismo.py)."""
     planes = await db.catalogo_planes.find({}, {"_id": 0}).to_list(20)
-    # Upsert missing or outdated plans (never delete existing data)
-    needs_seed = not planes or not any(p.get("modelos") for p in planes)
-    if needs_seed:
-        for p in CATALOGO_DEFAULT:
-            await db.catalogo_planes.update_one(
-                {"plan": p["plan"]},
-                {"$set": p},
-                upsert=True,
-            )
-        planes = await db.catalogo_planes.find({}, {"_id": 0}).to_list(20)
+    if not planes:
+        raise HTTPException(
+            status_code=404,
+            detail="Catálogo de planes no encontrado. Ejecute init_mongodb_sismo.py para inicializar.",
+        )
     return planes
 
 
@@ -338,9 +293,50 @@ async def reset_catalogo_planes(
 
     Use case: MongoDB corruption or merge issues that prevent auto-seed.
     Deletes ALL existing documents and re-inserts clean seed data.
+    Source of truth: init_mongodb_sismo.py (data mirrored here for emergency reset).
     """
     import logging
     logger = logging.getLogger(__name__)
+
+    # Seed data mirrors init_mongodb_sismo.py — single source of truth for recovery
+    _catalogo_seed = [
+        {
+            "plan": "P39S", "modo_pago": "semanal",
+            "cuotas_semanal": 39, "cuotas_quincenal": 20, "cuotas_mensual": 9,
+            "multiplicadores": {"semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
+            "mora_diaria": 2000,
+            "modelos": {
+                "Raider 125": {"precio_venta": 7_800_000, "valor_cuota_semanal": 210_000},
+                "Sport 100":  {"precio_venta": 5_750_000, "valor_cuota_semanal": 175_000},
+            },
+        },
+        {
+            "plan": "P52S", "modo_pago": "semanal",
+            "cuotas_semanal": 52, "cuotas_quincenal": 26, "cuotas_mensual": 12,
+            "multiplicadores": {"semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
+            "mora_diaria": 2000,
+            "modelos": {
+                "Raider 125": {"precio_venta": 7_800_000, "valor_cuota_semanal": 179_900},
+                "Sport 100":  {"precio_venta": 5_750_000, "valor_cuota_semanal": 160_000},
+            },
+        },
+        {
+            "plan": "P78S", "modo_pago": "semanal",
+            "cuotas_semanal": 78, "cuotas_quincenal": 39, "cuotas_mensual": 18,
+            "multiplicadores": {"semanal": 1.0, "quincenal": 2.2, "mensual": 4.4},
+            "mora_diaria": 2000,
+            "modelos": {
+                "Raider 125": {"precio_venta": 7_800_000, "valor_cuota_semanal": 149_900},
+                "Sport 100":  {"precio_venta": 5_750_000, "valor_cuota_semanal": 130_000},
+            },
+        },
+        {
+            "plan": "Contado", "modo_pago": "contado",
+            "cuotas_semanal": 0, "cuotas_quincenal": 0, "cuotas_mensual": 0,
+            "mora_diaria": 2000,
+            "modelos": {},
+        },
+    ]
 
     try:
         # Count existing documents
@@ -351,9 +347,9 @@ async def reset_catalogo_planes(
         delete_result = await db.catalogo_planes.delete_many({})
         logger.warning(f"[ADMIN] Deleted {delete_result.deleted_count} documents from catalogo_planes")
 
-        # Insert fresh CATALOGO_DEFAULT
+        # Insert fresh seed data
         insert_count = 0
-        for plan_data in CATALOGO_DEFAULT:
+        for plan_data in _catalogo_seed:
             result = await db.catalogo_planes.insert_one({**plan_data})
             insert_count += 1
             logger.warning(f"[ADMIN] Inserted plan {plan_data.get('plan')}: {result.inserted_id}")
@@ -765,18 +761,25 @@ async def create_loan(req: LoanCreate, current_user=Depends(get_current_user)):
 
     # Emit retoma event if applicable
     if retoma_inventario_id:
-        await emit_event(db, "loanbook", "retoma.registrada", {
-            "loanbook_id": doc["id"],
-            "codigo": codigo,
-            "cliente_nombre": req.cliente_nombre,
-            "moto_retoma": {
-                "marca_modelo": req.retoma_marca_modelo,
-                "vin": req.retoma_vin,
-                "placa": req.retoma_placa,
-                "valor": req.retoma_valor,
+        bus = EventBusService(db)
+        await bus.emit(RoddosEvent(
+            source_agent="loanbook",
+            event_type="inventario.moto.actualizada",
+            actor="sistema",
+            target_entity=retoma_inventario_id,
+            payload={
+                "loanbook_id": doc["id"],
+                "codigo": codigo,
+                "cliente_nombre": req.cliente_nombre,
+                "moto_retoma": {
+                    "marca_modelo": req.retoma_marca_modelo,
+                    "vin": req.retoma_vin,
+                    "placa": req.retoma_placa,
+                    "valor": req.retoma_valor,
+                },
+                "inventario_id_creado": retoma_inventario_id,
             },
-            "inventario_id_creado": retoma_inventario_id,
-        })
+        ))
 
     # Store pattern for AI learning
     await db.agent_memory.update_one(
@@ -1230,27 +1233,41 @@ async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depen
         )
 
     # Emit loanbook.activado event
-    await emit_event(db, "loanbook", "loanbook.activado", {
-        "loanbook_id": loan_id,
-        "codigo": loan["codigo"],
-        "cliente_nombre": loan["cliente_nombre"],
-        "fecha_entrega": req.fecha_entrega,
-        "primera_cuota": fecha_primer_pago.isoformat() if fecha_primer_pago else None,
-        "num_cuotas": num_cuotas,
-        "modo_pago": modo_pago,
-    })
+    bus = EventBusService(db)
+    await bus.emit(RoddosEvent(
+        source_agent="loanbook",
+        event_type="loanbook.activado",
+        actor="sistema",
+        target_entity=loan_id,
+        payload={
+            "loanbook_id": loan_id,
+            "codigo": loan["codigo"],
+            "cliente_nombre": loan["cliente_nombre"],
+            "fecha_entrega": req.fecha_entrega,
+            "primera_cuota": fecha_primer_pago.isoformat() if fecha_primer_pago else None,
+            "num_cuotas": num_cuotas,
+            "modo_pago": modo_pago,
+        },
+    ))
+    await handle_state_side_effects(db, "loanbook.activado", loan_id, "activo")
 
-    # Emit moto.entregada event
-    await emit_event(db, "loanbook", "moto.entregada", {
-        "loanbook_id": loan_id,
-        "codigo": loan["codigo"],
-        "cliente_nombre": loan["cliente_nombre"],
-        "moto_descripcion": loan.get("moto_descripcion", ""),
-        "moto_chasis": chasis or loan.get("moto_chasis", ""),
-        "motor": req.motor or loan.get("motor", ""),
-        "placa": req.placa or loan.get("placa", ""),
-        "fecha_entrega": req.fecha_entrega,
-    })
+    # Emit inventario.moto.entrada event (replaces moto.entregada — not in EventType catalog)
+    await bus.emit(RoddosEvent(
+        source_agent="loanbook",
+        event_type="inventario.moto.entrada",
+        actor="sistema",
+        target_entity=chasis or loan.get("moto_chasis", ""),
+        payload={
+            "loanbook_id": loan_id,
+            "codigo": loan["codigo"],
+            "cliente_nombre": loan["cliente_nombre"],
+            "moto_descripcion": loan.get("moto_descripcion", ""),
+            "moto_chasis": chasis or loan.get("moto_chasis", ""),
+            "motor": req.motor or loan.get("motor", ""),
+            "placa": req.placa or loan.get("placa", ""),
+            "fecha_entrega": req.fecha_entrega,
+        },
+    ))
 
     # Invalidate CFO cache
     await invalidar_cache_cfo()
@@ -1448,17 +1465,25 @@ async def register_pago(loan_id: str, req: PagoRequest, current_user=Depends(get
     })
 
     # Emit event to bus
-    await emit_event(db, "loanbook", "pago.cuota.registrado", {
-        "loanbook_id": loan_id,
-        "codigo": loan["codigo"],
-        "cuota_numero": req.cuota_numero,
-        "total_cuotas": loan["num_cuotas"],
-        "valor_pagado": req.valor_pagado,
-        "metodo_pago": req.metodo_pago,
-        "cliente_nombre": loan["cliente_nombre"],
-        "comprobante": comprobante_num,
-        "registrado_por": current_user.get("email"),
-    })
+    bus = EventBusService(db)
+    await bus.emit(RoddosEvent(
+        source_agent="loanbook",
+        event_type="pago.cuota.registrado",
+        actor=current_user.get("email", "sistema"),
+        target_entity=loan_id,
+        payload={
+            "loanbook_id": loan_id,
+            "codigo": loan["codigo"],
+            "cuota_numero": req.cuota_numero,
+            "total_cuotas": loan["num_cuotas"],
+            "valor_pagado": req.valor_pagado,
+            "metodo_pago": req.metodo_pago,
+            "cliente_nombre": loan["cliente_nombre"],
+            "comprobante": comprobante_num,
+            "registrado_por": current_user.get("email"),
+        },
+    ))
+    await handle_state_side_effects(db, "pago.cuota.registrado", loan_id, "activo")
 
     return {**loan, "comprobante": comprobante_num, "alegra_payment_id": alegra_payment_id}
 
@@ -1508,8 +1533,6 @@ async def register_gestion(loan_id: str, req: GestionRequest, current_user=Depen
 @router.post("/{loan_id}/ptp")
 async def register_ptp(loan_id: str, req: PtpRequest, current_user=Depends(get_current_user)):
     """Registra un compromiso de pago (PTP) + emite evento al bus."""
-    from services.shared_state import emit_state_change
-
     loan = await find_loanbook(loan_id)
     if not loan:
         raise HTTPException(status_code=404, detail="Plan no encontrado")
@@ -1526,11 +1549,16 @@ async def register_ptp(loan_id: str, req: PtpRequest, current_user=Depends(get_c
         }},
     )
 
-    await emit_state_change(
-        db, "ptp.registrado", loan_id, "ptp_activo", current_user.get("email"),
-        {"ptp_fecha": req.ptp_fecha, "ptp_monto": req.ptp_monto,
-         "codigo": loan.get("codigo")},
-    )
+    bus = EventBusService(db)
+    await bus.emit(RoddosEvent(
+        source_agent="loanbook",
+        event_type="ptp.registrado",
+        actor=current_user.get("email", "sistema"),
+        target_entity=loan_id,
+        payload={"new_state": "ptp_activo", "ptp_fecha": req.ptp_fecha,
+                 "ptp_monto": req.ptp_monto, "codigo": loan.get("codigo")},
+    ))
+    await handle_state_side_effects(db, "ptp.registrado", loan_id, "ptp_activo")
 
     await log_action(current_user, f"/loanbook/{loan_id}/ptp", "POST",
                      {"ptp_fecha": req.ptp_fecha, "ptp_monto": req.ptp_monto})
