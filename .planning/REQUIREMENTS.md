@@ -39,17 +39,17 @@
 
 ### Agentes & Router (AGT)
 
-- [ ] **AGT-01**: SYSTEM_PROMPTS dict con 4 agentes diferenciados (Contador, CFO, RADAR, Loanbook)
-- [ ] **AGT-02**: Router con INTENT_THRESHOLD 0.7 — confianza < 0.7 pregunta al usuario
-- [ ] **AGT-03**: Prompt caching activado en system prompts (cache_control ephemeral)
-- [ ] **AGT-04**: RAG desde sismo_knowledge en build_agent_prompt() para todos los agentes
+- [x] **AGT-01**: SYSTEM_PROMPTS dict con 4 agentes diferenciados (Contador, CFO, RADAR, Loanbook)
+- [x] **AGT-02**: Router con INTENT_THRESHOLD 0.7 — confianza < 0.7 pregunta al usuario
+- [x] **AGT-03**: Prompt caching activado en system prompts (cache_control ephemeral)
+- [x] **AGT-04**: RAG desde sismo_knowledge en build_agent_prompt() para todos los agentes
 
 ### Scheduler & Pipeline (SCH)
 
-- [ ] **SCH-01**: compute_portfolio_summary() ejecuta a las 11:30 PM y persiste en portfolio_summaries
-- [ ] **SCH-02**: _compute_financial_report_mensual() genera P&L el dia 1 de cada mes
-- [ ] **SCH-03**: dlq_retry_job registrado en scheduler cada 5 minutos
-- [ ] **SCH-04**: CFO lee portfolio_summaries antes que Alegra (get_portfolio_data_for_cfo())
+- [x] **SCH-01**: compute_portfolio_summary() ejecuta a las 11:30 PM y persiste en portfolio_summaries
+- [x] **SCH-02**: _compute_financial_report_mensual() genera P&L el dia 1 de cada mes
+- [x] **SCH-03**: dlq_retry_job registrado en scheduler cada 5 minutos
+- [x] **SCH-04**: CFO lee portfolio_summaries antes que Alegra (get_portfolio_data_for_cfo())
 
 ### GitHub CI/CD (GIT)
 
@@ -57,17 +57,17 @@
 - [ ] **GIT-02**: Smoke test job en CI verifica /api/health/smoke (status, collections, bus)
 - [ ] **GIT-03**: dependabot.yml creado para pip y npm
 - [ ] **GIT-04**: /api/health/smoke endpoint mejorado con checks de colecciones, bus, indices, catalogo
-- [ ] **GIT-05**: README.md actualizado a BUILD 24 (eliminar referencias Emergent y BUILD 18)
-- [ ] **GIT-06**: CLAUDE.md actualizado con protocolo nuevo bus, worktrees, errores documentados
+- [x] **GIT-05**: README.md actualizado a BUILD 24 (eliminar referencias Emergent y BUILD 18)
+- [x] **GIT-06**: CLAUDE.md actualizado con protocolo nuevo bus, worktrees, errores documentados
 
 ### Tests (TST)
 
 - [ ] **TST-01**: test_event_bus.py — 11 tests (emit, idempotencia, DLQ, health, no imports viejos)
 - [ ] **TST-02**: test_permissions.py — 8 tests (write permissions, alegra permissions por agente)
 - [ ] **TST-03**: test_mongodb_init.py — 13 tests (idempotencia, indices, datos sembrados)
-- [ ] **TST-04**: test_agent_router.py — 7 tests (routing correcto, clarificacion, system prompts)
+- [x] **TST-04**: test_agent_router.py — 7 tests (routing correcto, clarificacion, system prompts)
 - [ ] **TST-05**: test_smoke_build24.py — 6 tests (health endpoint, colecciones, bus)
-- [ ] **TST-06**: test_usage_integration.py — 15 tests (portfolio summary, RAG, eventos end-to-end)
+- [x] **TST-06**: test_usage_integration.py — 15 tests (portfolio summary, RAG, eventos end-to-end)
 
 ## Future Requirements (deferred)
 

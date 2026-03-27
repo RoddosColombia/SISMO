@@ -1,17 +1,15 @@
 ---
 gsd_state_version: 1.0
 milestone: v2.0
-milestone_name: BUILD 24 — Cimientos Definitivos
-status: ready_to_plan
-stopped_at: Roadmap created with 5 phases, ready to plan Phase 1
-last_updated: "2026-03-26"
-last_activity: 2026-03-26 - Roadmap created for BUILD 24
+milestone_name: milestone
+status: Ready to execute
+stopped_at: Completed 05-03-PLAN.md (README + CLAUDE.md documentation rewrite)
+last_updated: "2026-03-27T03:23:43.845Z"
 progress:
   total_phases: 5
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  completed_phases: 4
+  total_plans: 16
+  completed_plans: 14
 ---
 
 # Project State
@@ -21,16 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-26)
 
 **Core value:** Contabilidad automatizada sin intervencion humana + visibilidad financiera en tiempo real + orquestacion confiable de agentes via bus de eventos
-**Current focus:** Phase 1 - Models & Contracts
+**Current focus:** Phase 5 — GitHub Production-Ready
 
 ## Current Position
 
-Phase: 1 of 5 (Models & Contracts)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-03-26 — Roadmap created for BUILD 24
-
-Progress: [░░░░░░░░░░] 0%
+Phase: 5 (GitHub Production-Ready) — EXECUTING
+Plan: 2 of 3
 
 ## Performance Metrics
 
@@ -48,6 +42,15 @@ Progress: [░░░░░░░░░░] 0%
 
 Decisions are logged in PROJECT.md Key Decisions table.
 
+- [Phase 04]: Contador prompt kept verbatim from ai_chat.py AGENT_SYSTEM_PROMPT to preserve production-tested behavior
+- [Phase 04]: build_agent_prompt uses graceful fallback for missing kwargs placeholders — prevents KeyError in production
+- [Phase 04-02]: Used Claude Haiku for LLM-based intent routing with INTENT_THRESHOLD=0.7 replacing keyword-based is_cfo_query()
+- [Phase 04-03]: Use portfolio.resumen.calculado event type from catalog; source_agent=cfo for pipeline events; datos_override pattern in process_cfo_query for cache-first CFO reads
+- [Phase 04]: Stubbed anthropic module via sys.modules for tests without API key requirement
+- [Phase 04]: SC1 test validates CFO router entry via P&L/semaforo terms (cartera routes to RADAR)
+- [Phase 05]: Full README rewrite (not surgical cleanup) to eliminate Emergent/BUILD18/concesionario identity drift
+- [Phase 05]: CLAUDE.md appended with bus.emit() protocol and known errors — existing content preserved
+
 ### Pending Todos
 
 None yet.
@@ -58,6 +61,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-26
-Stopped at: Roadmap created -- ready to plan Phase 1
+Last session: 2026-03-27T03:23:43.840Z
+Stopped at: Completed 05-03-PLAN.md (README + CLAUDE.md documentation rewrite)
 Resume file: None
