@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v23.0
 milestone_name: milestone
-status: Ready to plan
-stopped_at: Completed 01-auditoria-alegra/01-02-PLAN.md
-last_updated: "2026-03-30T22:58:59.775Z"
+status: Ready to execute
+stopped_at: Completed 02-consolidacion-capa-alegra/02-01-PLAN.md
+last_updated: "2026-03-30T23:18:59.161Z"
 progress:
   total_phases: 8
   completed_phases: 6
-  total_plans: 18
-  completed_plans: 18
+  total_plans: 21
+  completed_plans: 19
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-30)
 
 **Core value:** Contabilidad automatizada sin intervencion humana + visibilidad financiera en tiempo real + orquestacion confiable de agentes via bus de eventos
-**Current focus:** Phase 01 — auditoria-alegra
+**Current focus:** Phase 2 — consolidacion-capa-alegra
 
 ## Current Position
 
-Phase: 02
-Plan: Not started
+Phase: 2 (consolidacion-capa-alegra) — EXECUTING
+Plan: 2 of 3
 
 ## Performance Metrics
 
@@ -55,6 +55,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase 01-auditoria-alegra]: 5 modulos hacen bypass de AlegraService.request() con ALEGRA_BASE_URL directo — consolidacion obligatoria en Fase 2
 - [Phase 01-VERIFIED]: AUDIT-02 cerrado con evidencia HTTP real por Andrés. Todos los endpoints criticos retornan 200. GET /accounts confirma 403. Phase 1 COMPLETE 4/4.
 - [Phase 02-nota]: Usar limit=50 en GET /invoices para traer todas las facturas de RODDOS (no limit=3). Aplicar en toda accion consultar_facturas del ACTION_MAP.
+- [Phase 02-consolidacion-capa-alegra]: Tests AlegraService usan asyncio.run() (patron existente en el proyecto, no @pytest.mark.asyncio)
+- [Phase 02-consolidacion-capa-alegra]: Mock _mock() solo acepta 'journals' — 'journal-entries' retorna {} para reflejar comportamiento real de produccion (403)
 
 ### Pending Todos
 
@@ -71,9 +73,10 @@ None.
 | 260330-fs8 | Hotfix ERROR-017: consolidar ALEGRA_BASE_URL, eliminar app.alegra.com/api/r1 (6 archivos) | 2026-03-30 | 26ceb5d | [260330-fs8-hotfix](./quick/260330-fs8-hotfix-cr-tico-error-017-la-url-base-de-/) |
 | Phase 01-auditoria-alegra P01 | 20 | 1 tasks | 1 files |
 | Phase 01-auditoria-alegra P02 | 4 | 2 tasks | 3 files |
+| Phase 02-consolidacion-capa-alegra P01 | 112 | 2 tasks | 2 files |
 
 ## Session Continuity
 
-Last session: 2026-03-30T22:12:35.821Z
-Stopped at: Completed 01-auditoria-alegra/01-02-PLAN.md
+Last session: 2026-03-30T23:18:59.156Z
+Stopped at: Completed 02-consolidacion-capa-alegra/02-01-PLAN.md
 Resume file: None
