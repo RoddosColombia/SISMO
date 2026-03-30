@@ -206,6 +206,11 @@ class AlegraService:
             return self._mock(endpoint, method, body, params)
 
         logger.info(f"[Alegra REAL] {method} {endpoint} → Calling production API")
+        # Pre-flight: bloquear endpoints prohibidos antes de emitir la llamada HTTP
+        if "journal-entries" in endpoint:
+            raise HTTPException(status_code=400, detail="Endpoint /journal-entries prohibido — usa /journals")
+        if endpoint == "accounts" or (endpoint.startswith("accounts") and "bank" not in endpoint):
+            raise HTTPException(status_code=400, detail="Endpoint /accounts prohibido — usa /categories")
         headers = await self.get_auth_header()
         url = f"{ALEGRA_BASE_URL}/{endpoint}"
         try:
@@ -360,7 +365,12 @@ class AlegraService:
 
     def _mock(self, endpoint: str, method: str, body: dict = None, params: dict = None):
         body = body or {}
+        # Pre-flight: endpoints prohibidos deben lanzar error explicito — mismo comportamiento que produccion
+        if "journal-entries" in endpoint:
+            raise HTTPException(status_code=400, detail="Endpoint /journal-entries prohibido — usa /journals")
         if endpoint == "accounts" or (endpoint.startswith("accounts") and "bank" not in endpoint):
+            raise HTTPException(status_code=400, detail="Endpoint /accounts prohibido — usa /categories")
+        if endpoint == "categories":
             return MOCK_ACCOUNTS
         if "contacts" in endpoint:
             q = (params or {}).get("name", "").lower() if params else ""
