@@ -16,7 +16,7 @@ BUILD 23 hace al Agente Contador completamente operacional con Alegra. Cada oper
 
 **Phase Numbering:** Starts at 1 for milestone v23.0 (fresh cycle)
 
-- [ ] **Phase 1: Auditoria Alegra** - Mapear exactamente que funciona, que esta roto, y que falta en la capa Alegra con URL corregida
+- [x] **Phase 1: Auditoria Alegra** - Mapear exactamente que funciona, que esta roto, y que falta en la capa Alegra con URL corregida (completed 2026-03-30)
 - [ ] **Phase 2: Consolidacion Capa Alegra** - Unica fuente de verdad para Alegra, request_with_verify() robusto, errores en espanol
 - [ ] **Phase 3: ACTION_MAP Completo** - Cinco acciones de lectura nuevas (facturas, pagos, journals, cartera, plan_cuentas) funcionales en el chat
 - [ ] **Phase 4: Chat Transaccional Real** - Gasto en lenguaje natural → clasificacion matricial → ReteFuente/ReteICA → journal en Alegra con ID verificado
@@ -124,7 +124,7 @@ Phases execute in strict dependency order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Auditoria Alegra | 1/2 | In Progress|  |
+| 1. Auditoria Alegra | 2/2 | Complete   | 2026-03-30 |
 | 2. Consolidacion Capa Alegra | 0/TBD | Not started | - |
 | 3. ACTION_MAP Completo | 0/TBD | Not started | - |
 | 4. Chat Transaccional Real | 0/TBD | Not started | - |

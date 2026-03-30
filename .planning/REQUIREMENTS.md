@@ -8,10 +8,10 @@
 ### Auditoria Alegra (AUDIT)
 
 - [x] **AUDIT-01**: Auditar utils/alegra.py vs services/alegra_service.py — identificar cual es la fuente de verdad, documentar duplicacion y conflictos
-- [ ] **AUDIT-02**: Probar cada endpoint de Alegra con request real y documentar resultado: GET /invoices, GET /categories, GET /payments, POST /journals
+- [x] **AUDIT-02**: Probar cada endpoint de Alegra con request real y documentar resultado: GET /invoices, GET /categories, GET /payments, POST /journals
 - [x] **AUDIT-03**: Verificar que request_with_verify() usa la URL base correcta (`https://api.alegra.com/api/v1/`) en toda operacion de escritura
 - [x] **AUDIT-04**: Auditar ACTION_MAP en ai_chat.py — listar acciones registradas, acciones faltantes, y acciones rotas
-- [ ] **AUDIT-05**: Generar reporte de auditoria: que funciona, que esta roto, que falta — base para todas las fases siguientes
+- [x] **AUDIT-05**: Generar reporte de auditoria: que funciona, que esta roto, que falta — base para todas las fases siguientes
 
 ### Consolidacion Capa Alegra (ALEGRA)
 
@@ -93,10 +93,10 @@
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | AUDIT-01 | Phase 1 | Complete |
-| AUDIT-02 | Phase 1 | Pending |
+| AUDIT-02 | Phase 1 | Complete |
 | AUDIT-03 | Phase 1 | Complete |
 | AUDIT-04 | Phase 1 | Complete |
-| AUDIT-05 | Phase 1 | Pending |
+| AUDIT-05 | Phase 1 | Complete |
 | ALEGRA-01 | Phase 2 | Pending |
 | ALEGRA-02 | Phase 2 | Pending |
 | ALEGRA-03 | Phase 2 | Pending |

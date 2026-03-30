@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v23.0
 milestone_name: milestone
-status: Ready to execute
-stopped_at: Completed 01-auditoria-alegra/01-01-PLAN.md
-last_updated: "2026-03-30T22:05:21.518Z"
+status: Phase complete — ready for verification
+stopped_at: Completed 01-auditoria-alegra/01-02-PLAN.md
+last_updated: "2026-03-30T22:12:35.825Z"
 progress:
   total_phases: 8
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 18
-  completed_plans: 17
+  completed_plans: 18
 ---
 
 # Project State
@@ -50,6 +50,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase 01-auditoria-alegra]: backend/alegra_service.py es la UNICA fuente de verdad para llamadas Alegra — no existe utils/alegra.py ni services/alegra_service.py
 - [Phase 01-auditoria-alegra]: 5 modulos hacen bypass de AlegraService.request() con ALEGRA_BASE_URL directo — a consolidar en plan 01-02
 - [Phase 01-auditoria-alegra]: ACTION_MAP tiene 0 acciones de lectura directas a Alegra — las 5 faltantes son trabajo del plan 01-02
+- [Phase 01-auditoria-alegra]: Credenciales Alegra ausentes en entorno de agente — auditoria HTTP en modo estatico, script re-ejecutable con credenciales reales disponible en .planning/scripts/
+- [Phase 01-auditoria-alegra]: ACTION_MAP es 100% write-only via Alegra directa — las 5 acciones de lectura faltantes son trabajo prioritario de Fase 3
+- [Phase 01-auditoria-alegra]: 5 modulos hacen bypass de AlegraService.request() con ALEGRA_BASE_URL directo — consolidacion obligatoria en Fase 2
 
 ### Pending Todos
 
@@ -65,9 +68,10 @@ None.
 |---|-------------|------|--------|-----------|
 | 260330-fs8 | Hotfix ERROR-017: consolidar ALEGRA_BASE_URL, eliminar app.alegra.com/api/r1 (6 archivos) | 2026-03-30 | 26ceb5d | [260330-fs8-hotfix](./quick/260330-fs8-hotfix-cr-tico-error-017-la-url-base-de-/) |
 | Phase 01-auditoria-alegra P01 | 20 | 1 tasks | 1 files |
+| Phase 01-auditoria-alegra P02 | 4 | 2 tasks | 3 files |
 
 ## Session Continuity
 
-Last session: 2026-03-30T22:05:21.515Z
-Stopped at: Completed 01-auditoria-alegra/01-01-PLAN.md
+Last session: 2026-03-30T22:12:35.821Z
+Stopped at: Completed 01-auditoria-alegra/01-02-PLAN.md
 Resume file: None
