@@ -13,8 +13,8 @@ import random
 import os
 from datetime import datetime, timezone, timedelta, date
 
-import httpx
-from alegra_service import ALEGRA_BASE_URL
+from alegra_service import AlegraService
+from database import db
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +24,6 @@ DIAN_TOKEN = os.environ.get("DIAN_TOKEN", "")
 DIAN_NIT = os.environ.get("DIAN_NIT", "9010126221")
 DIAN_AMBIENTE = os.environ.get("DIAN_AMBIENTE", "habilitacion")
 DIAN_BASE_URL = os.environ.get("DIAN_BASE_URL", "https://api.dian.gov.co/v1")
-
-ALEGRA_EMAIL = os.environ.get("ALEGRA_EMAIL", "")
-ALEGRA_TOKEN = os.environ.get("ALEGRA_TOKEN", "")
 
 # ── Proveedores reales de RODDOS (para la simulación) ─────────────────────────
 _PROVEEDORES_SIM = [
@@ -136,22 +133,18 @@ async def ya_fue_procesada(cufe: str, db) -> bool:
 
 async def _ya_existe_en_alegra(numero_factura: str) -> bool:
     """Capa 3 — verifica si el bill ya existe en Alegra."""
-    if not ALEGRA_EMAIL or not ALEGRA_TOKEN:
-        return False
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(
-                f"{ALEGRA_BASE_URL}/bills",
-                auth=(ALEGRA_EMAIL, ALEGRA_TOKEN),
-                params={"fields": "id,numberTemplate", "limit": 30},
-            )
-            if r.status_code == 200:
-                bills = r.json() if isinstance(r.json(), list) else r.json().get("data", [])
-                for b in bills:
-                    nt = b.get("numberTemplate", {})
-                    num = nt.get("number", "") if isinstance(nt, dict) else str(nt)
-                    if str(num) == str(numero_factura):
-                        return True
+        alegra = AlegraService(db)
+        if await alegra.is_demo_mode():
+            return False
+        bills = await alegra.request("bills", "GET", params={"fields": "id,numberTemplate", "limit": 30})
+        if not isinstance(bills, list):
+            return False
+        for b in bills:
+            nt = b.get("numberTemplate", {})
+            num = nt.get("number", "") if isinstance(nt, dict) else str(nt)
+            if str(num) == str(numero_factura):
+                return True
     except Exception as e:
         logger.warning("Alegra bills check failed: %s", e)
     return False
@@ -177,43 +170,36 @@ def _calcular_retenciones(subtotal: float, tipo_gasto: str, es_autoretenedor: bo
 
 # ── Causación en Alegra ─────────────────────────────────────────────────────────
 async def causar_factura_en_alegra(factura: dict) -> dict | None:
-    """Crea el bill en Alegra. Retorna el bill creado o None si falla."""
-    if not ALEGRA_EMAIL or not ALEGRA_TOKEN:
-        logger.warning("DIAN: ALEGRA_EMAIL/ALEGRA_TOKEN no configurados — bill no creado")
-        return None
-
-    due_date = (date.fromisoformat(factura["fecha"]) + timedelta(days=30)).isoformat()
-    payload = {
-        "date": factura["fecha"],
-        "dueDate": due_date,
-        "provider": {
-            "identification": factura["nit_emisor"],
-            "name": factura["nombre_emisor"],
-        },
-        "numberTemplate": {"number": factura["numero_factura"]},
-        "items": [{
-            "description": factura["descripcion"],
-            "price": factura["subtotal"],
-            "quantity": 1,
-        }],
-        "observations": (
-            f"Causada automáticamente desde DIAN. "
-            f"CUFE: {factura['cufe'][:16]}..."
-        ),
-    }
+    """Crea el bill en Alegra via AlegraService.request_with_verify(). Retorna el bill creado o None si falla."""
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            r = await client.post(
-                f"{ALEGRA_BASE_URL}/bills",
-                auth=(ALEGRA_EMAIL, ALEGRA_TOKEN),
-                json=payload,
-            )
-            if r.status_code in (200, 201):
-                return r.json()
-            logger.warning("Alegra bill creation HTTP %s: %s", r.status_code, r.text[:300])
+        alegra = AlegraService(db)
+        if await alegra.is_demo_mode():
+            logger.warning("DIAN: Alegra en modo demo — bill no creado")
+            return None
+        due_date = (date.fromisoformat(factura["fecha"]) + timedelta(days=30)).isoformat()
+        payload = {
+            "date": factura["fecha"],
+            "dueDate": due_date,
+            "provider": {
+                "identification": factura["nit_emisor"],
+                "name": factura["nombre_emisor"],
+            },
+            "numberTemplate": {"number": factura["numero_factura"]},
+            "items": [{
+                "description": factura["descripcion"],
+                "price": factura["subtotal"],
+                "quantity": 1,
+            }],
+            "observations": (
+                f"Causada automaticamente desde DIAN. "
+                f"CUFE: {factura['cufe'][:16]}..."
+            ),
+        }
+        result = await alegra.request_with_verify("bills", "POST", body=payload)
+        return result
     except Exception as e:
         logger.error("DIAN causar_en_alegra error: %s", e)
-    return None
+        return None
 
 
 # ── Función principal ───────────────────────────────────────────────────────────
