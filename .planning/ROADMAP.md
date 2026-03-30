@@ -48,7 +48,11 @@ BUILD 23 hace al Agente Contador completamente operacional con Alegra. Cada oper
   3. Llamar a POST /journals y luego verificar con GET /journals retorna HTTP 200 — request_with_verify() no reporta exito sin confirmacion
   4. Un error de Alegra (timeout, 403, 404) produce un mensaje en espanol legible para el usuario — nunca un stack trace ni un mensaje de API crudo
   5. Los tests del cliente Alegra pasan para los 5 endpoints principales
-**Plans**: TBD
+**Plans:** 3 plans
+Plans:
+- [ ] 02-01-PLAN.md — TDD: Tests AlegraService (5 endpoints + errores) + fix mock journal-entries
+- [ ] 02-02-PLAN.md — Migrar 3 bypass simples (auditoria, conciliacion, dian_service)
+- [ ] 02-03-PLAN.md — Migrar 2 bypass complejos (bank_reconciliation, alegra_webhooks)
 
 ### Phase 3: ACTION_MAP Completo
 **Goal**: El Agente Contador puede responder consultas de lectura — facturas, pagos, journals, cartera, plan de cuentas — directamente desde el chat sin configuration adicional
@@ -125,7 +129,7 @@ Phases execute in strict dependency order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Auditoria Alegra | 2/2 | Complete    | 2026-03-30 |
-| 2. Consolidacion Capa Alegra | 0/TBD | Not started | - |
+| 2. Consolidacion Capa Alegra | 0/3 | Planned | - |
 | 3. ACTION_MAP Completo | 0/TBD | Not started | - |
 | 4. Chat Transaccional Real | 0/TBD | Not started | - |
 | 5. Facturacion Venta Motos | 0/TBD | Not started | - |
