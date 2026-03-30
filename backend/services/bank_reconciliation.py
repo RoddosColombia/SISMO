@@ -15,7 +15,6 @@ Flujo:
 """
 
 import logging
-import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional, List, Tuple
@@ -23,7 +22,7 @@ from enum import Enum
 
 import pandas as pd
 from io import BytesIO
-from alegra_service import ALEGRA_BASE_URL
+from alegra_service import AlegraService
 
 logger = logging.getLogger(__name__)
 
@@ -434,49 +433,25 @@ class BankReconciliationEngine:
         self,
         movimiento: MovimientoBancario,
     ) -> Tuple[bool, Optional[str], Optional[str]]:
-        """
-        Crea journal en Alegra para movimiento causable.
-        Retorna: (exitoso, journal_id, error_msg)
+        """Crea journal en Alegra para movimiento causable via AlegraService.
 
-        NOTA: Esta función se ejecuta en un BackgroundTask (sin request context).
-        Por eso usa os.environ.get() directamente en lugar de AlegraService.
-
-        Si Alegra retorna 503/429, guarda en conciliacion_reintentos
+        Usa request_with_verify() para garantizar POST+GET verificacion.
+        Si Alegra retorna 429/503, guarda en conciliacion_reintentos
         para reintentarlo en el scheduler (cada 5 min).
         """
         import hashlib
-        import base64
-        import httpx
         from datetime import timedelta
 
         try:
-            # [BG] Leer credenciales directamente del entorno
-            alegra_email = os.environ.get("ALEGRA_EMAIL", "")
-            alegra_token = os.environ.get("ALEGRA_TOKEN", "")
-
-            if not alegra_email or not alegra_token:
-                self.logger.error("[Alegra] Credenciales no configuradas (ALEGRA_EMAIL/ALEGRA_TOKEN vacías)")
-                return False, None, "Credenciales de Alegra no configuradas"
-
-            self.logger.info(f"[BG] Credenciales Alegra cargadas: email={alegra_email[:20]}...")
-
-            # ✅ VALIDACIÓN DE CUENTAS: Verificar que no sean None antes de crear payload
+            # VALIDACION DE CUENTAS: Verificar que no sean None antes de crear payload
             if movimiento.cuenta_debito_sugerida is None or movimiento.cuenta_credito_sugerida is None:
                 self.logger.error(
-                    f"[Alegra] VALIDACIÓN FALLIDA: "
+                    f"[Alegra] VALIDACION FALLIDA: "
                     f"cuenta_debito={movimiento.cuenta_debito_sugerida}, "
                     f"cuenta_credito={movimiento.cuenta_credito_sugerida}. "
                     f"No se puede crear journal sin cuentas sugeridas."
                 )
-                return False, None, f"Cuentas sugeridas inválidas (debit={movimiento.cuenta_debito_sugerida}, credit={movimiento.cuenta_credito_sugerida})"
-
-            # Construir header de autenticación (Basic Auth)
-            creds = base64.b64encode(f"{alegra_email}:{alegra_token}".encode()).decode()
-            headers = {
-                "Authorization": f"Basic {creds}",
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            }
+                return False, None, f"Cuentas sugeridas invalidas (debit={movimiento.cuenta_debito_sugerida}, credit={movimiento.cuenta_credito_sugerida})"
 
             # Payload del journal
             payload = {
@@ -498,77 +473,59 @@ class BankReconciliationEngine:
 
             self.logger.info(f"[BG] Creando journal para {movimiento.descripcion} (monto={movimiento.monto})")
 
-            # POST a Alegra (directamente con httpx)
-            base_url = ALEGRA_BASE_URL
-            async with httpx.AsyncClient(timeout=30) as client:
-                # POST crear journal
-                post_url = f"{base_url}/journals"
-                self.logger.info(f"[BG] POST {post_url}")
-                response = await client.post(post_url, headers=headers, json=payload)
+            # Usar AlegraService con self.db (ya disponible en __init__)
+            alegra = AlegraService(self.db)
 
-                if response.status_code >= 400:
-                    error_data = response.json() if response.content else {}
-                    self.logger.error(f"[Alegra] POST error {response.status_code}: {error_data}")
+            # Verificar que no estamos en demo mode
+            if await alegra.is_demo_mode():
+                self.logger.warning("[BG] Alegra en modo demo — journal no creado")
+                return False, None, "Alegra en modo demo"
 
-                    # Si es 503 o 429, guardar para reintento
-                    if response.status_code in (429, 503):
-                        self.logger.warning(f"[Alegra] {response.status_code} temporal — guardando en reintentos")
-                        hash_movimiento = hashlib.md5(
-                            f"{movimiento.banco.value}{movimiento.fecha}{movimiento.descripcion}{str(movimiento.monto)}".encode()
-                        ).hexdigest()
-
-                        ahora = datetime.now(timezone.utc)
-                        proximo_intento = ahora + timedelta(minutes=5)
-
-                        await self.db.conciliacion_reintentos.update_one(
-                            {"movimiento_hash": hash_movimiento},
-                            {
-                                "$set": {
-                                    "movimiento_hash": hash_movimiento,
-                                    "banco": movimiento.banco.value,
-                                    "fecha": movimiento.fecha,
-                                    "descripcion": movimiento.descripcion,
-                                    "monto": movimiento.monto,
-                                    "cuenta_debito": movimiento.cuenta_debito_sugerida,
-                                    "cuenta_credito": movimiento.cuenta_credito_sugerida,
-                                    "proximo_intento": proximo_intento,
-                                    "estado": "pendiente_reintento",
-                                    "timestamp_ultimo_intento": ahora,
-                                },
-                                "$inc": {"intentos": 1}
+            try:
+                result = await alegra.request_with_verify("journals", "POST", body=payload)
+            except Exception as e:
+                # Si es 429/503, guardar para reintento (logica de resiliencia preservada)
+                error_str = str(e)
+                if "429" in error_str or "503" in error_str or "no disponible" in error_str.lower():
+                    self.logger.warning(f"[Alegra] Temporal — guardando en reintentos: {error_str}")
+                    hash_movimiento = hashlib.md5(
+                        f"{movimiento.banco.value}{movimiento.fecha}{movimiento.descripcion}{str(movimiento.monto)}".encode()
+                    ).hexdigest()
+                    ahora = datetime.now(timezone.utc)
+                    proximo_intento = ahora + timedelta(minutes=5)
+                    await self.db.conciliacion_reintentos.update_one(
+                        {"movimiento_hash": hash_movimiento},
+                        {
+                            "$set": {
+                                "movimiento_hash": hash_movimiento,
+                                "banco": movimiento.banco.value,
+                                "fecha": movimiento.fecha,
+                                "descripcion": movimiento.descripcion,
+                                "monto": movimiento.monto,
+                                "cuenta_debito": movimiento.cuenta_debito_sugerida,
+                                "cuenta_credito": movimiento.cuenta_credito_sugerida,
+                                "proximo_intento": proximo_intento,
+                                "estado": "pendiente_reintento",
+                                "timestamp_ultimo_intento": ahora,
                             },
-                            upsert=True
-                        )
-                        return False, None, f"Almacenado en reintentos ({response.status_code})"
+                            "$inc": {"intentos": 1}
+                        },
+                        upsert=True,
+                    )
+                    return False, None, f"Almacenado en reintentos ({error_str[:100]})"
+                raise
 
-                    # Otros errores HTTP
-                    return False, None, f"HTTP {response.status_code}: {error_data.get('message', 'Error desconocido')}"
+            # Extraer journal_id del resultado
+            journal_id = str(result.get("id", ""))
+            verificado = result.get("_verificado", False)
 
-                result = response.json()
-                if not isinstance(result, dict) or not result.get("id"):
-                    self.logger.error(f"Alegra no retornó ID válido: {result}")
-                    return False, None, str(result)
+            if not journal_id:
+                self.logger.error(f"Alegra no retorno ID valido: {result}")
+                return False, None, str(result)
 
-                journal_id = str(result["id"])
-                self.logger.info(f"[BG] Journal {journal_id} creado en Alegra")
+            self.logger.info(f"[BG] Journal {journal_id} creado (verificado={verificado})")
 
-                # GET de verificación
-                get_url = f"{base_url}/journals/{journal_id}"
-                self.logger.info(f"[BG] GET {get_url} (verificación)")
-                verify_response = await client.get(get_url, headers=headers)
-
-                if verify_response.status_code >= 400:
-                    self.logger.warning(f"[Alegra] GET verificación falló {verify_response.status_code} — continuando")
-                    return False, journal_id, "GET verification failed"
-
-                verify = verify_response.json()
-                if not isinstance(verify, dict) or not verify.get("id"):
-                    self.logger.error(f"GET verificación retornó respuesta inválida: {verify}")
-                    return False, journal_id, "GET verification invalid"
-
-                self.logger.info(f"[BG] ✅ Journal {journal_id} verificado en Alegra")
-
-            # Guardar en MongoDB después de verificación exitosa (upsert para evitar duplicados)
+            # Guardar en MongoDB despues de creacion exitosa (upsert para evitar duplicados)
             hash_movimiento = hashlib.md5(
                 f"{movimiento.banco.value}{movimiento.fecha}{movimiento.descripcion}{str(movimiento.monto)}".encode()
             ).hexdigest()
@@ -584,7 +541,7 @@ class BankReconciliationEngine:
                     "journal_id": journal_id,
                     "procesado_at": datetime.now(timezone.utc).isoformat(),
                 }},
-                upsert=True
+                upsert=True,
             )
             self.logger.info(f"[MONGO] Movimiento guardado en BD: journal_id {journal_id}")
 
