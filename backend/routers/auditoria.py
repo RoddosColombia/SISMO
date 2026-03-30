@@ -1,9 +1,6 @@
 """auditoria.py — Endpoints para auditoría, búsqueda y limpieza de datos en Alegra."""
 
 import logging
-import os
-import base64
-import httpx
 from typing import List, Optional
 from datetime import datetime, timezone
 
@@ -11,7 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from dependencies import get_current_user, require_admin
-from alegra_service import ALEGRA_BASE_URL
+from alegra_service import AlegraService
+from database import db
 
 router = APIRouter(prefix="/auditoria", tags=["auditoria"])
 logger = logging.getLogger(__name__)
@@ -34,74 +32,26 @@ class JournalInfo(BaseModel):
 
 # ── Helper Functions ───────────────────────────────────────────────────────
 
-async def get_alegra_credentials():
-    """Obtiene credenciales de Alegra del entorno."""
-    email = os.environ.get("ALEGRA_EMAIL", "")
-    token = os.environ.get("ALEGRA_TOKEN", "")
-
-    if not email or not token:
-        raise HTTPException(
-            status_code=500,
-            detail="Credenciales de Alegra no configuradas (ALEGRA_EMAIL/ALEGRA_TOKEN)"
-        )
-
-    return email, token
-
-
-async def get_alegra_journals(email: str, token: str, limit: int = 100) -> List[dict]:
+async def get_alegra_journals(limit: int = 100) -> List[dict]:
     """
-    Obtiene journals de Alegra.
+    Obtiene journals de Alegra via AlegraService.
 
     GET /api/v1/journals retorna lista de journals.
     Puede paginar con limit/offset.
     """
-    creds = base64.b64encode(f"{email}:{token}".encode()).decode()
-    headers = {
-        "Authorization": f"Basic {creds}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
-
-    base_url = ALEGRA_BASE_URL
+    alegra = AlegraService(db)
     all_journals = []
     offset = 0
 
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            while True:
-                url = f"{base_url}/journals?limit={limit}&offset={offset}"
-                logger.info(f"[Alegra] GET {url}")
-
-                response = await client.get(url, headers=headers)
-
-                if response.status_code >= 400:
-                    error_data = response.json() if response.content else {}
-                    logger.error(f"[Alegra] Error {response.status_code}: {error_data}")
-                    break
-
-                data = response.json()
-
-                # Alegra retorna: {"entries": [...]} o ["entrada1", "entrada2"]
-                # Intentamos ambos formatos
-                journals = data.get("entries") if isinstance(data, dict) else data
-
-                if not journals or len(journals) == 0:
-                    break
-
-                all_journals.extend(journals)
-                offset += limit
-                logger.info(f"[Alegra] Obtenidos {len(journals)} journals, total acumulado: {len(all_journals)}")
-
-                # Si la respuesta tiene menos items que el limit, es la última página
-                if len(journals) < limit:
-                    break
-
-    except Exception as e:
-        logger.error(f"[Alegra] Error obteniendo journals: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error consultando Alegra: {str(e)}"
-        )
+    while True:
+        batch = await alegra.request("journals", "GET", params={"limit": limit, "offset": offset})
+        if not batch or not isinstance(batch, list):
+            break
+        all_journals.extend(batch)
+        logger.info(f"[Alegra] Obtenidos {len(batch)} journals, total acumulado: {len(all_journals)}")
+        if len(batch) < limit:
+            break
+        offset += limit
 
     return all_journals
 
@@ -145,11 +95,9 @@ async def buscar_journals_por_codigo(
     }
     """
     try:
-        email, token = await get_alegra_credentials()
-
         # Obtener todos los journals de Alegra
         logger.info(f"[Auditoria] Buscando {len(request.codigos)} códigos en Alegra...")
-        journals_alegra = await get_alegra_journals(email, token, limit=100)
+        journals_alegra = await get_alegra_journals(limit=100)
 
         logger.info(f"[Auditoria] Total de journals en Alegra: {len(journals_alegra)}")
 
@@ -248,40 +196,20 @@ async def eliminar_journal(
     }
     """
     try:
-        email, token = await get_alegra_credentials()
-
-        creds = base64.b64encode(f"{email}:{token}".encode()).decode()
-        headers = {
-            "Authorization": f"Basic {creds}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        }
-
-        base_url = ALEGRA_BASE_URL
-        url = f"{base_url}/journals/{journal_id}"
+        alegra = AlegraService(db)
 
         logger.warning(f"[Auditoria] 🔴 ELIMINANDO journal {journal_id}...")
 
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.delete(url, headers=headers)
+        result = await alegra.request(f"journals/{journal_id}", "DELETE")
 
-            if response.status_code == 200:
-                logger.warning(f"[Auditoria] ✅ Journal {journal_id} ELIMINADO exitosamente")
-                return {
-                    "eliminado": True,
-                    "journal_id": journal_id,
-                    "http_status": response.status_code,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "mensaje": "Journal eliminado exitosamente"
-                }
-            else:
-                error_data = response.json() if response.content else {}
-                logger.error(f"[Auditoria] Error {response.status_code} eliminando journal {journal_id}: {error_data}")
-
-                raise HTTPException(
-                    status_code=response.status_code,
-                    detail=f"Alegra retornó {response.status_code}: {error_data.get('message', 'Error desconocido')}"
-                )
+        logger.warning(f"[Auditoria] ✅ Journal {journal_id} ELIMINADO exitosamente")
+        return {
+            "eliminado": True,
+            "journal_id": journal_id,
+            "http_status": 200,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "mensaje": "Journal eliminado exitosamente"
+        }
 
     except HTTPException:
         raise
