@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from database import db
 from dependencies import get_current_user, log_action, require_admin
 from services.bank_reconciliation import BankReconciliationEngine, Banco
-from alegra_service import ALEGRA_BASE_URL
+from alegra_service import AlegraService
 
 router = APIRouter(prefix="/conciliacion", tags=["conciliacion"])
 logger = logging.getLogger(__name__)
@@ -544,31 +544,14 @@ async def test_alegra(
             "detalles": "Configure ALEGRA_EMAIL y ALEGRA_TOKEN en variables de entorno de Render"
         }
 
-    # Construir header Basic Auth (sin servicio, directo)
+    # Llamar a Alegra via AlegraService
     try:
-        creds_str = f"{email}:{token}"
-        creds_b64 = base64.b64encode(creds_str.encode()).decode()
-        headers = {
-            "Authorization": f"Basic {creds_b64}",
-            "Content-Type": "application/json",
-        }
+        logger.info(f"[TEST-ALEGRA] Llamando GET journals?limit=1 via AlegraService...")
 
-        logger.info(f"[TEST-ALEGRA] Construyendo header: Basic {creds_b64[:20]}...")
+        alegra = AlegraService(db)
+        data = await alegra.request("journals", "GET", params={"limit": 1})
 
-        # GET DIRECTO a Alegra sin pasar por AlegraService
-        url = f"{ALEGRA_BASE_URL}/journals?limit=1"
-        logger.info(f"[TEST-ALEGRA] Llamando GET {url}")
-
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.get(url, headers=headers)
-
-        logger.info(f"[TEST-ALEGRA] ✅ HTTP {response.status_code}")
-
-        # Intentar parsear respuesta
-        try:
-            data = response.json()
-        except:
-            data = None
+        logger.info(f"[TEST-ALEGRA] ✅ Respuesta recibida")
 
         # Extraer primer journal si está disponible
         primer_journal = None
@@ -578,11 +561,10 @@ async def test_alegra(
             primer_journal = data["results"][0]
 
         return {
-            "http_status": response.status_code,
+            "http_status": 200,
             "email_usado": email,
             "tiene_token": True,
             "primer_journal": primer_journal,
-            "response_headers": dict(response.headers),
             "response_body_keys": list(data.keys()) if isinstance(data, dict) else "lista",
             "detalles": "✅ Conexión exitosa a Alegra API"
         }
@@ -703,7 +685,6 @@ async def resolver_movimiento(
             raise HTTPException(status_code=404, detail="Movimiento no encontrado")
 
         # Crear journal en Alegra
-        from alegra_service import AlegraService
         service = AlegraService(db)
 
         payload = {
@@ -1172,37 +1153,10 @@ async def backfill_desde_alegra(req: BackfillRequest, current_user=Depends(requi
 
         logger.info(f"[BACKFILL] Iniciando: {banco_normalized}/{req.mes}")
 
-        # Leer credenciales directamente del entorno (sin AlegraService)
-        email = os.environ.get("ALEGRA_EMAIL", "")
-        token = os.environ.get("ALEGRA_TOKEN", "")
+        logger.info(f"[BACKFILL] Consultando Alegra via AlegraService...")
 
-        if not email or not token:
-            raise ValueError(
-                "Credenciales de Alegra no configuradas. "
-                "Configura ALEGRA_EMAIL y ALEGRA_TOKEN en variables de entorno de Render."
-            )
-
-        # Construir header Basic Auth
-        creds_str = f"{email}:{token}"
-        creds_b64 = base64.b64encode(creds_str.encode()).decode()
-        headers = {
-            "Authorization": f"Basic {creds_b64}",
-            "Content-Type": "application/json",
-        }
-
-        logger.info(f"[BACKFILL] Consultando Alegra con credenciales: {email[:10]}...")
-
-        # Consultar journals en Alegra directamente (sin AlegraService)
-        url = f"{ALEGRA_BASE_URL}/journals"
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.get(url, headers=headers)
-
-        if response.status_code != 200:
-            raise ValueError(
-                f"Alegra retornó HTTP {response.status_code}: {response.text[:200]}"
-            )
-
-        journals_response = response.json()
+        alegra = AlegraService(db)
+        journals_response = await alegra.request("journals", "GET")
 
         # Parsear respuesta (puede ser lista o dict con "results")
         if isinstance(journals_response, list):
