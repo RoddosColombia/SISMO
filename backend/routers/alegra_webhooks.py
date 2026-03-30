@@ -8,14 +8,13 @@ Endpoints:
 import logging
 import os
 import re
-import httpx
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 
 from database import db
 from dependencies import get_current_user
-from alegra_service import ALEGRA_BASE_URL
+from alegra_service import AlegraService
 
 # VIN patterns for Auteco/TVS motos
 _VIN_RE = re.compile(r'9FL[A-Z0-9]{14,17}', re.IGNORECASE)
@@ -24,8 +23,6 @@ _MOTOR_RE = re.compile(r'(BF3[A-Z0-9]{6,12}|RF5[A-Z0-9]{6,12})', re.IGNORECASE)
 router = APIRouter(prefix="/webhooks", tags=["webhooks-alegra"])
 logger = logging.getLogger(__name__)
 
-ALEGRA_USER = os.environ.get("ALEGRA_USER", "")
-ALEGRA_TOKEN = os.environ.get("ALEGRA_TOKEN", "")
 WEBHOOK_SECRET = os.environ.get("ALEGRA_WEBHOOK_SECRET", "roddos-webhook-2026")
 APP_URL = os.environ.get("APP_URL", "")
 
@@ -443,23 +440,16 @@ async def _eliminar_item(datos: dict):
 
 async def sincronizar_pagos_externos():
     """Pull recent Alegra payments and apply to loanbook if not already processed."""
-    if not ALEGRA_USER or not ALEGRA_TOKEN:
+    alegra = AlegraService(db)
+    if await alegra.is_demo_mode():
         return 0
     try:
         config = await db.cfo_configuracion.find_one({}, {"ultimo_payment_id_sync": 1, "_id": 0}) or {}
         ultimo_id = int(config.get("ultimo_payment_id_sync", 0) or 0)
 
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(
-                f"{ALEGRA_BASE_URL}/payments",
-                params={"order_direction": "DESC", "order_field": "id", "limit": 20},
-                auth=(ALEGRA_USER, ALEGRA_TOKEN),
-            )
-        if resp.status_code != 200:
-            logger.warning("[PaymentSync] Alegra returned %s", resp.status_code)
-            return 0
-
-        pagos = resp.json()
+        pagos = await alegra.request("payments", "GET", params={
+            "order_direction": "DESC", "order_field": "id", "limit": 20
+        })
         if not isinstance(pagos, list):
             return 0
 
@@ -548,12 +538,6 @@ async def sincronizar_pagos_externos():
 
 # ── Invoice sync cron (called from scheduler.py every 5 min) ─────────────────
 
-async def _get_alegra_auth() -> tuple[str, str]:
-    """Return (email, token) from DB credentials."""
-    creds = await db.alegra_credentials.find_one({}, {"_id": 0, "email": 1, "token": 1}) or {}
-    return creds.get("email", ""), creds.get("token", "")
-
-
 async def sincronizar_facturas_recientes(fecha_desde: str = None) -> int:
     """
     Pull recent Alegra invoices and process new ones via _nueva_factura handler.
@@ -564,15 +548,11 @@ async def sincronizar_facturas_recientes(fecha_desde: str = None) -> int:
         fecha_desde: Optional ISO date string (e.g. "2026-03-16T00:00:00"). Overrides
                      the rolling 24h window when provided.
     """
+    alegra = AlegraService(db)
+    if await alegra.is_demo_mode():
+        logger.warning("[InvoiceSync] Sin credenciales Alegra en DB")
+        return 0
     try:
-        email, token = await _get_alegra_auth()
-        if not email or not token:
-            logger.warning("[InvoiceSync] Sin credenciales Alegra en DB")
-            return 0
-
-        import base64 as _b64
-        auth_str = _b64.b64encode(f"{email}:{token}".encode()).decode()
-
         # Determine starting invoice ID to avoid full re-scan
         cfg = await db.cfo_configuracion.find_one({}, {"_id": 0, "ultima_factura_id_sync": 1}) or {}
         ultimo_id = int(cfg.get("ultima_factura_id_sync") or 0)
@@ -582,18 +562,7 @@ async def sincronizar_facturas_recientes(fecha_desde: str = None) -> int:
             # When a specific date is provided, fetch more (max allowed by Alegra is 30)
             params["limit"] = 30
 
-        async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.get(
-                f"{ALEGRA_BASE_URL}/invoices",
-                headers={"Authorization": f"Basic {auth_str}", "Content-Type": "application/json"},
-                params=params,
-            )
-
-        if resp.status_code != 200:
-            logger.warning("[InvoiceSync] Alegra returned %s: %s", resp.status_code, resp.text[:200])
-            return 0
-
-        facturas = resp.json()
+        facturas = await alegra.request("invoices", "GET", params=params)
         if not isinstance(facturas, list):
             logger.warning("[InvoiceSync] Unexpected Alegra response: %s", str(facturas)[:200])
             return 0
@@ -683,40 +652,26 @@ async def setup_webhooks():
     """Subscribe all 12 Alegra events. Run once after deploy."""
     if not APP_URL:
         raise HTTPException(status_code=400, detail="APP_URL no configurada en .env")
-    if not ALEGRA_USER or not ALEGRA_TOKEN:
-        # Try DB credentials
-        email, token = await _get_alegra_auth()
-        if not email or not token:
-            raise HTTPException(status_code=400, detail="ALEGRA_USER / ALEGRA_TOKEN no configurados")
-        auth = (email, token)
-    else:
-        auth = (ALEGRA_USER, ALEGRA_TOKEN)
+
+    alegra = AlegraService(db)
+    if await alegra.is_demo_mode():
+        raise HTTPException(status_code=400, detail="ALEGRA_USER / ALEGRA_TOKEN no configurados")
 
     webhook_url = f"{APP_URL}/api/webhooks/alegra"
     resultados = []
 
     # NOTE: Alegra v1 API rejects URLs with "https://" or "http://" prefix.
     # This is a known API bug. We attempt registration and capture the error.
-    async with httpx.AsyncClient(timeout=15) as client:
-        for evento in EVENTOS_WEBHOOK:
-            try:
-                r = await client.post(
-                    f"{ALEGRA_BASE_URL}/webhooks/subscriptions",
-                    json={
-                        "event": evento,
-                        "url": webhook_url,
-                        "headers": {"x-api-key": WEBHOOK_SECRET},
-                    },
-                    auth=auth,
-                )
-                ok = r.status_code in (200, 201)
-                err_msg = None
-                if not ok:
-                    err_body = r.json() if r.content else {}
-                    err_msg = err_body.get("error", r.text[:200])
-                resultados.append({"evento": evento, "status": r.status_code, "ok": ok, "error": err_msg})
-            except Exception as exc:
-                resultados.append({"evento": evento, "status": 0, "ok": False, "error": str(exc)})
+    for evento in EVENTOS_WEBHOOK:
+        try:
+            r = await alegra.request("webhooks/subscriptions", "POST", body={
+                "event": evento,
+                "url": webhook_url,
+                "headers": {"x-api-key": WEBHOOK_SECRET},
+            })
+            resultados.append({"evento": evento, "status": 200, "ok": True, "error": None})
+        except Exception as exc:
+            resultados.append({"evento": evento, "status": 0, "ok": False, "error": str(exc)})
 
     # Persist result
     await db.webhook_subscriptions.delete_many({})
