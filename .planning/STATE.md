@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v23.0
 milestone_name: milestone
 status: Ready to execute
-stopped_at: Completed 02-consolidacion-capa-alegra/02-01-PLAN.md
-last_updated: "2026-03-30T23:18:59.161Z"
+stopped_at: Completed 02-consolidacion-capa-alegra/02-02-PLAN.md
+last_updated: "2026-03-30T23:23:58.908Z"
 progress:
   total_phases: 8
   completed_phases: 6
   total_plans: 21
-  completed_plans: 19
+  completed_plans: 20
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-03-30)
 ## Current Position
 
 Phase: 2 (consolidacion-capa-alegra) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 
 ## Performance Metrics
 
@@ -57,6 +57,7 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase 02-nota]: Usar limit=50 en GET /invoices para traer todas las facturas de RODDOS (no limit=3). Aplicar en toda accion consultar_facturas del ACTION_MAP.
 - [Phase 02-consolidacion-capa-alegra]: Tests AlegraService usan asyncio.run() (patron existente en el proyecto, no @pytest.mark.asyncio)
 - [Phase 02-consolidacion-capa-alegra]: Mock _mock() solo acepta 'journals' — 'journal-entries' retorna {} para reflejar comportamiento real de produccion (403)
+- [Phase 02-consolidacion-capa-alegra]: causar_factura_en_alegra usa request_with_verify() — agrega verificacion POST+GET automatica (ALEGRA-03)
 
 ### Pending Todos
 
@@ -74,9 +75,10 @@ None.
 | Phase 01-auditoria-alegra P01 | 20 | 1 tasks | 1 files |
 | Phase 01-auditoria-alegra P02 | 4 | 2 tasks | 3 files |
 | Phase 02-consolidacion-capa-alegra P01 | 112 | 2 tasks | 2 files |
+| Phase 02-consolidacion-capa-alegra P02 | 8 | 3 tasks | 3 files |
 
 ## Session Continuity
 
-Last session: 2026-03-30T23:18:59.156Z
-Stopped at: Completed 02-consolidacion-capa-alegra/02-01-PLAN.md
+Last session: 2026-03-30T23:23:58.904Z
+Stopped at: Completed 02-consolidacion-capa-alegra/02-02-PLAN.md
 Resume file: None

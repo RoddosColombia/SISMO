@@ -15,11 +15,11 @@
 
 ### Consolidacion Capa Alegra (ALEGRA)
 
-- [ ] **ALEGRA-01**: Consolidar utils/alegra.py y services/alegra_service.py en arquitectura clara con unica fuente de verdad
-- [ ] **ALEGRA-02**: ALEGRA_BASE_URL como unica constante importada por todos los modulos que llaman a Alegra (`https://api.alegra.com/api/v1/`)
+- [x] **ALEGRA-01**: Consolidar utils/alegra.py y services/alegra_service.py en arquitectura clara con unica fuente de verdad
+- [x] **ALEGRA-02**: ALEGRA_BASE_URL como unica constante importada por todos los modulos que llaman a Alegra (`https://api.alegra.com/api/v1/`)
 - [x] **ALEGRA-03**: request_with_verify() robusto: POST → verificar con GET → HTTP 200 obligatorio antes de reportar exito al usuario
 - [ ] **ALEGRA-04**: Manejo de errores en espanol — nunca exponer stack traces ni mensajes crudos de la API al usuario
-- [ ] **ALEGRA-05**: Test por cada endpoint confirmando respuesta correcta: GET /invoices, GET /categories, GET /payments, GET /journals, POST /journals
+- [x] **ALEGRA-05**: Test por cada endpoint confirmando respuesta correcta: GET /invoices, GET /categories, GET /payments, GET /journals, POST /journals
 - [x] **ALEGRA-06**: Endpoints prohibidos (/journal-entries, /accounts) bloqueados — su uso genera error explicito antes de emitir la llamada HTTP
 
 ### ACTION_MAP Completo (ACTION)
@@ -97,11 +97,11 @@
 | AUDIT-03 | Phase 1 | Complete |
 | AUDIT-04 | Phase 1 | Complete |
 | AUDIT-05 | Phase 1 | Complete |
-| ALEGRA-01 | Phase 2 | Pending |
-| ALEGRA-02 | Phase 2 | Pending |
+| ALEGRA-01 | Phase 2 | Complete |
+| ALEGRA-02 | Phase 2 | Complete |
 | ALEGRA-03 | Phase 2 | Complete |
 | ALEGRA-04 | Phase 2 | Pending |
-| ALEGRA-05 | Phase 2 | Pending |
+| ALEGRA-05 | Phase 2 | Complete |
 | ALEGRA-06 | Phase 2 | Complete |
 | ACTION-01 | Phase 3 | Pending |
 | ACTION-02 | Phase 3 | Pending |
