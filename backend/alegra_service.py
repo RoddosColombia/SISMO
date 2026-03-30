@@ -415,7 +415,7 @@ class AlegraService:
             if p.get("date_beforeOrNow"):
                 data = [x for x in data if (x.get("date") or "0000") <= p["date_beforeOrNow"]]
             return data
-        if "journal-entries" in endpoint or "journals" in endpoint:
+        if "journals" in endpoint:
             if method == "POST":
                 return {"id": f"ce-{uuid.uuid4().hex[:6]}", "number": f"CE-2025-0{len(MOCK_JOURNAL_ENTRIES)+1:02d}", **body}
             data = list(MOCK_JOURNAL_ENTRIES)
