@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v23.0
 milestone_name: milestone
 status: Phase complete — ready for verification
-stopped_at: Completed 02-consolidacion-capa-alegra/02-03-PLAN.md
-last_updated: "2026-03-30T23:24:43.572Z"
+stopped_at: Completed 02-consolidacion-capa-alegra/02-04-PLAN.md
+last_updated: "2026-03-30T23:56:05.802Z"
 progress:
   total_phases: 8
   completed_phases: 7
-  total_plans: 21
-  completed_plans: 21
+  total_plans: 22
+  completed_plans: 22
 ---
 
 # Project State
@@ -60,6 +60,7 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase 02-consolidacion-capa-alegra]: causar_factura_en_alegra usa request_with_verify() — agrega verificacion POST+GET automatica (ALEGRA-03)
 - [Phase 02-consolidacion-capa-alegra]: crear_journal_alegra() usa request_with_verify() — POST + GET verificacion en un call, elimina ~40 lineas de logica httpx manual en bank_reconciliation.py
 - [Phase 02-consolidacion-capa-alegra]: _get_alegra_auth() eliminada de alegra_webhooks.py — AlegraService.is_demo_mode() es la unica fuente de verdad de credenciales
+- [Phase 02-consolidacion-capa-alegra]: Pre-flight guards en request() y _mock() bloquean /journal-entries y /accounts con HTTPException(400) antes de emitir llamada HTTP — ALEGRA-06 satisfecho
 
 ### Pending Todos
 
@@ -79,9 +80,10 @@ None.
 | Phase 02-consolidacion-capa-alegra P01 | 112 | 2 tasks | 2 files |
 | Phase 02-consolidacion-capa-alegra P02 | 8 | 3 tasks | 3 files |
 | Phase 02-consolidacion-capa-alegra P03 | 525504 | 2 tasks | 2 files |
+| Phase 02-consolidacion-capa-alegra P04 | 10 | 2 tasks | 2 files |
 
 ## Session Continuity
 
-Last session: 2026-03-30T23:24:43.566Z
-Stopped at: Completed 02-consolidacion-capa-alegra/02-03-PLAN.md
+Last session: 2026-03-30T23:56:05.795Z
+Stopped at: Completed 02-consolidacion-capa-alegra/02-04-PLAN.md
 Resume file: None
