@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v23.0
 milestone_name: milestone
-status: Phase complete — ready for verification
+status: Ready to plan
 stopped_at: Completed 01-auditoria-alegra/01-02-PLAN.md
-last_updated: "2026-03-30T22:12:35.825Z"
+last_updated: "2026-03-30T22:58:59.775Z"
 progress:
   total_phases: 8
   completed_phases: 6
@@ -23,8 +23,8 @@ See: .planning/PROJECT.md (updated 2026-03-30)
 
 ## Current Position
 
-Phase: 01 (auditoria-alegra) — EXECUTING
-Plan: 2 of 2
+Phase: 02
+Plan: Not started
 
 ## Performance Metrics
 
@@ -53,10 +53,12 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase 01-auditoria-alegra]: Credenciales Alegra ausentes en entorno de agente — auditoria HTTP en modo estatico, script re-ejecutable con credenciales reales disponible en .planning/scripts/
 - [Phase 01-auditoria-alegra]: ACTION_MAP es 100% write-only via Alegra directa — las 5 acciones de lectura faltantes son trabajo prioritario de Fase 3
 - [Phase 01-auditoria-alegra]: 5 modulos hacen bypass de AlegraService.request() con ALEGRA_BASE_URL directo — consolidacion obligatoria en Fase 2
+- [Phase 01-VERIFIED]: AUDIT-02 cerrado con evidencia HTTP real por Andrés. Todos los endpoints criticos retornan 200. GET /accounts confirma 403. Phase 1 COMPLETE 4/4.
+- [Phase 02-nota]: Usar limit=50 en GET /invoices para traer todas las facturas de RODDOS (no limit=3). Aplicar en toda accion consultar_facturas del ACTION_MAP.
 
 ### Pending Todos
 
-- Plan Phase 1: Auditoria Alegra (`/gsd:plan-phase 1`)
+- Plan Phase 2: Consolidacion Capa Alegra (`/gsd:plan-phase 2`)
 
 ### Blockers/Concerns
 
