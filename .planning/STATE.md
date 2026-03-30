@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
 milestone: v23.0
-milestone_name: BUILD 23 — Agente Contador 8.5/10 + Alegra 100%
-status: Roadmap ready — awaiting phase planning
-stopped_at: Roadmap v23.0 created (8 phases, 41 requirements)
-last_updated: "2026-03-30"
+milestone_name: milestone
+status: Ready to execute
+stopped_at: Completed 01-auditoria-alegra/01-01-PLAN.md
+last_updated: "2026-03-30T22:05:21.518Z"
 progress:
   total_phases: 8
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  completed_phases: 5
+  total_plans: 18
+  completed_plans: 17
 ---
 
 # Project State
@@ -19,17 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-30)
 
 **Core value:** Contabilidad automatizada sin intervencion humana + visibilidad financiera en tiempo real + orquestacion confiable de agentes via bus de eventos
-**Current focus:** BUILD 23 — Agente Contador 8.5/10 + Alegra 100%
+**Current focus:** Phase 01 — auditoria-alegra
 
 ## Current Position
 
-Phase: Not started (roadmap ready)
-Plan: —
-Status: Roadmap approved — ready to plan Phase 1
-
-```
-Progress: [                    ] 0/8 phases
-```
+Phase: 01 (auditoria-alegra) — EXECUTING
+Plan: 2 of 2
 
 ## Performance Metrics
 
@@ -52,6 +47,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [2026-03-30]: SMOKE requirements (SMOKE-01 to SMOKE-10) mapped as full requirements in Phase 8 — they are acceptance criteria AND requirements
 - [2026-03-30]: Phase 5 (Facturacion) marked with UI hint — involves invoices workflow that may touch frontend
 - [260330-fs8]: Hotfix ERROR-017 aplicado — ALEGRA_BASE_URL consolidada en 6 archivos, app.alegra.com/api/r1 eliminado
+- [Phase 01-auditoria-alegra]: backend/alegra_service.py es la UNICA fuente de verdad para llamadas Alegra — no existe utils/alegra.py ni services/alegra_service.py
+- [Phase 01-auditoria-alegra]: 5 modulos hacen bypass de AlegraService.request() con ALEGRA_BASE_URL directo — a consolidar en plan 01-02
+- [Phase 01-auditoria-alegra]: ACTION_MAP tiene 0 acciones de lectura directas a Alegra — las 5 faltantes son trabajo del plan 01-02
 
 ### Pending Todos
 
@@ -66,9 +64,10 @@ None.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260330-fs8 | Hotfix ERROR-017: consolidar ALEGRA_BASE_URL, eliminar app.alegra.com/api/r1 (6 archivos) | 2026-03-30 | 26ceb5d | [260330-fs8-hotfix](./quick/260330-fs8-hotfix-cr-tico-error-017-la-url-base-de-/) |
+| Phase 01-auditoria-alegra P01 | 20 | 1 tasks | 1 files |
 
 ## Session Continuity
 
-Last session: 2026-03-30
-Stopped at: Roadmap v23.0 BUILD 23 creado — 8 fases, 41 requirements (31 funcionales + 10 smoke)
+Last session: 2026-03-30T22:05:21.515Z
+Stopped at: Completed 01-auditoria-alegra/01-01-PLAN.md
 Resume file: None
