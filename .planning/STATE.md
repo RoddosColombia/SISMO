@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v23.0
 milestone_name: milestone
-status: Ready to execute
-stopped_at: Completed 02-consolidacion-capa-alegra/02-02-PLAN.md
-last_updated: "2026-03-30T23:23:58.908Z"
+status: Phase complete — ready for verification
+stopped_at: Completed 02-consolidacion-capa-alegra/02-03-PLAN.md
+last_updated: "2026-03-30T23:24:43.572Z"
 progress:
   total_phases: 8
-  completed_phases: 6
+  completed_phases: 7
   total_plans: 21
-  completed_plans: 20
+  completed_plans: 21
 ---
 
 # Project State
@@ -58,6 +58,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase 02-consolidacion-capa-alegra]: Tests AlegraService usan asyncio.run() (patron existente en el proyecto, no @pytest.mark.asyncio)
 - [Phase 02-consolidacion-capa-alegra]: Mock _mock() solo acepta 'journals' — 'journal-entries' retorna {} para reflejar comportamiento real de produccion (403)
 - [Phase 02-consolidacion-capa-alegra]: causar_factura_en_alegra usa request_with_verify() — agrega verificacion POST+GET automatica (ALEGRA-03)
+- [Phase 02-consolidacion-capa-alegra]: crear_journal_alegra() usa request_with_verify() — POST + GET verificacion en un call, elimina ~40 lineas de logica httpx manual en bank_reconciliation.py
+- [Phase 02-consolidacion-capa-alegra]: _get_alegra_auth() eliminada de alegra_webhooks.py — AlegraService.is_demo_mode() es la unica fuente de verdad de credenciales
 
 ### Pending Todos
 
@@ -76,9 +78,10 @@ None.
 | Phase 01-auditoria-alegra P02 | 4 | 2 tasks | 3 files |
 | Phase 02-consolidacion-capa-alegra P01 | 112 | 2 tasks | 2 files |
 | Phase 02-consolidacion-capa-alegra P02 | 8 | 3 tasks | 3 files |
+| Phase 02-consolidacion-capa-alegra P03 | 525504 | 2 tasks | 2 files |
 
 ## Session Continuity
 
-Last session: 2026-03-30T23:23:58.904Z
-Stopped at: Completed 02-consolidacion-capa-alegra/02-02-PLAN.md
+Last session: 2026-03-30T23:24:43.566Z
+Stopped at: Completed 02-consolidacion-capa-alegra/02-03-PLAN.md
 Resume file: None
