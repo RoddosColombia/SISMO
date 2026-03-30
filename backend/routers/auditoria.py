@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from dependencies import get_current_user, require_admin
+from alegra_service import ALEGRA_BASE_URL
 
 router = APIRouter(prefix="/auditoria", tags=["auditoria"])
 logger = logging.getLogger(__name__)
@@ -61,7 +62,7 @@ async def get_alegra_journals(email: str, token: str, limit: int = 100) -> List[
         "Accept": "application/json",
     }
 
-    base_url = "https://api.alegra.com/api/v1"
+    base_url = ALEGRA_BASE_URL
     all_journals = []
     offset = 0
 
@@ -256,7 +257,7 @@ async def eliminar_journal(
             "Accept": "application/json",
         }
 
-        base_url = "https://api.alegra.com/api/v1"
+        base_url = ALEGRA_BASE_URL
         url = f"{base_url}/journals/{journal_id}"
 
         logger.warning(f"[Auditoria] 🔴 ELIMINANDO journal {journal_id}...")

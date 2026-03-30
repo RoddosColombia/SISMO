@@ -26,7 +26,10 @@ MONGO_URL = os.environ["MONGO_URL"]
 DB_NAME = os.environ["DB_NAME"]
 ALEGRA_USER = os.environ.get("ALEGRA_USER", "")
 ALEGRA_TOKEN = os.environ.get("ALEGRA_TOKEN", "")
-ALEGRA_BASE = "https://app.alegra.com/api/r1"
+try:
+    from backend.alegra_service import ALEGRA_BASE_URL
+except ImportError:
+    ALEGRA_BASE_URL = "https://api.alegra.com/api/v1"
 
 # ── 33 motos TVS reales ──────────────────────────────────────────────────────
 
@@ -148,7 +151,7 @@ async def alegra_get(path: str) -> dict:
     token = b64encode(f"{ALEGRA_USER}:{ALEGRA_TOKEN}".encode()).decode()
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.get(
-            f"{ALEGRA_BASE}/{path}",
+            f"{ALEGRA_BASE_URL}/{path}",
             headers={"Authorization": f"Basic {token}"},
         )
         if resp.status_code == 200:
@@ -163,7 +166,7 @@ async def alegra_post(path: str, payload: dict) -> dict:
     token = b64encode(f"{ALEGRA_USER}:{ALEGRA_TOKEN}".encode()).decode()
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.post(
-            f"{ALEGRA_BASE}/{path}",
+            f"{ALEGRA_BASE_URL}/{path}",
             json=payload,
             headers={
                 "Authorization": f"Basic {token}",

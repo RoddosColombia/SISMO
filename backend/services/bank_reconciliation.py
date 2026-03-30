@@ -23,6 +23,7 @@ from enum import Enum
 
 import pandas as pd
 from io import BytesIO
+from alegra_service import ALEGRA_BASE_URL
 
 logger = logging.getLogger(__name__)
 
@@ -498,7 +499,7 @@ class BankReconciliationEngine:
             self.logger.info(f"[BG] Creando journal para {movimiento.descripcion} (monto={movimiento.monto})")
 
             # POST a Alegra (directamente con httpx)
-            base_url = "https://api.alegra.com/api/v1"
+            base_url = ALEGRA_BASE_URL
             async with httpx.AsyncClient(timeout=30) as client:
                 # POST crear journal
                 post_url = f"{base_url}/journals"

@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from database import db
 from dependencies import get_current_user, log_action, require_admin
 from services.bank_reconciliation import BankReconciliationEngine, Banco
+from alegra_service import ALEGRA_BASE_URL
 
 router = APIRouter(prefix="/conciliacion", tags=["conciliacion"])
 logger = logging.getLogger(__name__)
@@ -555,7 +556,7 @@ async def test_alegra(
         logger.info(f"[TEST-ALEGRA] Construyendo header: Basic {creds_b64[:20]}...")
 
         # GET DIRECTO a Alegra sin pasar por AlegraService
-        url = "https://api.alegra.com/api/v1/journals?limit=1"
+        url = f"{ALEGRA_BASE_URL}/journals?limit=1"
         logger.info(f"[TEST-ALEGRA] Llamando GET {url}")
 
         async with httpx.AsyncClient(timeout=30) as client:
@@ -1192,7 +1193,7 @@ async def backfill_desde_alegra(req: BackfillRequest, current_user=Depends(requi
         logger.info(f"[BACKFILL] Consultando Alegra con credenciales: {email[:10]}...")
 
         # Consultar journals en Alegra directamente (sin AlegraService)
-        url = "https://api.alegra.com/api/v1/journals"
+        url = f"{ALEGRA_BASE_URL}/journals"
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.get(url, headers=headers)
 

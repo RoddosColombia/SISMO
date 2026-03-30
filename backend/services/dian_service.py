@@ -14,6 +14,7 @@ import os
 from datetime import datetime, timezone, timedelta, date
 
 import httpx
+from alegra_service import ALEGRA_BASE_URL
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +141,7 @@ async def _ya_existe_en_alegra(numero_factura: str) -> bool:
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.get(
-                "https://app.alegra.com/api/r1/bills",
+                f"{ALEGRA_BASE_URL}/bills",
                 auth=(ALEGRA_EMAIL, ALEGRA_TOKEN),
                 params={"fields": "id,numberTemplate", "limit": 30},
             )
@@ -203,7 +204,7 @@ async def causar_factura_en_alegra(factura: dict) -> dict | None:
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             r = await client.post(
-                "https://app.alegra.com/api/r1/bills",
+                f"{ALEGRA_BASE_URL}/bills",
                 auth=(ALEGRA_EMAIL, ALEGRA_TOKEN),
                 json=payload,
             )

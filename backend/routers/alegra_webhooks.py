@@ -15,6 +15,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, 
 
 from database import db
 from dependencies import get_current_user
+from alegra_service import ALEGRA_BASE_URL
 
 # VIN patterns for Auteco/TVS motos
 _VIN_RE = re.compile(r'9FL[A-Z0-9]{14,17}', re.IGNORECASE)
@@ -23,8 +24,6 @@ _MOTOR_RE = re.compile(r'(BF3[A-Z0-9]{6,12}|RF5[A-Z0-9]{6,12})', re.IGNORECASE)
 router = APIRouter(prefix="/webhooks", tags=["webhooks-alegra"])
 logger = logging.getLogger(__name__)
 
-ALEGRA_BASE = "https://app.alegra.com/api/r1"
-ALEGRA_API_V1 = "https://api.alegra.com/api/v1"
 ALEGRA_USER = os.environ.get("ALEGRA_USER", "")
 ALEGRA_TOKEN = os.environ.get("ALEGRA_TOKEN", "")
 WEBHOOK_SECRET = os.environ.get("ALEGRA_WEBHOOK_SECRET", "roddos-webhook-2026")
@@ -452,7 +451,7 @@ async def sincronizar_pagos_externos():
 
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(
-                f"{ALEGRA_BASE}/payments",
+                f"{ALEGRA_BASE_URL}/payments",
                 params={"order_direction": "DESC", "order_field": "id", "limit": 20},
                 auth=(ALEGRA_USER, ALEGRA_TOKEN),
             )
@@ -585,7 +584,7 @@ async def sincronizar_facturas_recientes(fecha_desde: str = None) -> int:
 
         async with httpx.AsyncClient(timeout=20) as client:
             resp = await client.get(
-                f"{ALEGRA_API_V1}/invoices",
+                f"{ALEGRA_BASE_URL}/invoices",
                 headers={"Authorization": f"Basic {auth_str}", "Content-Type": "application/json"},
                 params=params,
             )
@@ -702,7 +701,7 @@ async def setup_webhooks():
         for evento in EVENTOS_WEBHOOK:
             try:
                 r = await client.post(
-                    f"{ALEGRA_API_V1}/webhooks/subscriptions",
+                    f"{ALEGRA_BASE_URL}/webhooks/subscriptions",
                     json={
                         "event": evento,
                         "url": webhook_url,
