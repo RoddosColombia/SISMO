@@ -67,8 +67,8 @@ class TestDemoModeEndpoints:
         assert len(result) > 0, "MOCK_INVOICES no puede estar vacio"
 
     def test_get_categories_demo(self, alegra_svc):
-        # /categories es el reemplazo de /accounts — el mock responde por 'accounts'
-        result = _run(alegra_svc.request("accounts", "GET"))
+        # /categories es el endpoint correcto — /accounts es prohibido (ALEGRA-06)
+        result = _run(alegra_svc.request("categories", "GET"))
         assert isinstance(result, list)
         assert len(result) > 0, "MOCK_ACCOUNTS no puede estar vacio"
 
@@ -203,12 +203,39 @@ class TestMockBugALEGRA03:
         )
 
     def test_mock_rejects_journal_entries(self, alegra_svc):
-        """journal-entries NO debe retornar datos de journals — debe retornar {} (fallback).
+        """journal-entries debe lanzar HTTPException(400) — mismo comportamiento que produccion.
 
-        Este test falla (RED) hasta que Task 2 aplique el fix en alegra_service.py.
+        Per ALEGRA-06: el mock refleja el comportamiento real de produccion.
+        Este test falla (RED) hasta que Task 2 aplique el guard en alegra_service.py.
         """
-        result = alegra_svc._mock("journal-entries", "GET")
-        assert result == {}, (
-            "_mock('journal-entries', 'GET') debe retornar {} (endpoint invalido en produccion). "
-            "Si retorna lista, el bug ALEGRA-03 aun no esta corregido."
-        )
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as exc_info:
+            alegra_svc._mock("journal-entries", "GET")
+        assert exc_info.value.status_code == 400
+
+
+# ── Seccion: Test ALEGRA-06 — Endpoints Prohibidos ───────────────────────────
+
+
+class TestProhibitedEndpoints:
+    """Verifica que endpoints prohibidos generan HTTPException ANTES de llamar a la API.
+
+    Per ALEGRA-06: /journal-entries y /accounts deben bloquearse pre-vuelo con
+    HTTPException(400) y mensaje descriptivo en espanol.
+    """
+
+    def test_request_rejects_journal_entries(self, alegra_svc):
+        """request('journal-entries') debe lanzar HTTPException(400) — nunca llega a httpx."""
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as exc_info:
+            _run(alegra_svc.request("journal-entries", "GET"))
+        assert exc_info.value.status_code == 400
+        assert "journal-entries" in exc_info.value.detail.lower() or "journal-entries" in exc_info.value.detail
+
+    def test_request_rejects_accounts(self, alegra_svc):
+        """request('accounts') debe lanzar HTTPException(400) — nunca llega a httpx."""
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as exc_info:
+            _run(alegra_svc.request("accounts", "GET"))
+        assert exc_info.value.status_code == 400
+        assert "accounts" in exc_info.value.detail.lower() or "accounts" in exc_info.value.detail
