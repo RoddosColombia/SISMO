@@ -1,133 +1,135 @@
-# Requirements: SISMO — Milestone v2.0 BUILD 24
+# Requirements: SISMO v23.0 BUILD 23 — Agente Contador 8.5/10 + Alegra 100%
 
-**Defined:** 2026-03-26
-**Core Value:** Contabilidad automatizada sin intervencion humana + visibilidad financiera en tiempo real + orquestacion confiable de agentes via bus de eventos
+**Defined:** 2026-03-30
+**Core Value:** Contabilidad automatizada sin intervencion humana — toda operacion financiera ejecutada correctamente en Alegra con verificacion HTTP 200
 
-## v2.0 Requirements — BUILD 24: Cimientos Definitivos
+## v23.0 Requirements — BUILD 23
 
-### Models & Contracts (MOD)
+### Auditoria Alegra (AUDIT)
 
-- [ ] **MOD-01**: RoddosEvent Pydantic model valida schema de todos los eventos del bus con 13 campos obligatorios
-- [ ] **MOD-02**: DLQEvent model para dead-letter queue con retry_count y next_retry
-- [ ] **MOD-03**: EVENT_TYPES catalogo Literal con 28 tipos de eventos validos
-- [ ] **MOD-04**: WRITE_PERMISSIONS dict define colecciones y endpoints Alegra por agente en codigo Python
-- [ ] **MOD-05**: validate_write_permission() bloquea escrituras no autorizadas con PermissionError
-- [ ] **MOD-06**: validate_alegra_permission() bloquea llamadas HTTP no autorizadas a Alegra
+- [ ] **AUDIT-01**: Auditar utils/alegra.py vs services/alegra_service.py — identificar cual es la fuente de verdad, documentar duplicacion y conflictos
+- [ ] **AUDIT-02**: Probar cada endpoint de Alegra con request real y documentar resultado: GET /invoices, GET /categories, GET /payments, POST /journals
+- [ ] **AUDIT-03**: Verificar que request_with_verify() usa la URL base correcta (`https://api.alegra.com/api/v1/`) en toda operacion de escritura
+- [ ] **AUDIT-04**: Auditar ACTION_MAP en ai_chat.py — listar acciones registradas, acciones faltantes, y acciones rotas
+- [ ] **AUDIT-05**: Generar reporte de auditoria: que funciona, que esta roto, que falta — base para todas las fases siguientes
 
-### Bus de Eventos (BUS)
+### Consolidacion Capa Alegra (ALEGRA)
 
-- [ ] **BUS-01**: EventBusService.emit() publica eventos con estado='processed' (nunca 'pending')
-- [ ] **BUS-02**: emit() es idempotente: mismo event_id no genera duplicados (DuplicateKeyError silencioso)
-- [ ] **BUS-03**: Fallos del bus van a DLQ, nunca bloquean la operacion principal
-- [ ] **BUS-04**: retry_dlq() reintenta eventos fallidos cada 5 minutos con backoff exponencial
-- [ ] **BUS-05**: get_bus_health() retorna metricas del bus (dlq_pending, events_last_hour, status)
-- [ ] **BUS-06**: event_bus.py eliminado del repositorio, emit_state_change() eliminado de shared_state.py
-- [ ] **BUS-07**: Todos los callers migrados a bus.emit() (routers/ventas, cartera, loanbook, nomina, cfo, conciliacion)
-- [ ] **BUS-08**: post_action_sync.py migrado a usar bus.emit() + invalidate_cfo_cache()
+- [ ] **ALEGRA-01**: Consolidar utils/alegra.py y services/alegra_service.py en arquitectura clara con unica fuente de verdad
+- [ ] **ALEGRA-02**: ALEGRA_BASE_URL como unica constante importada por todos los modulos que llaman a Alegra (`https://api.alegra.com/api/v1/`)
+- [ ] **ALEGRA-03**: request_with_verify() robusto: POST → verificar con GET → HTTP 200 obligatorio antes de reportar exito al usuario
+- [ ] **ALEGRA-04**: Manejo de errores en espanol — nunca exponer stack traces ni mensajes crudos de la API al usuario
+- [ ] **ALEGRA-05**: Test por cada endpoint confirmando respuesta correcta: GET /invoices, GET /categories, GET /payments, GET /journals, POST /journals
+- [ ] **ALEGRA-06**: Endpoints prohibidos (/journal-entries, /accounts) bloqueados — su uso genera error explicito antes de emitir la llamada HTTP
 
-### MongoDB Completo (MDB)
+### ACTION_MAP Completo (ACTION)
 
-- [ ] **MDB-01**: init_mongodb_sismo.py reescrito, idempotente, crea 30+ colecciones con indices y schema validation
-- [ ] **MDB-02**: roddos_events tiene indice unico en event_id + compuesto (event_type, timestamp_utc) + TTL 90 dias
-- [ ] **MDB-03**: loanbook tiene indices ESR (estado+dpd+score, morosos partial, cola_cobranza partial, chasis unique)
-- [ ] **MDB-04**: catalogo_planes sembrado con cuotas reales + multiplicadores (Semanal x1.0, Quincenal x2.2, Mensual x4.4)
-- [ ] **MDB-05**: plan_cuentas_roddos sembrado con 28 IDs reales, ID 5495 eliminado, fallback 5493
-- [ ] **MDB-06**: sismo_knowledge sembrado con 10 reglas criticas de negocio (mora, retenciones, autoretenedor, etc.)
-- [ ] **MDB-07**: portfolio_summaries coleccion creada para snapshots diarios de cartera
-- [ ] **MDB-08**: financial_reports coleccion creada para P&L mensuales pre-calculados
-- [ ] **MDB-09**: roddos_events_dlq coleccion creada con indices para retry
+- [ ] **ACTION-01**: Accion de lectura `consultar_facturas` registrada en ACTION_MAP: GET /invoices con filtros de fecha en formato yyyy-MM-dd
+- [ ] **ACTION-02**: Accion de lectura `consultar_pagos` registrada en ACTION_MAP: GET /payments con filtro type in/out
+- [ ] **ACTION-03**: Accion de lectura `consultar_journals` registrada en ACTION_MAP: GET /journals con filtros de fecha y descripcion
+- [ ] **ACTION-04**: Accion de lectura `consultar_cartera` registrada en ACTION_MAP: lee MongoDB loanbook y cartera_pagos, no llama a Alegra
+- [ ] **ACTION-05**: Accion de lectura `consultar_plan_cuentas` registrada en ACTION_MAP: GET /categories retorna plan de cuentas con IDs correctos
 
-### Agentes & Router (AGT)
+### Chat Transaccional Real (CHAT)
 
-- [x] **AGT-01**: SYSTEM_PROMPTS dict con 4 agentes diferenciados (Contador, CFO, RADAR, Loanbook)
-- [x] **AGT-02**: Router con INTENT_THRESHOLD 0.7 — confianza < 0.7 pregunta al usuario
-- [x] **AGT-03**: Prompt caching activado en system prompts (cache_control ephemeral)
-- [x] **AGT-04**: RAG desde sismo_knowledge en build_agent_prompt() para todos los agentes
+- [ ] **CHAT-01**: Usuario describe gasto en lenguaje natural → agente clasifica usando motor matricial de accounting_engine (no heuristica manual)
+- [ ] **CHAT-02**: Agente calcula ReteFuente + ReteICA automaticamente segun tipo: Arrendamiento 3.5%, Servicios 4%, Honorarios persona natural 10% / persona juridica 11%, Compras 2.5% (base minima $1.344.573), ReteICA Bogota 0.414% en toda operacion
+- [ ] **CHAT-03**: Agente propone asiento con cuentas reales de plan_cuentas_roddos, espera confirmacion explicita del usuario — maximo una pregunta por turno de interaccion
+- [ ] **CHAT-04**: Tras confirmacion del usuario: POST /journals → GET verificacion → retorna ID real del journal en Alegra (nunca simula exito)
+- [ ] **CHAT-05**: Casos especiales correctos: Auteco NIT 860024781 = autoretenedor (nunca aplicar ReteFuente), socios CC 80075452 / CC 80086601 = CXC socios (nunca gasto operativo)
 
-### Scheduler & Pipeline (SCH)
+### Facturacion Venta Motos (FACTURA)
 
-- [x] **SCH-01**: compute_portfolio_summary() ejecuta a las 11:30 PM y persiste en portfolio_summaries
-- [x] **SCH-02**: _compute_financial_report_mensual() genera P&L el dia 1 de cada mes
-- [x] **SCH-03**: dlq_retry_job registrado en scheduler cada 5 minutos
-- [x] **SCH-04**: CFO lee portfolio_summaries antes que Alegra (get_portfolio_data_for_cfo())
+- [ ] **FACTURA-01**: POST /invoices con formato de descripcion obligatorio: "[Modelo] [Color] - VIN:[x] / Motor:[x]"
+- [ ] **FACTURA-02**: VIN y numero de motor son campos obligatorios — HTTP 400 si faltan, el sistema nunca crea una factura de moto sin ellos
+- [ ] **FACTURA-03**: Al crear factura exitosa: moto marcada como Vendida en inventario_motos
+- [ ] **FACTURA-04**: Al crear factura exitosa: loanbook creado en estado pendiente_entrega + evento factura.venta.creada publicado en bus de eventos
 
-### GitHub CI/CD (GIT)
+### Ingresos Cuotas Cartera (CARTERA)
 
-- [x] **GIT-01**: ci.yml expandido con pytest, anti-emergent check, anti-pending-status check
-- [x] **GIT-02**: Smoke test job en CI verifica /api/health/smoke (status, collections, bus)
-- [x] **GIT-03**: dependabot.yml creado para pip y npm
-- [x] **GIT-04**: /api/health/smoke endpoint mejorado con checks de colecciones, bus, indices, catalogo
-- [x] **GIT-05**: README.md actualizado a BUILD 24 (eliminar referencias Emergent y BUILD 18)
-- [x] **GIT-06**: CLAUDE.md actualizado con protocolo nuevo bus, worktrees, errores documentados
+- [ ] **CARTERA-01**: Pago de cuota registrado → POST /payments type:in → journal de ingreso en Alegra con cuenta correcta de plan_ingresos_roddos
+- [ ] **CARTERA-02**: Anti-duplicados activo: antes de registrar, verificar que el mismo pago no existe ya en Alegra — nunca crear dos registros del mismo pago
+- [ ] **CARTERA-03**: CFO puede consultar y verificar el ingreso registrado via portfolio_summaries — recaudo visible en reportes financieros
 
-### Tests (TST)
+### Nomina Mensual (NOMINA)
 
-- [ ] **TST-01**: test_event_bus.py — 11 tests (emit, idempotencia, DLQ, health, no imports viejos)
-- [ ] **TST-02**: test_permissions.py — 8 tests (write permissions, alegra permissions por agente)
-- [ ] **TST-03**: test_mongodb_init.py — 13 tests (idempotencia, indices, datos sembrados)
-- [x] **TST-04**: test_agent_router.py — 7 tests (routing correcto, clarificacion, system prompts)
-- [x] **TST-05**: test_smoke_build24.py — 6 tests (health endpoint, colecciones, bus)
-- [x] **TST-06**: test_usage_integration.py — 15 tests (portfolio summary, RAG, eventos end-to-end)
+- [ ] **NOMINA-01**: Registrar nomina mensual discriminada por empleado con los montos reales: Enero 2026 (Alexa $3.220.000, Luis $3.220.000, Liz $1.472.000), Febrero 2026 (Alexa $4.500.000, Liz $2.200.000)
+- [ ] **NOMINA-02**: Anti-duplicados por mes + empleado: sistema verifica antes de registrar que el mismo empleado no tiene nomina del mismo mes ya en Alegra — intento de duplicado retorna error claro
+- [ ] **NOMINA-03**: Journal discriminado por empleado en Alegra — un asiento por empleado por mes, no un journal consolidado del mes
+
+### Smoke Test Final Alegra 100% (SMOKE)
+
+- [ ] **SMOKE-01**: GET /invoices retorna facturas reales de RODDOS (HTTP 200, lista no vacia) en smoke test
+- [ ] **SMOKE-02**: GET /categories retorna plan de cuentas con IDs correctos (ID 5493 presente, ID 5495 ausente)
+- [ ] **SMOKE-03**: Chat end-to-end: "Pagamos arriendo $3.614.953" → journal en Alegra con ID real retornado
+- [ ] **SMOKE-04**: Consulta end-to-end: "Muestrame las facturas de marzo" → lista facturas reales, no datos mock
+- [ ] **SMOKE-05**: Venta moto con VIN real → factura en Alegra creada + inventario actualizado + loanbook en estado pendiente_entrega
+- [ ] **SMOKE-06**: Pago cuota → journal ingreso en Alegra → CFO puede consultar el recaudo en reportes
+- [ ] **SMOKE-07**: Nomina enero → registrada en Alegra → segundo intento del mismo mes bloqueado con error claro
+- [ ] **SMOKE-08**: Alegra caido o sin conectividad → error en espanol devuelto al usuario, UI no rompe ni muestra stack trace
+- [ ] **SMOKE-09**: ACTION_MAP: consultar_facturas, consultar_pagos, consultar_journals responden con datos reales
+- [ ] **SMOKE-10**: Todos los greps del COMMIT PROTOCOL dan 0 resultados (app.alegra.com/api/r1, /journal-entries, estado.*pending)
+
+---
 
 ## Future Requirements (deferred)
 
-- Atlas M10 con Change Streams (mayo 2026)
-- Vector search para sismo_knowledge con voyage-finance-2 (BUILD 27)
-- Branch protection rules en GitHub
-- Docker Compose + infraestructura propia (Soberania Digital)
-- Refactoring de ai_chat.py (decomposicion en modulos)
+- Facturacion electronica DIAN en produccion (requiere certificado DIAN)
+- Nomina con deducciones de seguridad social automaticas (solo valor bruto en BUILD 23)
+- Refactoring de ai_chat.py (decomposicion en modulos — BUILD 25+)
+- Integracion bancaria directa (reconciliacion via CSV/Excel es suficiente hoy)
 
 ## Out of Scope
 
-- Migracion de hosting (Render se mantiene para este milestone)
-- Frontend changes (BUILD 24 es 100% backend + CI/CD)
-- WhatsApp/Mercately changes
-- DIAN facturacion electronica
+- Multitenancy (SISMO exclusivo para RODDOS)
+- App movil nativa (web-first, mobile responsive es suficiente)
+- WhatsApp/Mercately changes (fuera de alcance BUILD 23)
+- Frontend UI changes (BUILD 23 es 100% backend + integracion Alegra)
+
+---
 
 ## Traceability
 
-| Requirement | Phase | Plan | Status |
-|-------------|-------|------|--------|
-| MOD-01 | 1 | TBD | Pending |
-| MOD-02 | 1 | TBD | Pending |
-| MOD-03 | 1 | TBD | Pending |
-| MOD-04 | 1 | TBD | Pending |
-| MOD-05 | 1 | TBD | Pending |
-| MOD-06 | 1 | TBD | Pending |
-| BUS-01 | 2 | TBD | Pending |
-| BUS-02 | 2 | TBD | Pending |
-| BUS-03 | 2 | TBD | Pending |
-| BUS-04 | 2 | TBD | Pending |
-| BUS-05 | 2 | TBD | Pending |
-| BUS-06 | 2 | TBD | Pending |
-| BUS-07 | 2 | TBD | Pending |
-| BUS-08 | 2 | TBD | Pending |
-| MDB-01 | 3 | TBD | Pending |
-| MDB-02 | 3 | TBD | Pending |
-| MDB-03 | 3 | TBD | Pending |
-| MDB-04 | 3 | TBD | Pending |
-| MDB-05 | 3 | TBD | Pending |
-| MDB-06 | 3 | TBD | Pending |
-| MDB-07 | 3 | TBD | Pending |
-| MDB-08 | 3 | TBD | Pending |
-| MDB-09 | 3 | TBD | Pending |
-| AGT-01 | 4 | TBD | Pending |
-| AGT-02 | 4 | TBD | Pending |
-| AGT-03 | 4 | TBD | Pending |
-| AGT-04 | 4 | TBD | Pending |
-| SCH-01 | 4 | TBD | Pending |
-| SCH-02 | 4 | TBD | Pending |
-| SCH-03 | 4 | TBD | Pending |
-| SCH-04 | 4 | TBD | Pending |
-| GIT-01 | 5 | TBD | Pending |
-| GIT-02 | 5 | TBD | Pending |
-| GIT-03 | 5 | TBD | Pending |
-| GIT-04 | 5 | TBD | Pending |
-| GIT-05 | 5 | TBD | Pending |
-| GIT-06 | 5 | TBD | Pending |
-| TST-01 | 2 | TBD | Pending |
-| TST-02 | 1 | TBD | Pending |
-| TST-03 | 3 | TBD | Pending |
-| TST-04 | 4 | TBD | Pending |
-| TST-05 | 5 | TBD | Pending |
-| TST-06 | 4 | TBD | Pending |
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| AUDIT-01 | Phase 1 | Pending |
+| AUDIT-02 | Phase 1 | Pending |
+| AUDIT-03 | Phase 1 | Pending |
+| AUDIT-04 | Phase 1 | Pending |
+| AUDIT-05 | Phase 1 | Pending |
+| ALEGRA-01 | Phase 2 | Pending |
+| ALEGRA-02 | Phase 2 | Pending |
+| ALEGRA-03 | Phase 2 | Pending |
+| ALEGRA-04 | Phase 2 | Pending |
+| ALEGRA-05 | Phase 2 | Pending |
+| ALEGRA-06 | Phase 2 | Pending |
+| ACTION-01 | Phase 3 | Pending |
+| ACTION-02 | Phase 3 | Pending |
+| ACTION-03 | Phase 3 | Pending |
+| ACTION-04 | Phase 3 | Pending |
+| ACTION-05 | Phase 3 | Pending |
+| CHAT-01 | Phase 4 | Pending |
+| CHAT-02 | Phase 4 | Pending |
+| CHAT-03 | Phase 4 | Pending |
+| CHAT-04 | Phase 4 | Pending |
+| CHAT-05 | Phase 4 | Pending |
+| FACTURA-01 | Phase 5 | Pending |
+| FACTURA-02 | Phase 5 | Pending |
+| FACTURA-03 | Phase 5 | Pending |
+| FACTURA-04 | Phase 5 | Pending |
+| CARTERA-01 | Phase 6 | Pending |
+| CARTERA-02 | Phase 6 | Pending |
+| CARTERA-03 | Phase 6 | Pending |
+| NOMINA-01 | Phase 7 | Pending |
+| NOMINA-02 | Phase 7 | Pending |
+| NOMINA-03 | Phase 7 | Pending |
+| SMOKE-01 | Phase 8 | Pending |
+| SMOKE-02 | Phase 8 | Pending |
+| SMOKE-03 | Phase 8 | Pending |
+| SMOKE-04 | Phase 8 | Pending |
+| SMOKE-05 | Phase 8 | Pending |
+| SMOKE-06 | Phase 8 | Pending |
+| SMOKE-07 | Phase 8 | Pending |
+| SMOKE-08 | Phase 8 | Pending |
+| SMOKE-09 | Phase 8 | Pending |
+| SMOKE-10 | Phase 8 | Pending |
