@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v23.0
 milestone_name: milestone
-status: Ready to plan
-stopped_at: Completed 03-mongodb-completo-02-PLAN.md
-last_updated: "2026-03-31T02:26:38.055Z"
+status: Ready to execute
+stopped_at: Completed 04-agents-router-scheduler-05-PLAN.md
+last_updated: "2026-03-31T02:52:45.418Z"
 progress:
   total_phases: 8
-  completed_phases: 7
-  total_plans: 21
-  completed_plans: 21
+  completed_phases: 6
+  total_plans: 23
+  completed_plans: 22
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-30)
 
 **Core value:** Contabilidad automatizada sin intervencion humana + visibilidad financiera en tiempo real + orquestacion confiable de agentes via bus de eventos
-**Current focus:** Phase 03 — mongodb-completo
+**Current focus:** Phase 04 — agents-router-scheduler
 
 ## Current Position
 
-Phase: 04
-Plan: Not started
+Phase: 04 (agents-router-scheduler) — EXECUTING
+Plan: 2 of 2
 
 ## Performance Metrics
 
@@ -67,6 +67,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase 03-mongodb-completo]: ai_chat.py plan_cuentas read wrapped in try/except for graceful fallback if collection not seeded
 - [Phase 03-mongodb-completo]: MOCK_PAYMENTS placed in mock_data.py (not alegra_service.py) — consistent with all other MOCK_* constants in the project
 - [Phase 03-mongodb-completo]: 5 handlers inserted as special-case ifs BEFORE ACTION_MAP lookup — consistent with consultar_saldo_socio pattern, no ACTION_MAP modification needed
+- [Phase 04-agents-router-scheduler]: test_reteica_siempre_aplica_bogota passes in RED phase because calcular_retenciones already exists — 9/10 tests fail confirming RED
+- [Phase 04-agents-router-scheduler]: Phase 04-05 TDD: try/except ImportError at module level with None fallback — canonical RED phase import pattern for clasificar_gasto_chat
 
 ### Pending Todos
 
@@ -90,9 +92,10 @@ None.
 | Phase 03-mongodb-completo P01 | 15 | 1 tasks | 1 files |
 | Phase 03-mongodb-completo P02 | 12 | 2 tasks | 4 files |
 | Phase 03-mongodb-completo P02 | 20 | 2 tasks | 3 files |
+| Phase 04-agents-router-scheduler P05 | 8 | 1 tasks | 1 files |
 
 ## Session Continuity
 
-Last session: 2026-03-31T02:21:50.006Z
-Stopped at: Completed 03-mongodb-completo-02-PLAN.md
+Last session: 2026-03-31T02:52:45.412Z
+Stopped at: Completed 04-agents-router-scheduler-05-PLAN.md
 Resume file: None

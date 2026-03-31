@@ -32,11 +32,11 @@
 
 ### Chat Transaccional Real (CHAT)
 
-- [ ] **CHAT-01**: Usuario describe gasto en lenguaje natural → agente clasifica usando motor matricial de accounting_engine (no heuristica manual)
-- [ ] **CHAT-02**: Agente calcula ReteFuente + ReteICA automaticamente segun tipo: Arrendamiento 3.5%, Servicios 4%, Honorarios persona natural 10% / persona juridica 11%, Compras 2.5% (base minima $1.344.573), ReteICA Bogota 0.414% en toda operacion
+- [x] **CHAT-01**: Usuario describe gasto en lenguaje natural → agente clasifica usando motor matricial de accounting_engine (no heuristica manual)
+- [x] **CHAT-02**: Agente calcula ReteFuente + ReteICA automaticamente segun tipo: Arrendamiento 3.5%, Servicios 4%, Honorarios persona natural 10% / persona juridica 11%, Compras 2.5% (base minima $1.344.573), ReteICA Bogota 0.414% en toda operacion
 - [ ] **CHAT-03**: Agente propone asiento con cuentas reales de plan_cuentas_roddos, espera confirmacion explicita del usuario — maximo una pregunta por turno de interaccion
-- [ ] **CHAT-04**: Tras confirmacion del usuario: POST /journals → GET verificacion → retorna ID real del journal en Alegra (nunca simula exito)
-- [ ] **CHAT-05**: Casos especiales correctos: Auteco NIT 860024781 = autoretenedor (nunca aplicar ReteFuente), socios CC 80075452 / CC 80086601 = CXC socios (nunca gasto operativo)
+- [x] **CHAT-04**: Tras confirmacion del usuario: POST /journals → GET verificacion → retorna ID real del journal en Alegra (nunca simula exito)
+- [x] **CHAT-05**: Casos especiales correctos: Auteco NIT 860024781 = autoretenedor (nunca aplicar ReteFuente), socios CC 80075452 / CC 80086601 = CXC socios (nunca gasto operativo)
 
 ### Facturacion Venta Motos (FACTURA)
 
@@ -108,11 +108,11 @@
 | ACTION-03 | Phase 3 | Complete |
 | ACTION-04 | Phase 3 | Complete |
 | ACTION-05 | Phase 3 | Complete |
-| CHAT-01 | Phase 4 | Pending |
-| CHAT-02 | Phase 4 | Pending |
+| CHAT-01 | Phase 4 | Complete |
+| CHAT-02 | Phase 4 | Complete |
 | CHAT-03 | Phase 4 | Pending |
-| CHAT-04 | Phase 4 | Pending |
-| CHAT-05 | Phase 4 | Pending |
+| CHAT-04 | Phase 4 | Complete |
+| CHAT-05 | Phase 4 | Complete |
 | FACTURA-01 | Phase 5 | Pending |
 | FACTURA-02 | Phase 5 | Pending |
 | FACTURA-03 | Phase 5 | Pending |
