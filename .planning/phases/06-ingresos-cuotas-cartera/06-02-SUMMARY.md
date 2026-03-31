@@ -122,6 +122,16 @@ None - no external service configuration required.
 - POST /cartera/registrar-pago creates journal in Alegra, guards against duplicates (409), and feeds CFO reports via cartera_pagos_mes
 - Ready for production deployment (smoke test recommended against Render)
 
+## Self-Check: PASSED
+
+- FOUND: backend/routers/cartera.py (modified — anti-duplicate guard)
+- FOUND: backend/services/cfo_agent.py (modified — monto_pago field projection)
+- FOUND: backend/tests/test_build23_f7_ingresos_cartera.py (modified — T8 added)
+- FOUND: .planning/phases/06-ingresos-cuotas-cartera/06-02-SUMMARY.md (created)
+- FOUND: commit 554bcda (feat: anti-duplicate guard T7 GREEN)
+- FOUND: commit 38bc26d (feat: cfo_agent fix + T8 GREEN)
+- Test suite verified: 9/9 PASSED (T1-T8 + test_resumen)
+
 ---
 *Phase: 06-ingresos-cuotas-cartera*
 *Completed: 2026-03-31*
