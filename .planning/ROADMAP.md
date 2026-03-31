@@ -138,7 +138,7 @@ Phases execute in strict dependency order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | 2. Consolidacion Capa Alegra | 4/4 | Complete    | 2026-03-31 |
 | 3. ACTION_MAP Completo | 2/2 | Complete   | 2026-03-31 |
 | 4. Chat Transaccional Real | 6/6 | Complete   | 2026-03-31 |
-| 5. Facturacion Venta Motos | 0/TBD | Not started | - |
+| 5. Facturacion Venta Motos | 4/5 | In Progress|  |
 | 6. Ingresos Cuotas Cartera | 0/TBD | Not started | - |
 | 7. Nomina Mensual | 0/TBD | Not started | - |
 | 8. Smoke Test Final | 0/TBD | Not started | - |

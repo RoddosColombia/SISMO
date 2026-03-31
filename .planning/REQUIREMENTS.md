@@ -40,10 +40,10 @@
 
 ### Facturacion Venta Motos (FACTURA)
 
-- [ ] **FACTURA-01**: POST /invoices con formato de descripcion obligatorio: "[Modelo] [Color] - VIN:[x] / Motor:[x]"
-- [ ] **FACTURA-02**: VIN y numero de motor son campos obligatorios — HTTP 400 si faltan, el sistema nunca crea una factura de moto sin ellos
-- [ ] **FACTURA-03**: Al crear factura exitosa: moto marcada como Vendida en inventario_motos
-- [ ] **FACTURA-04**: Al crear factura exitosa: loanbook creado en estado pendiente_entrega + evento factura.venta.creada publicado en bus de eventos
+- [x] **FACTURA-01**: POST /invoices con formato de descripcion obligatorio: "[Modelo] [Color] - VIN:[x] / Motor:[x]"
+- [x] **FACTURA-02**: VIN y numero de motor son campos obligatorios — HTTP 400 si faltan, el sistema nunca crea una factura de moto sin ellos
+- [x] **FACTURA-03**: Al crear factura exitosa: moto marcada como Vendida en inventario_motos
+- [x] **FACTURA-04**: Al crear factura exitosa: loanbook creado en estado pendiente_entrega + evento factura.venta.creada publicado en bus de eventos
 
 ### Ingresos Cuotas Cartera (CARTERA)
 
@@ -113,10 +113,10 @@
 | CHAT-03 | Phase 4 | Complete |
 | CHAT-04 | Phase 4 | Complete |
 | CHAT-05 | Phase 4 | Complete |
-| FACTURA-01 | Phase 5 | Pending |
-| FACTURA-02 | Phase 5 | Pending |
-| FACTURA-03 | Phase 5 | Pending |
-| FACTURA-04 | Phase 5 | Pending |
+| FACTURA-01 | Phase 5 | Complete |
+| FACTURA-02 | Phase 5 | Complete |
+| FACTURA-03 | Phase 5 | Complete |
+| FACTURA-04 | Phase 5 | Complete |
 | CARTERA-01 | Phase 6 | Pending |
 | CARTERA-02 | Phase 6 | Pending |
 | CARTERA-03 | Phase 6 | Pending |
