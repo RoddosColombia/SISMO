@@ -18,17 +18,17 @@
 - [x] **ALEGRA-01**: Consolidar utils/alegra.py y services/alegra_service.py en arquitectura clara con unica fuente de verdad
 - [x] **ALEGRA-02**: ALEGRA_BASE_URL como unica constante importada por todos los modulos que llaman a Alegra (`https://api.alegra.com/api/v1/`)
 - [x] **ALEGRA-03**: request_with_verify() robusto: POST → verificar con GET → HTTP 200 obligatorio antes de reportar exito al usuario
-- [ ] **ALEGRA-04**: Manejo de errores en espanol — nunca exponer stack traces ni mensajes crudos de la API al usuario
+- [x] **ALEGRA-04**: Manejo de errores en espanol — nunca exponer stack traces ni mensajes crudos de la API al usuario
 - [x] **ALEGRA-05**: Test por cada endpoint confirmando respuesta correcta: GET /invoices, GET /categories, GET /payments, GET /journals, POST /journals
 - [x] **ALEGRA-06**: Endpoints prohibidos (/journal-entries, /accounts) bloqueados — su uso genera error explicito antes de emitir la llamada HTTP
 
 ### ACTION_MAP Completo (ACTION)
 
-- [ ] **ACTION-01**: Accion de lectura `consultar_facturas` registrada en ACTION_MAP: GET /invoices con filtros de fecha en formato yyyy-MM-dd
-- [ ] **ACTION-02**: Accion de lectura `consultar_pagos` registrada en ACTION_MAP: GET /payments con filtro type in/out
-- [ ] **ACTION-03**: Accion de lectura `consultar_journals` registrada en ACTION_MAP: GET /journals con filtros de fecha y descripcion
-- [ ] **ACTION-04**: Accion de lectura `consultar_cartera` registrada en ACTION_MAP: lee MongoDB loanbook y cartera_pagos, no llama a Alegra
-- [ ] **ACTION-05**: Accion de lectura `consultar_plan_cuentas` registrada en ACTION_MAP: GET /categories retorna plan de cuentas con IDs correctos
+- [x] **ACTION-01**: Accion de lectura `consultar_facturas` registrada en ACTION_MAP: GET /invoices con filtros de fecha en formato yyyy-MM-dd
+- [x] **ACTION-02**: Accion de lectura `consultar_pagos` registrada en ACTION_MAP: GET /payments con filtro type in/out
+- [x] **ACTION-03**: Accion de lectura `consultar_journals` registrada en ACTION_MAP: GET /journals con filtros de fecha y descripcion
+- [x] **ACTION-04**: Accion de lectura `consultar_cartera` registrada en ACTION_MAP: lee MongoDB loanbook y cartera_pagos, no llama a Alegra
+- [x] **ACTION-05**: Accion de lectura `consultar_plan_cuentas` registrada en ACTION_MAP: GET /categories retorna plan de cuentas con IDs correctos
 
 ### Chat Transaccional Real (CHAT)
 
@@ -100,14 +100,14 @@
 | ALEGRA-01 | Phase 2 | Complete |
 | ALEGRA-02 | Phase 2 | Complete |
 | ALEGRA-03 | Phase 2 | Complete |
-| ALEGRA-04 | Phase 2 | Pending |
+| ALEGRA-04 | Phase 2 | Complete |
 | ALEGRA-05 | Phase 2 | Complete |
 | ALEGRA-06 | Phase 2 | Complete |
-| ACTION-01 | Phase 3 | Pending |
-| ACTION-02 | Phase 3 | Pending |
-| ACTION-03 | Phase 3 | Pending |
-| ACTION-04 | Phase 3 | Pending |
-| ACTION-05 | Phase 3 | Pending |
+| ACTION-01 | Phase 3 | Complete |
+| ACTION-02 | Phase 3 | Complete |
+| ACTION-03 | Phase 3 | Complete |
+| ACTION-04 | Phase 3 | Complete |
+| ACTION-05 | Phase 3 | Complete |
 | CHAT-01 | Phase 4 | Pending |
 | CHAT-02 | Phase 4 | Pending |
 | CHAT-03 | Phase 4 | Pending |

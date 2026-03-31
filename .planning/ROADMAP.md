@@ -66,7 +66,7 @@ Plans:
   5. Chat: "Que cuentas tenemos" → ACTION_MAP ejecuta consultar_plan_cuentas → retorna plan de cuentas con IDs correctos incluyendo 5493
 **Plans:** 2 plans
 Plans:
-- [ ] 03-01-PLAN.md — TDD: Failing test suite for 5 ACTION_MAP read actions
+- [x] 03-01-PLAN.md — TDD: Failing test suite for 5 ACTION_MAP read actions
 - [ ] 03-02-PLAN.md — Implement 5 read action handlers + MOCK_PAYMENTS
 
 ### Phase 4: Chat Transaccional Real

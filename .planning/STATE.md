@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v23.0
 milestone_name: milestone
-status: Ready to plan
-stopped_at: Completed 02-consolidacion-capa-alegra/02-04-PLAN.md
-last_updated: "2026-03-31T00:00:29.231Z"
+status: Ready to execute
+stopped_at: Completed 03-mongodb-completo/03-01-PLAN.md
+last_updated: "2026-03-31T02:04:40.186Z"
 progress:
   total_phases: 8
-  completed_phases: 7
-  total_plans: 22
-  completed_plans: 22
+  completed_phases: 6
+  total_plans: 21
+  completed_plans: 20
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-30)
 
 **Core value:** Contabilidad automatizada sin intervencion humana + visibilidad financiera en tiempo real + orquestacion confiable de agentes via bus de eventos
-**Current focus:** Phase 2 — consolidacion-capa-alegra
+**Current focus:** Phase 03 — mongodb-completo
 
 ## Current Position
 
-Phase: 03
-Plan: Not started
+Phase: 03 (mongodb-completo) — EXECUTING
+Plan: 2 of 2
 
 ## Performance Metrics
 
@@ -61,6 +61,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase 02-consolidacion-capa-alegra]: crear_journal_alegra() usa request_with_verify() — POST + GET verificacion en un call, elimina ~40 lineas de logica httpx manual en bank_reconciliation.py
 - [Phase 02-consolidacion-capa-alegra]: _get_alegra_auth() eliminada de alegra_webhooks.py — AlegraService.is_demo_mode() es la unica fuente de verdad de credenciales
 - [Phase 02-consolidacion-capa-alegra]: Pre-flight guards en request() y _mock() bloquean /journal-entries y /accounts con HTTPException(400) antes de emitir llamada HTTP — ALEGRA-06 satisfecho
+- [Phase 03-mongodb-completo]: Lazy import de ai_chat dentro de cada test method — anthropic no instalado en Python 3.14 del worktree, patron identico a test_build23_f2
+- [Phase 03-mongodb-completo]: consultar_cartera lee MongoDB directamente (loanbook collection), NO llama AlegraService.request — validado via test patch + assert not called
 
 ### Pending Todos
 
@@ -81,9 +83,10 @@ None.
 | Phase 02-consolidacion-capa-alegra P02 | 8 | 3 tasks | 3 files |
 | Phase 02-consolidacion-capa-alegra P03 | 525504 | 2 tasks | 2 files |
 | Phase 02-consolidacion-capa-alegra P04 | 10 | 2 tasks | 2 files |
+| Phase 03-mongodb-completo P01 | 15 | 1 tasks | 1 files |
 
 ## Session Continuity
 
-Last session: 2026-03-30T23:56:05.795Z
-Stopped at: Completed 02-consolidacion-capa-alegra/02-04-PLAN.md
+Last session: 2026-03-31T02:04:40.177Z
+Stopped at: Completed 03-mongodb-completo/03-01-PLAN.md
 Resume file: None
