@@ -26,6 +26,13 @@ jobs:
             exit 1
           fi
           echo "OK - sin referencias a Emergent"
+      - name: No pending status markers
+        run: |
+          if grep -rn "status.*['\"]pending['\"]" backend/services/ backend/routers/ --include="*.py" | grep -v "test_" | grep -v "#.*pending" | grep -v "pendiente"; then
+            echo "ERROR: found 'pending' status marker — use 'processed' or 'pendiente' instead"
+            exit 1
+          fi
+          echo "OK - no pending status markers"
   frontend-check:
     name: Frontend React Check
     runs-on: ubuntu-latest
@@ -39,3 +46,52 @@ jobs:
       - run: cd frontend && yarn install --frozen-lockfile
       - name: TypeScript check
         run: cd frontend && yarn tsc --noEmit 2>&1 | head -30 || true
+  pytest-build24:
+    name: BUILD 24 Test Suite
+    runs-on: ubuntu-latest
+    needs: backend-check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio
+      - name: Run BUILD 24 tests
+        run: |
+          cd backend
+          python -m pytest tests/test_permissions.py tests/test_event_bus.py tests/test_mongodb_init.py tests/test_phase4_agents.py tests/test_smoke_build24.py -v --tb=short
+  smoke-post-deploy:
+    name: Post-Deploy Smoke Test
+    runs-on: ubuntu-latest
+    needs: pytest-build24
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Wait for Render deploy
+        run: sleep 90
+      - name: Smoke test production
+        run: |
+          RESPONSE=$(curl -sf https://sismo-backend-40ca.onrender.com/api/health/smoke)
+          echo "$RESPONSE" | python3 -m json.tool
+
+          STATUS=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['status'])")
+          COLLS=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin)['collections_count'])")
+          BUS=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('bus_status','unknown'))")
+
+          echo "Status: $STATUS"
+          echo "Collections: $COLLS"
+          echo "Bus: $BUS"
+
+          if [ "$STATUS" = "critico" ]; then
+            echo "FAIL: smoke test returned critico"
+            exit 1
+          fi
+
+          if [ "$COLLS" -lt 30 ] 2>/dev/null; then
+            echo "WARN: collections_count=$COLLS (expected >= 30)"
+          fi
+
+          echo "Smoke test passed"

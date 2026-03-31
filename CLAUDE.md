@@ -337,3 +337,140 @@ Do not make direct repo edits outside a GSD workflow unless the user explicitly 
 > Profile not yet configured. Run `/gsd:profile-user` to generate your developer profile.
 > This section is managed by `generate-claude-profile` -- do not edit manually.
 <!-- GSD:profile-end -->
+
+### ERRORES DOCUMENTADOS — SISMO RODDOS
+### Última actualización: 26 de marzo 2026
+
+### ERROR-001: Worktrees GSD sobreescriben código en merges
+- Síntoma: correcciones desaparecían con cada deploy
+- Causa: GSD crea ramas separadas. Cherry-pick en orden incorrecto sobrescribe commits anteriores
+- Prevención: GSD solo para discuss+plan. Ejecución SIEMPRE directo en main. NUNCA confiar en worktrees para código crítico
+
+### ERROR-002: catalogo_planes se vaciaba en cada redeploy
+- Síntoma: "Plan no encontrado" después de cada deploy
+- Causa: seed usaba delete_many() + insert_many(). En cold start borraba todo antes de reinsertar
+- Prevención: Siempre upsert idempotente, nunca delete+reinsert en seeds
+
+### ERROR-003: Loanbooks legacy sin campo id UUID
+- Síntoma: PUT /loanbook retornaba 500 para LB-0001 al LB-0010
+- Causa: docs legacy solo tenían _id ObjectId. Frontend enviaba undefined al usar .id
+- Prevención: Todo doc MongoDB debe tener campo id. GET sintetiza id si no existe
+
+### ERROR-004: ACTION_MAP llamaba Alegra directo (no endpoint interno)
+- Síntoma: agente decía éxito pero no había factura, loanbook ni inventario
+- Causa: service.request("ventas/crear-factura") intentaba llamar api.alegra.com — no existe
+- Prevención: ACTION_MAP SIEMPRE a endpoints internos SISMO. Nunca a Alegra directo. Import directo from routers.*
+
+### ERROR-005: Regla del Miércoles calculada como +7 días exactos
+- Síntoma: RADAR mostraba 2 de 11 loanbooks. Fechas incorrectas
+- Causa: implementada como fecha_entrega+7. Correcto es semana siguiente calendario
+- Prevención: calcular_primer_cobro() usa semana calendario, no días exactos
+
+### ERROR-006: tipo_identificacion ignorado — siempre salía CC
+- Síntoma: cliente PPT se creaba como CC en Alegra
+- Causa: ventas.py no tenía mapeo completo PPT/CE/PAS/TI. Default era CC
+- Prevención: tipo_identificacion obligatorio HTTP 400 si falta. Mapeo completo: CC/CE/PPT/PAS/NIT/TI
+
+### ERROR-007: LLM calcula valor_cuota dividiendo precio/cuotas
+- Síntoma: cuota P78S mostraba $65.345 en vez de $149.900
+- Causa: LLM recibe precio_venta + num_cuotas y calcula. Ignora el catálogo de planes
+- Prevención: ventas.py sobrescribe valor_cuota desde catalogo_planes en Python ANTES del LLM. NUNCA calcular cuota desde precio — siempre leer de catalogo_planes MongoDB
+
+### ERROR-008: Endpoint /journal-entries da 403 — debe ser /journals
+- Síntoma: 403 silencioso. El sistema reportaba fallo de auth cuando era el endpoint incorrecto
+- Causa: Alegra tiene dos endpoints de comprobantes. /journal-entries retorna 403 sin mensaje claro
+- Prevención: SIEMPRE usar /journals para comprobantes. NUNCA /journal-entries. Costó un build completo descubrirlo
+
+### ERROR-009: ID 5495 usado como fallback — causó 143 journals en cuenta incorrecta
+- Síntoma: 143 asientos de enero 2026 en cuenta incorrecta. Limpieza manual de Alegra
+- Causa: fallback del plan de cuentas apuntaba a ID 5495 (Gastos de Representación) en vez de 5493
+- Prevención: Fallback correcto SIEMPRE es ID 5493 (Gastos Generales). NUNCA 5495. plan_cuentas_roddos es la única fuente de verdad. Nunca IDs hardcodeados
+
+### ERROR-010: BackgroundTasks sin job_id en lotes > 10 — timeout silencioso reporta éxito falso
+- Síntoma: "Procesados exitosamente" pero al verificar en Alegra solo había 3 de 50 registros
+- Causa: operaciones síncronas masivas agotan timeout. HTTP response enviado antes de completar
+- Prevención: BackgroundTasks + job_id OBLIGATORIO para cualquier lote > 10 registros. Estado del job en MongoDB. Nunca operaciones síncronas masivas
+
+### ERROR-011: Anti-duplicados faltantes — 176 journals duplicados en Alegra
+- Síntoma: 176 journals del mismo valor en Alegra. Limpieza manual tardó 2 horas
+- Causa: el sistema reintentaba sin verificar si el primer intento había funcionado parcialmente
+- Prevención: Anti-duplicados en 3 capas — (1) hash MD5 extracto completo, (2) hash MD5 movimiento individual, (3) GET verificación en Alegra post-POST
+
+### ERROR-012: IVA configurado como bimestral — debe ser cuatrimestral
+- Síntoma: cálculos de IVA acumulado incorrectos. Calendario fiscal con fechas equivocadas
+- Causa: configuración inicial usaba períodos bimestrales
+- Prevención: IVA SIEMPRE cuatrimestral para régimen ordinario Colombia. Períodos: ene-abr / may-ago / sep-dic
+
+### ERROR-013: CFO cache sin invalidación inmediata al registrar operaciones
+- Síntoma: dashboard CFO mostraba datos incorrectos hasta 36 segundos después de registrar pagos
+- Causa: CFO leía de caché TTL 30s incluso después de escrituras contables
+- Prevención: emit_state_change() invalida cfo_cache SIEMPRE e INMEDIATAMENTE después de cualquier escritura en Alegra
+
+### ERROR-014: VIN y motor no obligatorios en factura de venta de moto
+- Síntoma: motos vendidas seguían apareciendo como Disponibles. Riesgo de doble venta
+- Causa: endpoint de ventas no validaba obligatoriedad de chasis y motor
+- Prevención: VIN y motor OBLIGATORIOS en toda factura de moto. HTTP 400 si faltan. Formato: "[Modelo] [Color] - VIN: [chasis] / Motor: [motor]"
+
+### ERROR-015: Router sin confidence threshold — identidades mezcladas entre agentes
+- Síntoma: el CFO respondía mensajes del Contador. RADAR respondía preguntas de loanbook
+- Causa: process_chat() despachaba sin verificar confianza en el intent
+- Prevención: threshold mínimo 0.70 antes de despachar. Si confianza < 0.70 → preguntar clarificación. NUNCA despachar a agente incorrecto
+
+## Event Bus Protocol (BUILD 24)
+
+Use `bus.emit()` for ALL event publishing. The old patterns are DELETED:
+- `emit_event()` — REMOVED, do not use
+- `emit_state_change()` — REMOVED from shared_state.py
+- `from backend.event_bus import` — REMOVED, file deleted
+
+Correct pattern:
+```python
+from services.event_bus_service import EventBusService
+
+bus = EventBusService(db)
+await bus.emit(
+    event_type="payment_received",   # Must be in EVENT_TYPES catalog
+    agent="loanbook",                # Agent name
+    payload={"loanbook_id": "...", "amount": 150000},
+    source="routers/loanbook.py"
+)
+```
+
+Key rules:
+- event_type MUST be one of the 28 types in `backend/models/event_models.py` EVENT_TYPES
+- Failed emits go to DLQ (roddos_events_dlq), never block the caller
+- Bus health: GET /api/health/bus returns dlq_pending, events_last_hour, status
+
+## Worktrees Workflow
+
+This project uses git worktrees for parallel development:
+```bash
+# Create a worktree for a feature branch
+git worktree add .claude/worktrees/<branch-name> -b <branch-name>
+
+# Work in the worktree
+cd .claude/worktrees/<branch-name>
+
+# Clean up after merge
+git worktree remove .claude/worktrees/<branch-name>
+```
+
+Each worktree has its own working directory. Changes in one worktree do not affect others.
+
+## Known Errors and Solutions
+
+### Motor AsyncIOMotorClient import
+Error: `cannot import name 'AsyncIOMotorClient'`
+Fix: Use `from motor.motor_asyncio import AsyncIOMotorClient` (not `from motor import`)
+
+### pytest-asyncio deprecation warning
+Warning: `PytestUnraisableExceptionWarning`
+Fix: Add `asyncio_mode = "auto"` in pytest.ini or use `@pytest.mark.asyncio` on each test
+
+### MongoDB index creation on existing collection
+Error: `IndexOptionsConflict` when running init script twice
+Fix: Use `create_index()` with `background=True` — it's idempotent (unlike `createIndex` with different options)
+
+### Pydantic V2 model_dump vs dict
+Error: `AttributeError: 'RoddosEvent' object has no attribute 'dict'`
+Fix: Use `.model_dump()` instead of `.dict()` (Pydantic V2)

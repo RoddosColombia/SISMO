@@ -1,12 +1,33 @@
 """
-BUILD 23 — F7 Ingresos por Cuotas de Cartera: Test Suite (T1-T6)
+BUILD 23 — F7 Ingresos por Cuotas de Cartera: Test Suite (T1-T7)
 
 Tests for automatic income journal creation when quota payments are registered.
 CRITICAL: T4 ensures Alegra failures DO NOT modify loanbook (data consistency).
+T7 (RED): Anti-duplicado guard — plan 06-02 implementa.
 """
+# ── ISOLATION: stub unavailable modules before any router import chain ──
+import sys, os
+from unittest.mock import MagicMock
+
+_STUBS = [
+    "qrcode", "qrcode.image", "qrcode.image.svg",
+    "cryptography", "cryptography.fernet",
+    "pdfplumber",
+]
+for _mod in _STUBS:
+    if _mod not in sys.modules:
+        sys.modules[_mod] = MagicMock()
+
+# Ensure env vars exist so database.py / other modules don't crash on import
+os.environ.setdefault("MONGO_URL", "mongodb://localhost:27017/sismo_test")
+os.environ.setdefault("DB_NAME", "sismo_test")
+os.environ.setdefault("ALEGRA_EMAIL", "test@test.com")
+os.environ.setdefault("ALEGRA_TOKEN", "test")
+os.environ.setdefault("JWT_SECRET", "test-secret-key")
+
 import pytest
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -20,6 +41,29 @@ def mock_db():
     db.loanbook = AsyncMock()
     db.cartera_pagos = AsyncMock()
     db.roddos_events = AsyncMock()
+
+    # plan_ingresos_roddos: retornar cuenta con alegra_id=5455 (Ingresos Financieros Cartera)
+    db.plan_ingresos_roddos = AsyncMock()
+    db.plan_ingresos_roddos.find_one = AsyncMock(return_value={
+        "tipo_ingreso": "Intereses_Financieros_Cartera",
+        "alegra_id": 5455,
+        "cuenta_nombre": "Ingresos Financieros Cartera",
+        "activo": True,
+    })
+
+    # plan_cuentas_roddos: retornar cuenta Bancolombia con alegra_id=5314
+    db.plan_cuentas_roddos = AsyncMock()
+    db.plan_cuentas_roddos.find_one = AsyncMock(return_value={
+        "tipo": "banco",
+        "banco_nombre": "Bancolombia",
+        "banco_alias": ["bancolombia"],
+        "alegra_id": 5314,
+        "activo": True,
+    })
+
+    # cartera_pagos: por defecto no hay duplicados
+    db.cartera_pagos.find_one = AsyncMock(return_value=None)
+
     return db
 
 
@@ -118,14 +162,15 @@ async def test_t1_registrar_pago_crea_journal(mock_db, mock_user, loanbook_con_c
         referencia_pago="REF-123456",
     )
 
-    with patch("routers.cartera.AlegraService") as MockService:
-        mock_service = AsyncMock()
-        MockService.return_value = mock_service
-        mock_service.request_with_verify = AsyncMock(return_value=mock_journal)
+    with patch("routers.cartera.db", mock_db):
+        with patch("routers.cartera.AlegraService") as MockService:
+            mock_service = AsyncMock()
+            MockService.return_value = mock_service
+            mock_service.request_with_verify = AsyncMock(return_value=mock_journal)
 
-        with patch("routers.cartera.post_action_sync", new_callable=AsyncMock):
-            with patch("routers.cartera.invalidar_cache_cfo", new_callable=AsyncMock):
-                result = await registrar_pago_cartera(payload, mock_user)
+            with patch("routers.cartera.post_action_sync", new_callable=AsyncMock):
+                with patch("routers.cartera.invalidar_cache_cfo", new_callable=AsyncMock):
+                    result = await registrar_pago_cartera(payload, mock_user)
 
     # Validaciones
     assert result["success"] is True, "POST debe retornar success=True"
@@ -133,7 +178,7 @@ async def test_t1_registrar_pago_crea_journal(mock_db, mock_user, loanbook_con_c
     assert "JE-2026-005678" in result["mensaje"], "Mensaje debe incluir journal_id"
     assert mock_service.request_with_verify.called, "request_with_verify debe ser llamado"
 
-    print(f"✅ T1 PASÓ: Journal creado en Alegra: {result['journal_id']}")
+    print(f"T1 PASÓ: Journal creado en Alegra: {result['journal_id']}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -179,14 +224,15 @@ async def test_t2_journal_debito_credito_correcto(mock_db, mock_user, loanbook_c
         referencia_pago="REF-123456",
     )
 
-    with patch("routers.cartera.AlegraService") as MockService:
-        mock_service = AsyncMock()
-        MockService.return_value = mock_service
-        mock_service.request_with_verify = AsyncMock(side_effect=capture_journal_payload)
+    with patch("routers.cartera.db", mock_db):
+        with patch("routers.cartera.AlegraService") as MockService:
+            mock_service = AsyncMock()
+            MockService.return_value = mock_service
+            mock_service.request_with_verify = AsyncMock(side_effect=capture_journal_payload)
 
-        with patch("routers.cartera.post_action_sync", new_callable=AsyncMock):
-            with patch("routers.cartera.invalidar_cache_cfo", new_callable=AsyncMock):
-                result = await registrar_pago_cartera(payload, mock_user)
+            with patch("routers.cartera.post_action_sync", new_callable=AsyncMock):
+                with patch("routers.cartera.invalidar_cache_cfo", new_callable=AsyncMock):
+                    result = await registrar_pago_cartera(payload, mock_user)
 
     # Validaciones
     assert captured_journal_payload is not None, "Journal payload debe ser capturado"
@@ -247,14 +293,15 @@ async def test_t3_cuota_marcada_pagada_tras_http_200(mock_db, mock_user, loanboo
         fecha_pago="2026-03-22",
     )
 
-    with patch("routers.cartera.AlegraService") as MockService:
-        mock_service = AsyncMock()
-        MockService.return_value = mock_service
-        mock_service.request_with_verify = AsyncMock(return_value=mock_journal)
+    with patch("routers.cartera.db", mock_db):
+        with patch("routers.cartera.AlegraService") as MockService:
+            mock_service = AsyncMock()
+            MockService.return_value = mock_service
+            mock_service.request_with_verify = AsyncMock(return_value=mock_journal)
 
-        with patch("routers.cartera.post_action_sync", new_callable=AsyncMock):
-            with patch("routers.cartera.invalidar_cache_cfo", new_callable=AsyncMock):
-                result = await registrar_pago_cartera(payload, mock_user)
+            with patch("routers.cartera.post_action_sync", new_callable=AsyncMock):
+                with patch("routers.cartera.invalidar_cache_cfo", new_callable=AsyncMock):
+                    result = await registrar_pago_cartera(payload, mock_user)
 
     # Verificar que update_one fue llamado
     assert mock_db.loanbook.update_one.called, "update_one debe ser llamado"
@@ -320,14 +367,15 @@ async def test_t4_fallo_alegra_no_modifica_loanbook(mock_db, mock_user, loanbook
         referencia_pago="REF-123456",
     )
 
-    with patch("routers.cartera.AlegraService") as MockService:
-        mock_service = AsyncMock()
-        MockService.return_value = mock_service
-        # Simular que Alegra retorna error de verificación
-        mock_service.request_with_verify = AsyncMock(return_value=mock_journal_fail)
+    with patch("routers.cartera.db", mock_db):
+        with patch("routers.cartera.AlegraService") as MockService:
+            mock_service = AsyncMock()
+            MockService.return_value = mock_service
+            # Simular que Alegra retorna error de verificación
+            mock_service.request_with_verify = AsyncMock(return_value=mock_journal_fail)
 
-        with pytest.raises(HTTPException) as exc_info:
-            await registrar_pago_cartera(payload, mock_user)
+            with pytest.raises(HTTPException) as exc_info:
+                await registrar_pago_cartera(payload, mock_user)
 
     # CRITICAL VALIDATIONS
     assert exc_info.value.status_code == 500, "Debe retornar HTTP 500 on fallo"
@@ -383,14 +431,15 @@ async def test_t5_saldo_pendiente_actualizado(mock_db, mock_user, loanbook_con_c
         banco_origen="Bancolombia",
     )
 
-    with patch("routers.cartera.AlegraService") as MockService:
-        mock_service = AsyncMock()
-        MockService.return_value = mock_service
-        mock_service.request_with_verify = AsyncMock(return_value=mock_journal)
+    with patch("routers.cartera.db", mock_db):
+        with patch("routers.cartera.AlegraService") as MockService:
+            mock_service = AsyncMock()
+            MockService.return_value = mock_service
+            mock_service.request_with_verify = AsyncMock(return_value=mock_journal)
 
-        with patch("routers.cartera.post_action_sync", new_callable=AsyncMock):
-            with patch("routers.cartera.invalidar_cache_cfo", new_callable=AsyncMock):
-                result = await registrar_pago_cartera(payload, mock_user)
+            with patch("routers.cartera.post_action_sync", new_callable=AsyncMock):
+                with patch("routers.cartera.invalidar_cache_cfo", new_callable=AsyncMock):
+                    result = await registrar_pago_cartera(payload, mock_user)
 
     # Extraer saldo actualizado
     call_args = mock_db.loanbook.update_one.call_args
@@ -450,14 +499,15 @@ async def test_t6_evento_pago_cuota_registrado(mock_db, mock_user, loanbook_con_
         fecha_pago="2026-03-22",
     )
 
-    with patch("routers.cartera.AlegraService") as MockService:
-        mock_service = AsyncMock()
-        MockService.return_value = mock_service
-        mock_service.request_with_verify = AsyncMock(return_value=mock_journal)
+    with patch("routers.cartera.db", mock_db):
+        with patch("routers.cartera.AlegraService") as MockService:
+            mock_service = AsyncMock()
+            MockService.return_value = mock_service
+            mock_service.request_with_verify = AsyncMock(return_value=mock_journal)
 
-        with patch("routers.cartera.post_action_sync", new_callable=AsyncMock):
-            with patch("routers.cartera.invalidar_cache_cfo", new_callable=AsyncMock):
-                result = await registrar_pago_cartera(payload, mock_user)
+            with patch("routers.cartera.post_action_sync", new_callable=AsyncMock):
+                with patch("routers.cartera.invalidar_cache_cfo", new_callable=AsyncMock):
+                    result = await registrar_pago_cartera(payload, mock_user)
 
     # Validaciones
     assert captured_event is not None, "Evento debe ser publicado"
@@ -469,6 +519,55 @@ async def test_t6_evento_pago_cuota_registrado(mock_db, mock_user, loanbook_con_
     assert captured_event["saldo_pendiente"] > 0, "saldo_pendiente debe estar actualizado"
 
     print(f"✅ T6 PASÓ: Evento publicado con journal_id {captured_event['alegra_journal_id']}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEST 7: Anti-duplicado — segunda llamada con mismos datos lanza 409
+# ══════════════════════════════════════════════════════════════════════════════
+
+@pytest.mark.asyncio
+async def test_t7_duplicado_detectado(mock_db, mock_user, loanbook_con_cuotas_pendientes):
+    """
+    T7: Si ya existe un pago para loanbook_id + cuota_numero + fecha_pago,
+    el endpoint debe retornar HTTP 409 con mensaje que contiene "duplicado".
+
+    ESTADO: RED — cartera.py aun no tiene este guard. Plan 06-02 lo implementa.
+    """
+    from routers.cartera import registrar_pago_cartera, RegistrarPagoRequest
+    from fastapi import HTTPException
+
+    # Simular que ya existe un pago previo para esta cuota
+    mock_db.cartera_pagos.find_one = AsyncMock(return_value={
+        "id": "PAGO-JE-PREV-0001",
+        "loanbook_id": "LB-2026-0042",
+        "cuota_numero": 1,
+        "fecha_pago": "2026-03-22",
+        "alegra_journal_id": "JE-PREV-0001",
+    })
+    mock_db.loanbook.find_one = AsyncMock(return_value=loanbook_con_cuotas_pendientes)
+
+    payload = RegistrarPagoRequest(
+        loanbook_id="LB-2026-0042",
+        cliente_nombre="Juan Perez",
+        monto_pago=192307.69,
+        numero_cuota=1,
+        metodo_pago="transferencia",
+        banco_origen="Bancolombia",
+        fecha_pago="2026-03-22",
+    )
+
+    with patch("routers.cartera.db", mock_db):
+        with pytest.raises(HTTPException) as exc_info:
+            await registrar_pago_cartera(payload, mock_user)
+
+    assert exc_info.value.status_code == 409, (
+        f"Esperado 409, recibido {exc_info.value.status_code}. "
+        "cartera.py no tiene guard anti-duplicado aun (plan 06-02 lo agrega)"
+    )
+    assert "duplicado" in str(exc_info.value.detail).lower(), (
+        "El error debe mencionar 'duplicado'"
+    )
+    print("T7 RED CONFIRMADO: guard anti-duplicado requerido")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

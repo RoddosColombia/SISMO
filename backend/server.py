@@ -228,6 +228,10 @@ async def smoke_test():
         "cfo_configuracion": False,
         "alegra_conectado":  False,
         "anthropic_disponible": False,
+        "collections_count": 0,
+        "bus_status":        "unknown",
+        "indices_ok":        False,
+        "catalogo_present":  False,
         "status":            "ok",
         "alertas":           [],
     }
@@ -280,6 +284,36 @@ async def smoke_test():
             if result["status"] == "ok":
                 result["status"] = "degradado"
 
+        # Collections count (D-06)
+        coll_names = await client[db.name].list_collection_names()
+        result["collections_count"] = len(coll_names)
+
+        # Indices check on roddos_events (D-06)
+        try:
+            indices = await db.roddos_events.index_information()
+            has_event_id_idx = any(
+                "event_id" in str(idx_info.get("key", []))
+                for idx_info in indices.values()
+            )
+            result["indices_ok"] = has_event_id_idx
+            if not has_event_id_idx:
+                result["alertas"].append("roddos_events missing event_id index")
+                if result["status"] == "ok":
+                    result["status"] = "degradado"
+        except Exception:
+            result["indices_ok"] = False
+
+        # Catalogo planes presence (D-06)
+        try:
+            cat_count = await db.catalogo_planes.count_documents({})
+            result["catalogo_present"] = cat_count > 0
+            if not result["catalogo_present"]:
+                result["alertas"].append("catalogo_planes empty")
+                if result["status"] == "ok":
+                    result["status"] = "degradado"
+        except Exception:
+            result["catalogo_present"] = False
+
     except Exception as e:
         result["alertas"].append(f"Error BD: {str(e)[:80]}")
         result["status"] = "critico"
@@ -293,6 +327,17 @@ async def smoke_test():
                 result["status"] = "degradado"
     except Exception:
         result["alertas"].append("Alegra no accesible")
+
+    # Bus health (D-06 / BUS-05)
+    try:
+        bus = app.state.event_bus
+        bus_health = await bus.get_bus_health()
+        result["bus_status"] = bus_health.get("status", "unknown")
+    except Exception:
+        result["bus_status"] = "error"
+        result["alertas"].append("Event bus health check failed")
+        if result["status"] == "ok":
+            result["status"] = "degradado"
 
     llm_key = os.environ.get("ANTHROPIC_API_KEY", "")
     result["anthropic_disponible"] = bool(llm_key)
