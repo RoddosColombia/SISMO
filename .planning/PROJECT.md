@@ -35,7 +35,8 @@ Contabilidad automatizada sin intervencion humana (cada operacion financiera ref
 - [ ] System prompts diferenciados por agente + router con confidence threshold 0.7
 - [ ] Portfolio summaries pre-calculados (Computed Pattern) + financial reports mensuales
 - [ ] sismo_knowledge como base RAG para reglas de negocio de los agentes
-- [ ] GitHub CI/CD expandido: pytest, smoke test, anti-pending check, Dependabot
+- [x] GitHub CI/CD expandido: pytest, smoke test, anti-pending check, Dependabot — Validated in Phase 05: github-production-ready
+- [x] Facturación venta motos: FACTURA-01 (formato VIN/Motor), FACTURA-02 (validación HTTP 400), FACTURA-03 (estado Vendida), FACTURA-04 (loanbook + evento) — Validated in Phase 05: github-production-ready
 - [ ] CFO leyendo portfolio_summaries en vez de Alegra directo (70% menos llamadas API)
 
 ### Out of Scope
@@ -112,4 +113,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-26 — Milestone v2.0 BUILD 24 started*
+*Last updated: 2026-03-31 — Phase 05 complete: GitHub CI/CD + FACTURA-01-04 enforced in tests and production*
