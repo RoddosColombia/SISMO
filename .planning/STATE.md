@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v23.0
 milestone_name: milestone
-status: Ready to execute
-stopped_at: Completed 04-agents-router-scheduler-05-PLAN.md
-last_updated: "2026-03-31T02:52:45.418Z"
+status: Phase complete — ready for verification
+stopped_at: Completed 04-agents-router-scheduler-06-PLAN.md
+last_updated: "2026-03-31T03:05:06.666Z"
 progress:
   total_phases: 8
-  completed_phases: 6
+  completed_phases: 7
   total_plans: 23
-  completed_plans: 22
+  completed_plans: 23
 ---
 
 # Project State
@@ -69,6 +69,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase 03-mongodb-completo]: 5 handlers inserted as special-case ifs BEFORE ACTION_MAP lookup — consistent with consultar_saldo_socio pattern, no ACTION_MAP modification needed
 - [Phase 04-agents-router-scheduler]: test_reteica_siempre_aplica_bogota passes in RED phase because calcular_retenciones already exists — 9/10 tests fail confirming RED
 - [Phase 04-agents-router-scheduler]: Phase 04-05 TDD: try/except ImportError at module level with None fallback — canonical RED phase import pattern for clasificar_gasto_chat
+- [Phase 04-agents-router-scheduler]: clasificar_gasto_chat() reutiliza REGLAS_CLASIFICACION matrix con prioridad: socio > honorarios > compras > keywords > fallback 5493 (NUNCA 5495)
+- [Phase 04-agents-router-scheduler]: crear_causacion traduce payload espanol (entradas/fecha/descripcion) a Alegra API (entries/date/observations) en handler especial linea 3987 para garantizar request_with_verify
 
 ### Pending Todos
 
@@ -93,9 +95,10 @@ None.
 | Phase 03-mongodb-completo P02 | 12 | 2 tasks | 4 files |
 | Phase 03-mongodb-completo P02 | 20 | 2 tasks | 3 files |
 | Phase 04-agents-router-scheduler P05 | 8 | 1 tasks | 1 files |
+| Phase 04-agents-router-scheduler P06 | 25 | 2 tasks | 2 files |
 
 ## Session Continuity
 
-Last session: 2026-03-31T02:52:45.412Z
-Stopped at: Completed 04-agents-router-scheduler-05-PLAN.md
+Last session: 2026-03-31T03:05:06.659Z
+Stopped at: Completed 04-agents-router-scheduler-06-PLAN.md
 Resume file: None

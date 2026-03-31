@@ -19,7 +19,7 @@ BUILD 23 hace al Agente Contador completamente operacional con Alegra. Cada oper
 - [x] **Phase 1: Auditoria Alegra** - Mapear exactamente que funciona, que esta roto, y que falta en la capa Alegra con URL corregida (completed 2026-03-30)
 - [x] **Phase 2: Consolidacion Capa Alegra** - Unica fuente de verdad para Alegra, request_with_verify() robusto, errores en espanol (completed 2026-03-30)
 - [x] **Phase 3: ACTION_MAP Completo** - Cinco acciones de lectura nuevas (facturas, pagos, journals, cartera, plan_cuentas) funcionales en el chat (completed 2026-03-31)
-- [ ] **Phase 4: Chat Transaccional Real** - Gasto en lenguaje natural → clasificacion matricial → ReteFuente/ReteICA → journal en Alegra con ID verificado
+- [x] **Phase 4: Chat Transaccional Real** - Gasto en lenguaje natural → clasificacion matricial → ReteFuente/ReteICA → journal en Alegra con ID verificado (completed 2026-03-31)
 - [ ] **Phase 5: Facturacion Venta Motos** - POST /invoices con VIN + motor obligatorios, inventario actualizado, loanbook creado
 - [ ] **Phase 6: Ingresos Cuotas Cartera** - Pago de cuota → POST /payments → journal ingreso en Alegra, anti-duplicados activo
 - [ ] **Phase 7: Nomina Mensual** - Journals discriminados por empleado en Alegra con anti-duplicados por mes
@@ -79,10 +79,10 @@ Plans:
   3. Chat: "Honorarios a Inversiones XYZ por $500.000" → agente aplica ReteFuente 11% (persona juridica) — ningun caso de retencion incorrecto
   4. Chat: "Compra a Auteco por $2.000.000" → agente NO aplica ReteFuente (autoretenedor NIT 860024781)
   5. Chat: "Prestamo a socio Andres $1.000.000" → agente registra en CXC socios, nunca en gasto operativo
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans complete
 Plans:
 - [x] 04-05-PLAN.md — TDD: Failing tests for clasificar_gasto_chat + request_with_verify + special cases
-- [ ] 04-06-PLAN.md — Implement clasificar_gasto_chat + fix crear_causacion + Auteco/socio guards
+- [x] 04-06-PLAN.md — Implement clasificar_gasto_chat + fix crear_causacion + Auteco/socio guards
 
 ### Phase 5: Facturacion Venta Motos
 **Goal**: Crear una factura de venta de moto desde el chat o UI actualiza Alegra, inventario, y loanbook en una sola operacion atomica
@@ -137,7 +137,7 @@ Phases execute in strict dependency order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | 1. Auditoria Alegra | 2/2 | Complete    | 2026-03-30 |
 | 2. Consolidacion Capa Alegra | 4/4 | Complete    | 2026-03-31 |
 | 3. ACTION_MAP Completo | 2/2 | Complete   | 2026-03-31 |
-| 4. Chat Transaccional Real | 5/6 | In Progress|  |
+| 4. Chat Transaccional Real | 6/6 | Complete   | 2026-03-31 |
 | 5. Facturacion Venta Motos | 0/TBD | Not started | - |
 | 6. Ingresos Cuotas Cartera | 0/TBD | Not started | - |
 | 7. Nomina Mensual | 0/TBD | Not started | - |
