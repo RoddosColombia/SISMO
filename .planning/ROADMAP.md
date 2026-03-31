@@ -120,7 +120,10 @@ Plans:
   1. Registrar nomina enero 2026 → tres journals en Alegra (Alexa $3.220.000, Luis $3.220.000, Liz $1.472.000) — cada uno con HTTP 200 verificado
   2. Registrar nomina febrero 2026 → dos journals en Alegra (Alexa $4.500.000, Liz $2.200.000) — cada uno con HTTP 200 verificado
   3. Intentar registrar nomina de enero 2026 por segunda vez → sistema bloquea con error claro "nomina enero ya registrada para [empleado]"
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 07-01-PLAN.md — TDD: Test suite T1-T7 for nomina mensual (journals per employee, anti-duplicate)
+- [ ] 07-02-PLAN.md — Implement nomina.py router + wire into server.py (T1-T7 GREEN)
 
 ### Phase 8: Smoke Test Final
 **Goal**: Los 10 criterios de Alegra 100% estan verificados end-to-end en produccion — BUILD 23 puede darse por completado al 8.5/10
@@ -145,6 +148,6 @@ Phases execute in strict dependency order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | 3. ACTION_MAP Completo | 2/2 | Complete   | 2026-03-31 |
 | 4. Chat Transaccional Real | 6/6 | Complete   | 2026-03-31 |
 | 5. Facturacion Venta Motos | 0/2 | In progress | - |
-| 6. Ingresos Cuotas Cartera | 0/2 | Not started | - |
-| 7. Nomina Mensual | 0/TBD | Not started | - |
+| 6. Ingresos Cuotas Cartera | 2/2 | Complete | 2026-03-31 |
+| 7. Nomina Mensual | 0/2 | Not started | - |
 | 8. Smoke Test Final | 0/TBD | Not started | - |
