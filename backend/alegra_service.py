@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from mock_data import (
     MOCK_ACCOUNTS, MOCK_CONTACTS, MOCK_ITEMS, MOCK_TAXES, MOCK_RETENTIONS,
     MOCK_COST_CENTERS, MOCK_BANK_ACCOUNTS, MOCK_INVOICES, MOCK_BILLS,
-    MOCK_JOURNAL_ENTRIES, MOCK_COMPANY, MOCK_RECONCILIATION_ITEMS
+    MOCK_JOURNAL_ENTRIES, MOCK_COMPANY, MOCK_RECONCILIATION_ITEMS, MOCK_PAYMENTS
 )
 
 logger = logging.getLogger(__name__)
@@ -430,6 +430,18 @@ class AlegraService:
                 return {"id": f"ce-{uuid.uuid4().hex[:6]}", "number": f"CE-2025-0{len(MOCK_JOURNAL_ENTRIES)+1:02d}", **body}
             data = list(MOCK_JOURNAL_ENTRIES)
             p = params or {}
+            if p.get("date_afterOrNow"):
+                data = [x for x in data if (x.get("date") or "9999") >= p["date_afterOrNow"]]
+            if p.get("date_beforeOrNow"):
+                data = [x for x in data if (x.get("date") or "0000") <= p["date_beforeOrNow"]]
+            return data
+        if "payments" in endpoint:
+            if method == "POST":
+                return {"id": f"pay-{uuid.uuid4().hex[:6]}", "status": "paid", **body}
+            data = list(MOCK_PAYMENTS)
+            p = params or {}
+            if p.get("type"):
+                data = [x for x in data if x.get("type") == p["type"]]
             if p.get("date_afterOrNow"):
                 data = [x for x in data if (x.get("date") or "9999") >= p["date_afterOrNow"]]
             if p.get("date_beforeOrNow"):

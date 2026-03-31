@@ -158,6 +158,7 @@ MOCK_ACCOUNTS = [
             {"id": "5160", "code": "5160", "name": "Depreciaciones - administración", "type": "expense", "status": "active", "subAccounts": []},
             {"id": "5185", "code": "5185", "name": "Servicios públicos", "type": "expense", "status": "active", "subAccounts": []},
             {"id": "5195", "code": "5195", "name": "Gastos generales - administración", "type": "expense", "status": "active", "subAccounts": []},
+            {"id": 5493, "code": "5493", "name": "Gastos Generales", "type": "expense", "status": "active", "subAccounts": []},
         ]
     },
     {
@@ -294,6 +295,18 @@ MOCK_JOURNAL_ENTRIES = [
             {"id": "1592", "code": "1592", "name": "Depreciación acumulada", "debit": 0, "credit": 350000},
         ]
     },
+]
+
+MOCK_PAYMENTS = [
+    {"id": "pay-001", "date": "2026-01-15", "amount": 3614953, "type": "out",
+     "bankAccount": {"name": "Bancolombia"}, "client": {"name": "Arrendamientos Bogota"},
+     "number": "PAY-001", "status": "paid"},
+    {"id": "pay-002", "date": "2026-01-20", "amount": 1659400, "type": "in",
+     "bankAccount": {"name": "Bancolombia"}, "client": {"name": "Cliente Moto TVS"},
+     "number": "PAY-002", "status": "paid"},
+    {"id": "pay-003", "date": "2026-02-10", "amount": 500000, "type": "out",
+     "bankAccount": {"name": "Nequi"}, "client": {"name": "Proveedor Servicios"},
+     "number": "PAY-003", "status": "paid"},
 ]
 
 MOCK_RECONCILIATION_ITEMS = [
