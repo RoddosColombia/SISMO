@@ -79,7 +79,10 @@ Plans:
   3. Chat: "Honorarios a Inversiones XYZ por $500.000" → agente aplica ReteFuente 11% (persona juridica) — ningun caso de retencion incorrecto
   4. Chat: "Compra a Auteco por $2.000.000" → agente NO aplica ReteFuente (autoretenedor NIT 860024781)
   5. Chat: "Prestamo a socio Andres $1.000.000" → agente registra en CXC socios, nunca en gasto operativo
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 04-05-PLAN.md — TDD: Failing tests for clasificar_gasto_chat + request_with_verify + special cases
+- [ ] 04-06-PLAN.md — Implement clasificar_gasto_chat + fix crear_causacion + Auteco/socio guards
 
 ### Phase 5: Facturacion Venta Motos
 **Goal**: Crear una factura de venta de moto desde el chat o UI actualiza Alegra, inventario, y loanbook en una sola operacion atomica
@@ -134,7 +137,7 @@ Phases execute in strict dependency order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | 1. Auditoria Alegra | 2/2 | Complete    | 2026-03-30 |
 | 2. Consolidacion Capa Alegra | 4/4 | Complete    | 2026-03-31 |
 | 3. ACTION_MAP Completo | 2/2 | Complete   | 2026-03-31 |
-| 4. Chat Transaccional Real | 0/TBD | Not started | - |
+| 4. Chat Transaccional Real | 0/2 | In progress | - |
 | 5. Facturacion Venta Motos | 0/TBD | Not started | - |
 | 6. Ingresos Cuotas Cartera | 0/TBD | Not started | - |
 | 7. Nomina Mensual | 0/TBD | Not started | - |
