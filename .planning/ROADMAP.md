@@ -107,7 +107,10 @@ Plans:
   1. Registrar un pago de cuota → POST /payments type:in → journal ingreso aparece en Alegra con cuenta de plan_ingresos_roddos — HTTP 200 confirmado
   2. Intentar registrar el mismo pago dos veces → sistema detecta el duplicado y retorna error claro, ningun segundo registro creado en Alegra
   3. CFO consultando portfolio_summaries puede ver el recaudo del pago registrado — el ingreso es visible en reportes financieros
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 06-01-PLAN.md — TDD: Fix test isolation (qrcode stub) + T1-T6 GREEN + T7 RED (anti-duplicado)
+- [ ] 06-02-PLAN.md — Implement anti-duplicate guard (T7 GREEN) + fix cartera_pagos→portfolio wiring (T8 GREEN)
 
 ### Phase 7: Nomina Mensual
 **Goal**: La nomina de cada mes queda registrada en Alegra con un asiento por empleado, y el sistema impide registrar el mismo mes dos veces
@@ -142,6 +145,6 @@ Phases execute in strict dependency order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | 3. ACTION_MAP Completo | 2/2 | Complete   | 2026-03-31 |
 | 4. Chat Transaccional Real | 6/6 | Complete   | 2026-03-31 |
 | 5. Facturacion Venta Motos | 0/2 | In progress | - |
-| 6. Ingresos Cuotas Cartera | 0/TBD | Not started | - |
+| 6. Ingresos Cuotas Cartera | 0/2 | Not started | - |
 | 7. Nomina Mensual | 0/TBD | Not started | - |
 | 8. Smoke Test Final | 0/TBD | Not started | - |
