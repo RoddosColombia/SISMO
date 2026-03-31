@@ -21,7 +21,7 @@ BUILD 23 hace al Agente Contador completamente operacional con Alegra. Cada oper
 - [x] **Phase 3: ACTION_MAP Completo** - Cinco acciones de lectura nuevas (facturas, pagos, journals, cartera, plan_cuentas) funcionales en el chat (completed 2026-03-31)
 - [x] **Phase 4: Chat Transaccional Real** - Gasto en lenguaje natural → clasificacion matricial → ReteFuente/ReteICA → journal en Alegra con ID verificado (completed 2026-03-31)
 - [ ] **Phase 5: Facturacion Venta Motos** - POST /invoices con VIN + motor obligatorios, inventario actualizado, loanbook creado
-- [ ] **Phase 6: Ingresos Cuotas Cartera** - Pago de cuota → POST /payments → journal ingreso en Alegra, anti-duplicados activo
+- [x] **Phase 6: Ingresos Cuotas Cartera** - Pago de cuota → POST /payments → journal ingreso en Alegra, anti-duplicados activo (completed 2026-03-31)
 - [ ] **Phase 7: Nomina Mensual** - Journals discriminados por empleado en Alegra con anti-duplicados por mes
 - [ ] **Phase 8: Smoke Test Final** - 10 criterios Alegra 100% verificados end-to-end en produccion
 

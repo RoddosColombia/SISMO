@@ -26,6 +26,7 @@ Contabilidad automatizada sin intervencion humana (cada operacion financiera ref
 - [x] Clasificacion contable con accounting_engine (50+ reglas) — existing
 - [x] Registro de pagos de cuotas con sync a Alegra — existing
 - [x] Scheduler para tareas en background (APScheduler) — existing
+- [x] Anti-duplicate guard para pagos de cartera (HTTP 409) + cartera_pagos visible en portfolio CFO — Validated in Phase 06: ingresos-cuotas-cartera
 
 ### Active (BUILD 24 — Cimientos Definitivos)
 
@@ -64,7 +65,7 @@ Contabilidad automatizada sin intervencion humana (cada operacion financiera ref
 
 ## Context
 
-- **Estado actual:** BUILD 23 completado — Score 9.0/10
+- **Estado actual:** BUILD 23 en progreso — Phase 6 completa, Phase 7 (Nomina) siguiente
 - **Produccion:** 10 loanbooks activos, $94M COP cartera, 34 motos TVS
 - **Stack:** FastAPI + React 19 + TypeScript + MongoDB Atlas + Alegra API + Mercately + Claude Sonnet
 - **Arquitectura:** 6 capas horizontales + 5 nodos de negocio verticales + bus de eventos append-only
