@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v23.0
 milestone_name: milestone
-status: Ready to execute
-stopped_at: Completed 03-mongodb-completo/03-01-PLAN.md
-last_updated: "2026-03-31T02:04:40.186Z"
+status: Phase complete — ready for verification
+stopped_at: Completed 03-mongodb-completo-02-PLAN.md
+last_updated: "2026-03-31T02:11:59.504Z"
 progress:
   total_phases: 8
   completed_phases: 6
@@ -63,6 +63,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase 02-consolidacion-capa-alegra]: Pre-flight guards en request() y _mock() bloquean /journal-entries y /accounts con HTTPException(400) antes de emitir llamada HTTP — ALEGRA-06 satisfecho
 - [Phase 03-mongodb-completo]: Lazy import de ai_chat dentro de cada test method — anthropic no instalado en Python 3.14 del worktree, patron identico a test_build23_f2
 - [Phase 03-mongodb-completo]: consultar_cartera lee MongoDB directamente (loanbook collection), NO llama AlegraService.request — validado via test patch + assert not called
+- [Phase 03-mongodb-completo]: reset_catalogo admin endpoint retains seed data as local variable _catalogo_seed — keeps emergency reset functional without a module-level CATALOGO_DEFAULT
+- [Phase 03-mongodb-completo]: ai_chat.py plan_cuentas read wrapped in try/except for graceful fallback if collection not seeded
 
 ### Pending Todos
 
@@ -84,9 +86,10 @@ None.
 | Phase 02-consolidacion-capa-alegra P03 | 525504 | 2 tasks | 2 files |
 | Phase 02-consolidacion-capa-alegra P04 | 10 | 2 tasks | 2 files |
 | Phase 03-mongodb-completo P01 | 15 | 1 tasks | 1 files |
+| Phase 03-mongodb-completo P02 | 12 | 2 tasks | 4 files |
 
 ## Session Continuity
 
-Last session: 2026-03-31T02:04:40.177Z
-Stopped at: Completed 03-mongodb-completo/03-01-PLAN.md
+Last session: 2026-03-31T02:11:59.500Z
+Stopped at: Completed 03-mongodb-completo-02-PLAN.md
 Resume file: None
