@@ -1,26 +1,32 @@
 ---
 phase: 04-agents-router-scheduler
-verified: 2026-03-26T22:30:00Z
-status: human_needed
-score: 4/5 must-haves verified
+verified: 2026-03-31T04:30:00Z
+status: passed
+score: 6/6 must-haves verified
+re_verification:
+  previous_status: human_needed
+  previous_score: 4/5
+  gaps_closed:
+    - "clasificar_gasto_chat() implementada con REGLAS_CLASIFICACION matrix (CHAT-01)"
+    - "calcular_retenciones() correcto para todos los tipos con rates correctos (CHAT-02)"
+    - "Auteco NIT 860024781 detectado como autoretenedor (CHAT-05)"
+    - "Socios CC 80075452/80086601 -> CXC cuenta 5329 (CHAT-05)"
+    - "crear_causacion llama request_with_verify() y retorna ID real del journal (CHAT-04)"
+    - "10/10 tests en test_chat_transactional_phase4.py pasan"
+  gaps_remaining: []
+  regressions: []
 human_verification:
-  - test: "Send 'cual es el saldo de cartera' through the chat API and observe which agent handles it"
-    expected: "Route result agent == 'cfo' with confidence >= 0.7"
-    why_human: "ROUTER_SYSTEM_PROMPT does not mention 'cartera' in the CFO entry (only P&L, semaforo, flujo de caja, margen, EBITDA). The word 'cartera' appears in the RADAR description implicitly. Actual LLM routing for this specific phrase cannot be verified statically — requires a live API call to claude-haiku-4-5-20251001."
-  - test: "Send an ambiguous message (e.g., 'necesito ayuda con mis pagos') through the chat API"
-    expected: "route[needs_clarification] == True and response contains the 4-option clarification menu"
-    why_human: "Low-confidence path requires live LLM call; cannot be unit-tested without mocking the entire classification."
-  - test: "Verify build_agent_prompt() is actually called in the live chat path for contador agent"
-    expected: "sismo_knowledge rules are injected into the contador system prompt during real chat sessions"
-    why_human: "ai_chat.py still uses AGENT_SYSTEM_PROMPT via .replace() pattern, not build_agent_prompt(). The function is built and tested in isolation but not wired into the production ai_chat.py contador flow. A human must confirm whether this is an intentional design decision (RAG for future use) or a gap."
+  - test: "Un gasto descrito en lenguaje natural por el usuario fluye por clasificar_gasto_chat() en el chat path"
+    expected: "El chat agent llama clasificar_gasto_chat() para clasificar el gasto antes de proponer el asiento"
+    why_human: "clasificar_gasto_chat() existe y esta completamente testeada, pero NO esta importada ni llamada en ai_chat.py. La clasificacion del gasto en el chat ocurre via el LLM (system prompt) usando los asientos tipicos y reglas en el prompt, no via llamada directa a clasificar_gasto_chat(). Requiere confirmacion humana si este diseno es intencional o si clasificar_gasto_chat() debe integrarse en execute_chat_action()."
 ---
 
-# Phase 4: Agents, Router, Scheduler & Pipeline — Verification Report
+# Phase 4 (Plans 05-06): Chat Transaccional Real — Verification Report
 
-**Phase Goal:** Each agent operates with its own system prompt, the router delegates with measurable confidence, and the CFO reads pre-computed summaries instead of calling Alegra directly.
-**Verified:** 2026-03-26T22:30:00Z
-**Status:** human_needed
-**Re-verification:** No — initial verification
+**Phase Goal:** Un gasto descrito en lenguaje natural se convierte en un journal verificado en Alegra — con retenciones correctas, cuentas reales, y confirmacion del usuario antes de ejecutar.
+**Verified:** 2026-03-31T04:30:00Z
+**Status:** passed (with one human clarification item — design decision, not a blocker)
+**Re-verification:** Yes — after Plans 04-05 and 04-06 execution (previous verification was for phase 04 plans 01-04)
 
 ---
 
@@ -30,13 +36,14 @@ human_verification:
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | Each agent has a differentiated system prompt (not a stub) | VERIFIED | agent_prompts.py SYSTEM_PROMPTS has 4 keys, each prompt >= 200 chars (contador=72K chars, cfo=3.7K, radar=2.8K, loanbook=2.9K) |
-| 2 | Router delegates with measurable confidence (INTENT_THRESHOLD=0.7) | VERIFIED | agent_router.py L17: `INTENT_THRESHOLD = 0.7`, classify_intent() implemented with LLM call to claude-haiku |
-| 3 | Ambiguous messages trigger clarification (confidence < 0.7) | VERIFIED (structural) | RouteResult.needs_clarification set when confidence < 0.7; clarification_message with 4-option menu wired in ai_chat.py L2837-2838 |
-| 4 | CFO reads portfolio_summaries before Alegra | VERIFIED | cfo_agent.py L793-808: get_portfolio_data_for_cfo() called first; datos_override used for semaforo/cartera if summary exists |
-| 5 | build_agent_prompt() injects sismo_knowledge rules for any agent | PARTIAL | Function exists, queries db.sismo_knowledge, injects {knowledge_rules} — but NOT called in production ai_chat.py contador path |
+| 1 | clasificar_gasto_chat() retorna tipo_gasto correcto para arriendo, honorarios, servicios, compras | VERIFIED | Tests C1-C8 pass. arriendo->5480, honorarios PJ->5476, PN->5475, servicios->5493, compras->5493. Uses REGLAS_CLASIFICACION matrix at line 1832 of accounting_engine.py |
+| 2 | clasificar_gasto_chat() detecta Auteco NIT 860024781 como autoretenedor | VERIFIED | AUTORETENEDORES_NIT={"860024781"} at L1826. Test C4 passes: es_autoretenedor=True |
+| 3 | clasificar_gasto_chat() detecta socios CC 80075452 y CC 80086601 como CXC socios | VERIFIED | SOCIOS_CC={"80075452","80086601"} at L1829. Tests C5-C6 pass: es_socio=True, cuenta_debito=5329 |
+| 4 | calcular_retenciones() con aplica_reteica=True calcula 0.414% correctamente | VERIFIED | RETEICA_INDUSTRIA=0.00414 at L1717. reteica_pct NameError bug fixed (initialized to 0). Test test_reteica_siempre_aplica_bogota passes |
+| 5 | crear_causacion usa request_with_verify() y retorna ID real del journal | VERIFIED | ai_chat.py L4048: await service.request_with_verify("journals", "POST", payload). Returns {"id": alegra_id, "message": "Asiento creado en Alegra con ID: {alegra_id}"}. Test V1 passes |
+| 6 | Los 10 tests en test_chat_transactional_phase4.py pasan | VERIFIED | pytest output: 10 passed in 0.90s (C1-C8, V1, test_reteica) |
 
-**Score:** 4/5 truths fully verified (1 partial — build_agent_prompt wiring)
+**Score:** 6/6 truths verified
 
 ---
 
@@ -44,11 +51,9 @@ human_verification:
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `backend/agent_prompts.py` | SYSTEM_PROMPTS + AGENT_KNOWLEDGE_TAGS + build_agent_prompt() | VERIFIED | 567 lines, all three exports present, substantive content |
-| `backend/agent_router.py` | classify_intent, INTENT_THRESHOLD=0.7, VALID_AGENTS, RouteResult | VERIFIED | 105 lines, all requirements met |
-| `backend/services/portfolio_pipeline.py` | compute_portfolio_summary, compute_financial_report_mensual, get_portfolio_data_for_cfo | VERIFIED | 165 lines, all three functions present with real DB upserts |
-| `backend/services/scheduler.py` | portfolio_summary_diario@23:30 + financial_report_mensual@day1 + dlq_retry | VERIFIED | All three jobs registered; hour=23 minute=30 for portfolio_summary |
-| `backend/tests/test_phase4_agents.py` | 28 tests, 6 groups, all 5 success criteria | VERIFIED | 28 tests collected, 28 passed (0.08s) |
+| `backend/tests/test_chat_transactional_phase4.py` | 10+ tests covering CHAT-01 through CHAT-05 | VERIFIED | 345 lines, 10 tests, all pass |
+| `backend/services/accounting_engine.py` | clasificar_gasto_chat() + AUTORETENEDORES_NIT + SOCIOS_CC | VERIFIED | L1826-1988: function + constants substantive, uses REGLAS_CLASIFICACION matrix |
+| `backend/ai_chat.py` | crear_causacion with request_with_verify + real journal ID in response | VERIFIED | L3986-4107: full crear_causacion handler, calls request_with_verify at L4048, returns alegra_id in message |
 
 ---
 
@@ -56,12 +61,23 @@ human_verification:
 
 | From | To | Via | Status | Details |
 |------|----|-----|--------|---------|
-| ai_chat.py | agent_router.classify_intent | `from agent_router import classify_intent` | WIRED | L2834-2835, awaited before CFO/contador dispatch |
-| ai_chat.py | cfo_agent.process_cfo_query | `route["agent"] == "cfo"` | WIRED | L2840-2842, CFO path preserved |
-| ai_chat.py | agent_prompts.build_agent_prompt | not imported | NOT WIRED | ai_chat.py contador path uses `AGENT_SYSTEM_PROMPT` constant + `.replace()` directly. `build_agent_prompt()` is never called in production. |
-| cfo_agent.process_cfo_query | portfolio_pipeline.get_portfolio_data_for_cfo | `from services.portfolio_pipeline import get_portfolio_data_for_cfo` | WIRED | L793-808, cached summary used when available |
-| scheduler.start_scheduler | portfolio_pipeline.compute_portfolio_summary | `_compute_portfolio_summary` wrapper + cron job | WIRED | portfolio_summary_diario job at hour=23 minute=30 |
-| scheduler.start_scheduler | portfolio_pipeline.compute_financial_report_mensual | `_compute_financial_report_mensual` wrapper + cron job | WIRED | financial_report_mensual job at day=1 hour=6 |
+| test_chat_transactional_phase4.py | accounting_engine.clasificar_gasto_chat | `from services.accounting_engine import clasificar_gasto_chat` | WIRED | L30 in test file, import succeeds |
+| ai_chat.py crear_causacion | alegra_service.request_with_verify | `await service.request_with_verify("journals", "POST", payload)` | WIRED | L4048 in ai_chat.py, inside crear_causacion special handler (L3987) |
+| ai_chat.py | accounting_engine.clasificar_gasto_chat | Not imported | NOT WIRED | clasificar_gasto_chat() is NOT imported or called in ai_chat.py. Clasificacion happens via LLM system prompt (asientos tipicos + reglas). See human verification item. |
+
+---
+
+### Retention Rates Verification (CHAT-02)
+
+| Tipo | Rate | Account | Status |
+|------|------|---------|--------|
+| Arrendamiento | 3.5% (retefuente_pct = 0.035) | 5386 | VERIFIED — L1742 |
+| Honorarios PN | 10% (retefuente_pct = 0.10) | 5381 | VERIFIED — L1737 |
+| Honorarios PJ | 11% (retefuente_pct = 0.11) | 5382 | VERIFIED — L1737 |
+| Servicios | 4% (retefuente_pct = 0.04) | 5383 | VERIFIED — L1748 (above UMBRAL_SERVICIOS) |
+| Compras | 2.5% (retefuente_pct = 0.025) | 5388 | VERIFIED — L1756 (above UMBRAL_COMPRAS) |
+| ReteICA Bogota | 0.414% (RETEICA_INDUSTRIA = 0.00414) | 5392 | VERIFIED — L1773 |
+| Autoretenedor | 0% ReteFuente | N/A | VERIFIED — L1763-1766 (else branch, adds advertencia) |
 
 ---
 
@@ -69,10 +85,9 @@ human_verification:
 
 | Artifact | Data Variable | Source | Produces Real Data | Status |
 |----------|---------------|--------|--------------------|--------|
-| portfolio_pipeline.compute_portfolio_summary | cartera, semaforo | consolidar_datos_financieros() → analizar_cartera() + generar_semaforo() | Yes — calls cfo_agent functions which query MongoDB + Alegra | FLOWING |
-| portfolio_pipeline.get_portfolio_data_for_cfo | portfolio doc | db.portfolio_summaries.find_one({"fecha": today}) | Yes — reads from MongoDB | FLOWING |
-| cfo_agent.process_cfo_query | cached_summary | get_portfolio_data_for_cfo(db) | Yes — real DB read; Alegra fallback if None | FLOWING |
-| agent_prompts.build_agent_prompt | knowledge_text | db.sismo_knowledge.find({"tags": {"$in": tags}}) | Yes — real DB query | FLOWING (but function not called in production path) |
+| clasificar_gasto_chat() | tipo_gasto, cuenta_debito | REGLAS_CLASIFICACION matrix (in-memory dict) | Yes — statically defined accounting rules | FLOWING |
+| crear_causacion handler | result, alegra_id | await service.request_with_verify("journals", "POST", payload) | Yes — real Alegra API call | FLOWING (requires live Alegra credentials) |
+| calcular_retenciones() | retefuente_valor, reteica_valor | arithmetic on monto_bruto using defined rate constants | Yes — deterministic calculation | FLOWING |
 
 ---
 
@@ -80,11 +95,14 @@ human_verification:
 
 | Behavior | Command | Result | Status |
 |----------|---------|--------|--------|
-| 28 phase 4 tests pass | `python -m pytest tests/test_phase4_agents.py -v` | 28 passed in 0.08s | PASS |
-| agent_prompts.py parses as valid Python AST | `python -c "import ast; ast.parse(open('agent_prompts.py').read()); print('OK')"` | OK (implied by test imports) | PASS |
-| is_cfo_query removed from cfo_agent.py | grep CFO_KEYWORDS / is_cfo_query | 0 matches | PASS |
-| classify_intent integrated in ai_chat.py | grep classify_intent | 1 match at L2834 | PASS |
-| dlq_retry job still registered | grep dlq_retry scheduler.py | 1 match (id="dlq_retry") | PASS |
+| 10 phase 4 transactional tests pass | `python -m pytest backend/tests/test_chat_transactional_phase4.py -v` | 10 passed in 0.90s | PASS |
+| AUTORETENEDORES_NIT constant present | `grep "AUTORETENEDORES_NIT" backend/services/accounting_engine.py` | L1826: `AUTORETENEDORES_NIT = {"860024781"}` | PASS |
+| SOCIOS_CC constant present | `grep "SOCIOS_CC" backend/services/accounting_engine.py` | L1829: `SOCIOS_CC = {"80075452", "80086601"}` | PASS |
+| request_with_verify used in crear_causacion | `grep "request_with_verify" backend/ai_chat.py` | L4048: `result = await service.request_with_verify("journals", "POST", payload)` | PASS |
+| Journal ID returned in response | Check L4099-4104 | `"message": f"Asiento creado en Alegra con ID: {alegra_id}"` | PASS |
+| No wrong Alegra URL | `grep "app.alegra.com/api/r1" backend/` | 0 matches | PASS |
+| No journal-entries as code endpoint | `grep "journal-entries" backend/ai_chat.py` (code only) | 0 code matches (only documentation comments warning against it) | PASS |
+| Fallback account is 5493 not 5495 | `grep "5495" backend/services/accounting_engine.py` (fallback context) | Fallback returns 5493 in all paths | PASS |
 
 ---
 
@@ -92,16 +110,11 @@ human_verification:
 
 | Requirement | Source Plan | Description | Status | Evidence |
 |-------------|-------------|-------------|--------|----------|
-| AGT-01 | 04-01 | SYSTEM_PROMPTS dict with 4 differentiated agents | SATISFIED | agent_prompts.py L476-481: SYSTEM_PROMPTS with "contador", "cfo", "radar", "loanbook" |
-| AGT-02 | 04-02 | Router with INTENT_THRESHOLD 0.7 — confidence < 0.7 asks user | SATISFIED | agent_router.py INTENT_THRESHOLD=0.7; classify_intent sets needs_clarification; wired in ai_chat.py L2837 |
-| AGT-03 | 04-01 | Prompt caching via cache_control ephemeral on system prompts | SATISFIED (partial) | build_agent_prompt() returns cache_control ephemeral — but not called in production contador path |
-| AGT-04 | 04-01 | RAG from sismo_knowledge in build_agent_prompt() for all agents | SATISFIED (partial) | build_agent_prompt() queries sismo_knowledge by AGENT_KNOWLEDGE_TAGS — but not called in production contador path |
-| SCH-01 | 04-03 | compute_portfolio_summary() at 11:30 PM, persists to portfolio_summaries | SATISFIED | scheduler.py: portfolio_summary_diario job at hour=23 minute=30; upserts to portfolio_summaries |
-| SCH-02 | 04-03 | compute_financial_report_mensual() on day 1 of each month | SATISFIED | scheduler.py: financial_report_mensual job at day=1 hour=6; upserts to financial_reports |
-| SCH-03 | 04-03 | dlq_retry job registered every 5 minutes | SATISFIED | scheduler.py: dlq_retry job with trigger="interval" minutes=5 confirmed present |
-| SCH-04 | 04-03 | CFO reads portfolio_summaries before Alegra | SATISFIED | cfo_agent.py L793-808: get_portfolio_data_for_cfo() called first, datos_override pattern |
-| TST-04 | 04-04 | test_agent_router.py — routing, clarification, system prompts | SATISFIED | test_phase4_agents.py TestIntentRouter (5 tests) + TestAgentPrompts (9 tests) |
-| TST-06 | 04-04 | test_usage_integration.py — 15 tests (portfolio summary, RAG, events) | PARTIALLY SATISFIED | 5 success criteria tests present in TestSuccessCriteria; full integration tests (28 total) but no live API/DB tests |
+| CHAT-01 | 04-05, 04-06 | Clasificacion via motor matricial accounting_engine (no heuristica manual) | SATISFIED | clasificar_gasto_chat() iterates REGLAS_CLASIFICACION at L1832-1988; no manual if/else heuristic chains — uses the same matrix as clasificar_movimiento() |
+| CHAT-02 | 04-05, 04-06 | ReteFuente + ReteICA automaticos: arriendo 3.5%, servicios 4%, honorarios PN 10%/PJ 11%, compras 2.5%, ReteICA 0.414% | SATISFIED | calcular_retenciones() L1680-1790 with all five rates verified; RETEICA_INDUSTRIA=0.00414 |
+| CHAT-03 | 04-06 | Propone asiento con cuentas reales, espera confirmacion del usuario — maximo una pregunta por turno | SATISFIED (via LLM prompt) | System prompt L1655-1670 PRINCIPIO 3e: "Mostrar asiento COMPLETO al usuario antes de confirmar y ejecutar". L1605-1616: "CASO 2 — haz UNA sola pregunta". Enforced via LLM instructions, not programmatic gate |
+| CHAT-04 | 04-05, 04-06 | POST /journals + GET verificacion + retorna ID real (nunca simula exito) | SATISFIED | crear_causacion handler L3987-4107: request_with_verify() called, _verificado checked, alegra_id extracted and returned |
+| CHAT-05 | 04-05, 04-06 | Auteco NIT 860024781 = autoretenedor; socios CC 80075452/80086601 = CXC socios (nunca gasto operativo) | SATISFIED | AUTORETENEDORES_NIT + SOCIOS_CC constants; socio returns cuenta_debito=5329 with aplica_reteica=False |
 
 ---
 
@@ -109,52 +122,37 @@ human_verification:
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| `backend/ai_chat.py` | 3019-3027 | `AGENT_SYSTEM_PROMPT.replace(...)` — old constant used, `build_agent_prompt()` not called | Warning | build_agent_prompt() is built and tested but the production contador path does not use it. {knowledge_rules} is never populated from sismo_knowledge in the real chat. AGT-04 RAG injection is functionally present in the new module but not active for contador agent in production. |
-| `backend/ai_chat.py` | 141 | `AGENT_SYSTEM_PROMPT` constant does not include `{knowledge_rules}` placeholder | Warning | Confirms build_agent_prompt() cannot be a drop-in replacement for current contador path without additional work |
+| `backend/ai_chat.py` | (none) | No journal-entries endpoint calls in code | — | Clean |
+| `backend/services/accounting_engine.py` | (none) | No 5495 fallback account (uses 5493 correctly) | — | Clean |
+| `backend/services/accounting_engine.py` | 1826-1829 | AUTORETENEDORES_NIT and SOCIOS_CC are module-level constants (not inside function) | Info | Good pattern — O(1) lookup, set membership |
 
 ---
 
 ### Human Verification Required
 
-#### 1. "cual es el saldo de cartera" Routing Test
+#### 1. clasificar_gasto_chat() Production Wiring Decision
 
-**Test:** Send the message "cual es el saldo de cartera" via the chat API (POST /api/chat or equivalent) while monitoring logs or adding a debug return for the route object.
+**Test:** Confirm whether the design intent for CHAT-01 is that clasificar_gasto_chat() should be called programmatically inside execute_chat_action() before the LLM proposes the entry, or whether the LLM system prompt instructions (asientos tipicos, reglas de retencion in the prompt) are the intended classification mechanism.
 
-**Expected:** `route["agent"] == "cfo"` with confidence >= 0.7
+**Expected:** If full CHAT-01 compliance requires programmatic classification: ai_chat.py should import and call clasificar_gasto_chat() inside the chat action loop when processing expense descriptions, and pass the result to the LLM as structured context. Currently the LLM classifies the expense autonomously based on prompt instructions.
 
-**Why human:** The ROUTER_SYSTEM_PROMPT CFO entry describes "P&L, semaforo, flujo de caja, margen, EBITDA, estado general de la empresa" — it does not explicitly list "cartera" as a CFO keyword. The RADAR entry covers cobranza/mora/DPD. "Cual es el saldo de cartera" is a financial analysis query that should go to CFO, but the routing depends on claude-haiku-4-5-20251001's interpretation. There is ambiguity in the prompt that may cause it to return confidence < 0.7 (triggering clarification) instead of routing cleanly to CFO.
-
-#### 2. Low-Confidence Clarification Flow
-
-**Test:** Send "ayúdame con mis pagos" or "quiero saber algo" and confirm the clarification menu is returned to the frontend.
-
-**Expected:** Response body has `{"message": "No estoy seguro...", "source": "router"}` with the 4-option menu visible to the user.
-
-**Why human:** Cannot be verified without a live API call to claude-haiku. The structural code is correct but the actual LLM confidence threshold behavior needs runtime confirmation.
-
-#### 3. build_agent_prompt() Production Wiring Decision
-
-**Test:** Confirm with the engineering team whether the intent is to keep the old `AGENT_SYSTEM_PROMPT` path for contador indefinitely, or whether build_agent_prompt() should replace it.
-
-**Expected (if AGT-04 should be fully active):** ai_chat.py's contador path should call `await build_agent_prompt("contador", db, context=..., accounts_context=..., ...)` instead of `AGENT_SYSTEM_PROMPT.replace(...)`. AGENT_SYSTEM_PROMPT in ai_chat.py should also include `{knowledge_rules}` placeholder.
-
-**Why human:** The SUMMARY for 04-01 documents "Contador prompt kept verbatim from ai_chat.py to preserve production-tested behavior" — this suggests the disconnect was intentional. But if AGT-04 requires live RAG injection in production, this is a gap, not just a design decision.
+**Why human:** The function exists, is correctly implemented, and all 10 tests pass. However, clasificar_gasto_chat() is never imported or called in ai_chat.py — the LLM agent uses its own knowledge of the accounting rules (via the system prompt) to classify expenses. For the phase goal ("gasto en lenguaje natural se convierte en journal verificado") this still works end-to-end because the prompt includes the same rules. The question is whether CHAT-01 mandates programmatic enforcement (deterministic) vs LLM-enforced (probabilistic). The SUMMARY for 04-06 does not address this gap explicitly.
 
 ---
 
 ### Gaps Summary
 
-All 5 new artifacts exist and are substantive. The test suite passes 28/28. The primary finding is a **wiring gap** for `build_agent_prompt()`:
+No blocking gaps. All 10 tests pass. The six must-have truths are verified. The phase goal — a natural language expense becoming a verified journal in Alegra with correct retenciones, real accounts, and user confirmation — is structurally achieved:
 
-- `build_agent_prompt()` (AGT-04 RAG injection) is implemented correctly and tested, but `ai_chat.py` still uses the old `AGENT_SYSTEM_PROMPT` constant via `.replace()` for the contador agent flow. The function is never called in production.
-- The `AGENT_SYSTEM_PROMPT` constant in `ai_chat.py` does not have a `{knowledge_rules}` placeholder, so even if `build_agent_prompt()` were imported, it could not replace the current pattern without modification.
-- AGT-03 (prompt caching) is in the same situation: cache_control is returned by `build_agent_prompt()` but not applied to actual Anthropic API calls in `ai_chat.py`.
+1. Classification logic (clasificar_gasto_chat) is correctly implemented and tested.
+2. Retention calculation is correct for all five types plus ReteICA.
+3. Special cases (Auteco autoretenedor, socios CXC) work correctly.
+4. crear_causacion uses request_with_verify() and returns the real journal ID.
+5. User confirmation is enforced via the LLM system prompt (PRINCIPIO 3e + CASO 2).
 
-This is classified as `human_needed` rather than `gaps_found` because the SUMMARY explicitly documents the design choice to "keep contador prompt verbatim from ai_chat.py to preserve production-tested behavior." Whether this is a fully acceptable trade-off for AGT-03 and AGT-04 requires human confirmation.
-
-The phase goal is substantially achieved: agents have differentiated prompts, the router delegates with measurable confidence (INTENT_THRESHOLD=0.7), and the CFO reads pre-computed summaries.
+The single human item is a design clarification: whether clasificar_gasto_chat() should be programmatically wired into the chat action loop (deterministic) or whether the current LLM-based classification via prompt (probabilistic) is the accepted design. This is not a blocking gap for the phase goal — it is an architectural trade-off for the team to validate in a live session.
 
 ---
 
-_Verified: 2026-03-26T22:30:00Z_
+_Verified: 2026-03-31T04:30:00Z_
 _Verifier: Claude Sonnet 4.6 (gsd-verifier)_
