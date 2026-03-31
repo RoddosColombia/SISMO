@@ -3986,6 +3986,64 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
     # ── Special case: crear_causacion (F2 — Chat Transaccional) ────────────────
     if action_type == "crear_causacion":
         # PHASE 2 — F2 Chat Transaccional: POST journal to /journals with verification
+
+        # ── F2 Classification: clasificar_gasto_chat() before key translation ─
+        # Lazy import consistent with other lazy imports in this handler block
+        from services.accounting_engine import clasificar_gasto_chat, calcular_retenciones
+
+        desc_clasif = payload.get("descripcion", payload.get("observations", ""))
+        prov_clasif = payload.get("proveedor", "")
+        nit_clasif = payload.get("nit", "")
+        monto_clasif = float(payload.get("monto", 0))
+
+        clasif = clasificar_gasto_chat(desc_clasif, prov_clasif, nit_clasif, monto_clasif)
+
+        if clasif["confianza"] >= 0.7:
+            ret = calcular_retenciones(
+                tipo_gasto=clasif["tipo_gasto"],
+                monto_bruto=monto_clasif,
+                es_autoretenedor=clasif["es_autoretenedor"],
+                aplica_reteica=clasif["aplica_reteica"],
+            )
+            payload["_clasificacion"] = {
+                "cuenta_debito": clasif["cuenta_debito"],
+                "cuenta_credito": clasif["cuenta_credito"],
+                "tipo_gasto": clasif["tipo_gasto"],
+                "es_autoretenedor": clasif["es_autoretenedor"],
+                "es_socio": clasif["es_socio"],
+                "confianza": clasif["confianza"],
+                "razon": clasif["razon"],
+                "retenciones": {
+                    "retefuente_pct": ret.get("retefuente_pct", 0),
+                    "retefuente_valor": ret.get("retefuente_valor", 0),
+                    "reteica_pct": ret.get("reteica_pct", 0),
+                    "reteica_valor": ret.get("reteica_valor", 0),
+                },
+            }
+            hint = (
+                f"[Clasificacion automatica — confianza {clasif['confianza']:.0%}] "
+                f"tipo_gasto={clasif['tipo_gasto']}, cuenta_debito={clasif['cuenta_debito']}, "
+                f"ReteFuente={ret.get('retefuente_pct', 0)*100:.1f}%, "
+                f"ReteICA={ret.get('reteica_pct', 0)*100:.3f}%"
+            )
+            if clasif["es_autoretenedor"]:
+                hint += " | AUTORETENEDOR — NO aplicar ReteFuente"
+            payload["_clasificacion_hint"] = hint
+            logger.info(f"[F2] clasificar_gasto_chat: {hint}")
+        else:
+            # Low confidence — log but do NOT inject deterministic context
+            payload["_clasificacion"] = {
+                "cuenta_debito": clasif["cuenta_debito"],
+                "tipo_gasto": clasif["tipo_gasto"],
+                "confianza": clasif["confianza"],
+                "razon": clasif["razon"],
+                "modo": "hint_only",
+            }
+            logger.info(
+                f"[F2] clasificar_gasto_chat low confidence ({clasif['confianza']:.0%}): "
+                f"{clasif['razon']} — LLM decides"
+            )
+
         # Validar que payload tiene entries array válido
         # Accept "entradas" (Spanish) as fallback for "entries" (Alegra API key)
         # Translate Spanish keys to Alegra API keys (chat agent uses Spanish field names)
@@ -4042,6 +4100,10 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
             f"[F2] Crear causacion: {len(entries)} líneas, "
             f"débitos=${total_debito:,.0f}, créditos=${total_credito:,.0f}"
         )
+
+        # Strip internal classification keys before sending to Alegra (not part of Alegra API)
+        clasif_data = payload.pop("_clasificacion", None)
+        clasif_hint = payload.pop("_clasificacion_hint", None)
 
         # POST a Alegra via request_with_verify() para garantizar HTTP 200
         try:
