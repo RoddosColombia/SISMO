@@ -228,6 +228,30 @@ async def registrar_pago_cartera(
             f"Pago registrado: ${payload.monto_pago}"
         )
 
+        # ── ANTI-DUPLICATE GUARD ──────────────────────────────────────────────
+        # CARTERA-02: verificar si ya existe un pago para esta cuota en esta fecha
+        fecha_pago = payload.fecha_pago or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+        existing_pago = await db.cartera_pagos.find_one({
+            "loanbook_id": payload.loanbook_id.strip(),
+            "cuota_numero": cuota_numero,
+            "fecha_pago": fecha_pago,
+        })
+        if existing_pago:
+            journal_prev = existing_pago.get("alegra_journal_id", "N/A")
+            logger.warning(
+                f"[F7] DUPLICADO DETECTADO: cuota #{cuota_numero} de {payload.loanbook_id} "
+                f"ya registrada el {fecha_pago} (journal previo: {journal_prev})"
+            )
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Pago duplicado detectado: cuota #{cuota_numero} del loanbook "
+                    f"{payload.loanbook_id} ya fue registrada el {fecha_pago}. "
+                    f"Journal Alegra previo: {journal_prev}"
+                )
+            )
+
         # ── GET INCOME ACCOUNT ID (from MongoDB plan_ingresos_roddos) ─────────
         income_account_id = await obtener_cuenta_ingreso("Intereses_Financieros_Cartera")
         logger.info(f"[F7] Cuenta de ingreso: ID {income_account_id} (desde plan_ingresos_roddos)")
@@ -240,7 +264,7 @@ async def registrar_pago_cartera(
         service = AlegraService(db)
 
         # ── CREATE JOURNAL IN ALEGRA ──────────────────────────────────────────
-        fecha_pago = payload.fecha_pago or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        # fecha_pago already set in anti-duplicate guard above
 
         journal_payload = {
             "date": fecha_pago,
