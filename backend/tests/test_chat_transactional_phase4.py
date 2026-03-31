@@ -343,3 +343,157 @@ def test_reteica_siempre_aplica_bogota():
     assert abs(retenciones["reteica_valor"] - 4140) < 5, (
         f"ReteICA sobre $1M debe ser ~$4.140, got {retenciones.get('reteica_valor')}"
     )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# WIRING TESTS: clasificar_gasto_chat called inside crear_causacion
+# ══════════════════════════════════════════════════════════════════════════════
+
+def test_wiring_arriendo_end_to_end():
+    """WIRE: crear_causacion with arriendo payload calls clasificar_gasto_chat and returns cuenta 5480 + ReteFuente 3.5%"""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    async def _run():
+        from ai_chat import execute_chat_action
+
+        payload = {
+            "descripcion": "Pagamos arriendo $3.614.953",
+            "proveedor": "Inmobiliaria XYZ",
+            "monto": 3614953,
+            "fecha": "2026-03-30",
+            "entradas": [
+                {"cuenta_id": 5480, "debe": 3614953, "haber": 0},
+                {"cuenta_id": 5376, "debe": 0, "haber": 3614953},
+            ],
+        }
+
+        db = MagicMock()
+        db.chat_messages = AsyncMock()
+        db.roddos_events = AsyncMock()
+        db.cfo_cache = AsyncMock()
+        db.alegra_credentials = MagicMock()
+        db.alegra_credentials.find_one = AsyncMock(
+            return_value={"email": "", "token": "", "is_demo_mode": True}
+        )
+        db.roddos_cuentas = MagicMock()
+        db.roddos_cuentas.find = MagicMock(return_value=MagicMock(to_list=AsyncMock(return_value=[])))
+        db.agent_memory = MagicMock()
+        db.agent_memory.find_one = AsyncMock(return_value=None)
+
+        user = {"id": "test_wire", "email": "test@roddos.com", "nombre": "Test Wire"}
+
+        from services.accounting_engine import clasificar_gasto_chat as real_clasif
+
+        call_tracker = {"called": False, "result": None}
+
+        def spy_clasificar(*args, **kwargs):
+            call_tracker["called"] = True
+            result = real_clasif(*args, **kwargs)
+            call_tracker["result"] = result
+            return result
+
+        async def mock_request_with_verify(endpoint, method, data):
+            return {"id": "journal-wire-1", "_verificado": True}
+
+        # Patch at the module level where the lazy import resolves
+        with patch("alegra_service.AlegraService.request_with_verify", side_effect=mock_request_with_verify):
+            with patch("services.accounting_engine.clasificar_gasto_chat", side_effect=spy_clasificar):
+                try:
+                    await execute_chat_action("crear_causacion", payload, db, user)
+                except Exception:
+                    pass
+
+                assert call_tracker["called"], (
+                    "clasificar_gasto_chat() MUST be called inside crear_causacion handler"
+                )
+
+                r = call_tracker["result"]
+                assert r["tipo_gasto"] == "arrendamiento", (
+                    f"Expected arrendamiento, got {r['tipo_gasto']}"
+                )
+                assert r["cuenta_debito"] == 5480, (
+                    f"Expected 5480, got {r['cuenta_debito']}"
+                )
+                assert r["confianza"] >= 0.7, (
+                    f"Arriendo confianza must be >= 0.7, got {r['confianza']}"
+                )
+
+    asyncio.run(_run())
+
+
+def test_wiring_auteco_no_retefuente():
+    """WIRE: crear_causacion with NIT 860024781 (Auteco) -> autoretenedor, no ReteFuente"""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    async def _run():
+        from ai_chat import execute_chat_action
+
+        payload = {
+            "descripcion": "Compra repuestos Auteco $5.000.000",
+            "proveedor": "Auteco Kawasaki",
+            "nit": "860024781",
+            "monto": 5000000,
+            "fecha": "2026-03-30",
+            "entradas": [
+                {"cuenta_id": 5493, "debe": 5000000, "haber": 0},
+                {"cuenta_id": 5376, "debe": 0, "haber": 5000000},
+            ],
+        }
+
+        db = MagicMock()
+        db.chat_messages = AsyncMock()
+        db.roddos_events = AsyncMock()
+        db.cfo_cache = AsyncMock()
+        db.alegra_credentials = MagicMock()
+        db.alegra_credentials.find_one = AsyncMock(
+            return_value={"email": "", "token": "", "is_demo_mode": True}
+        )
+        db.roddos_cuentas = MagicMock()
+        db.roddos_cuentas.find = MagicMock(return_value=MagicMock(to_list=AsyncMock(return_value=[])))
+        db.agent_memory = MagicMock()
+        db.agent_memory.find_one = AsyncMock(return_value=None)
+
+        user = {"id": "test_wire_auteco", "email": "test@roddos.com", "nombre": "Test Wire Auteco"}
+
+        from services.accounting_engine import clasificar_gasto_chat as real_clasif
+
+        call_tracker = {"called": False, "result": None}
+
+        def spy_clasificar(*args, **kwargs):
+            call_tracker["called"] = True
+            result = real_clasif(*args, **kwargs)
+            call_tracker["result"] = result
+            return result
+
+        async def mock_request_with_verify(endpoint, method, data):
+            return {"id": "journal-wire-auteco", "_verificado": True}
+
+        with patch("alegra_service.AlegraService.request_with_verify", side_effect=mock_request_with_verify):
+            with patch("services.accounting_engine.clasificar_gasto_chat", side_effect=spy_clasificar):
+                try:
+                    await execute_chat_action("crear_causacion", payload, db, user)
+                except Exception:
+                    pass
+
+                assert call_tracker["called"], (
+                    "clasificar_gasto_chat() MUST be called for Auteco payload"
+                )
+
+                r = call_tracker["result"]
+                assert r["es_autoretenedor"] is True, (
+                    "Auteco NIT 860024781 must be detected as autoretenedor"
+                )
+
+                # Verify retenciones: autoretenedor = 0 retefuente
+                from services.accounting_engine import calcular_retenciones
+                ret = calcular_retenciones(
+                    tipo_gasto=r["tipo_gasto"],
+                    monto_bruto=5000000,
+                    es_autoretenedor=True,
+                    aplica_reteica=r["aplica_reteica"],
+                )
+                assert ret["retefuente_valor"] == 0, (
+                    f"Autoretenedor must have retefuente_valor=0, got {ret['retefuente_valor']}"
+                )
+
+    asyncio.run(_run())
