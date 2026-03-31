@@ -64,7 +64,10 @@ Plans:
   3. Chat: "Ver journals de febrero" → ACTION_MAP ejecuta consultar_journals → retorna asientos reales de Alegra
   4. Chat: "Como esta la cartera" → ACTION_MAP ejecuta consultar_cartera → lee MongoDB loanbook (no llama a Alegra)
   5. Chat: "Que cuentas tenemos" → ACTION_MAP ejecuta consultar_plan_cuentas → retorna plan de cuentas con IDs correctos incluyendo 5493
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 03-01-PLAN.md — TDD: Failing test suite for 5 ACTION_MAP read actions
+- [ ] 03-02-PLAN.md — Implement 5 read action handlers + MOCK_PAYMENTS
 
 ### Phase 4: Chat Transaccional Real
 **Goal**: Un gasto descrito en lenguaje natural se convierte en un journal verificado en Alegra — con retenciones correctas, cuentas reales, y confirmacion del usuario antes de ejecutar
@@ -130,7 +133,7 @@ Phases execute in strict dependency order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 |-------|----------------|--------|-----------|
 | 1. Auditoria Alegra | 2/2 | Complete    | 2026-03-30 |
 | 2. Consolidacion Capa Alegra | 4/4 | Complete    | 2026-03-31 |
-| 3. ACTION_MAP Completo | 0/TBD | Not started | - |
+| 3. ACTION_MAP Completo | 0/2 | Not started | - |
 | 4. Chat Transaccional Real | 0/TBD | Not started | - |
 | 5. Facturacion Venta Motos | 0/TBD | Not started | - |
 | 6. Ingresos Cuotas Cartera | 0/TBD | Not started | - |
