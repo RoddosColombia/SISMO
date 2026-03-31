@@ -5167,6 +5167,117 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
 
         return {"success": True, "cambios": n, "message": msg}
 
+    # ── Phase 3: ACTION_MAP Read Actions (ACTION-01 to ACTION-05) ────────────
+
+    # ACTION-01: consultar_facturas — GET /invoices with date filter + limit=50
+    if action_type == "consultar_facturas":
+        logger.info(f"[Phase3] consultar_facturas: {payload}")
+        params = {"limit": 50}
+        if payload.get("fecha_desde"):
+            params["date_afterOrNow"] = payload["fecha_desde"]  # yyyy-MM-dd
+        if payload.get("fecha_hasta"):
+            params["date_beforeOrNow"] = payload["fecha_hasta"]  # yyyy-MM-dd
+        if payload.get("estado"):
+            params["status"] = payload["estado"]
+        try:
+            facturas = await service.request("invoices", "GET", params=params)
+        except Exception as e:
+            logger.error(f"[Phase3] GET /invoices fallo: {e}")
+            return {"success": False, "error": f"Error consultando facturas: {e}"}
+        if not isinstance(facturas, list):
+            facturas = []
+        return {
+            "success": True,
+            "facturas": facturas,
+            "total": len(facturas),
+            "message": f"Se encontraron {len(facturas)} factura(s).",
+        }
+
+    # ACTION-02: consultar_pagos — GET /payments with type filter (in/out)
+    if action_type == "consultar_pagos":
+        logger.info(f"[Phase3] consultar_pagos: {payload}")
+        params = {}
+        if payload.get("tipo"):
+            params["type"] = payload["tipo"]  # "in" or "out"
+        if payload.get("fecha_desde"):
+            params["date_afterOrNow"] = payload["fecha_desde"]
+        if payload.get("fecha_hasta"):
+            params["date_beforeOrNow"] = payload["fecha_hasta"]
+        try:
+            pagos = await service.request("payments", "GET", params=params)
+        except Exception as e:
+            logger.error(f"[Phase3] GET /payments fallo: {e}")
+            return {"success": False, "error": f"Error consultando pagos: {e}"}
+        if not isinstance(pagos, list):
+            pagos = []
+        return {
+            "success": True,
+            "pagos": pagos,
+            "total": len(pagos),
+            "message": f"Se encontraron {len(pagos)} pago(s).",
+        }
+
+    # ACTION-03: consultar_journals — GET /journals with date filter
+    if action_type == "consultar_journals":
+        logger.info(f"[Phase3] consultar_journals: {payload}")
+        params = {}
+        if payload.get("fecha_desde"):
+            params["date_afterOrNow"] = payload["fecha_desde"]
+        if payload.get("fecha_hasta"):
+            params["date_beforeOrNow"] = payload["fecha_hasta"]
+        try:
+            journals = await service.request("journals", "GET", params=params)
+        except Exception as e:
+            logger.error(f"[Phase3] GET /journals fallo: {e}")
+            return {"success": False, "error": f"Error consultando journals: {e}"}
+        if not isinstance(journals, list):
+            journals = []
+        return {
+            "success": True,
+            "journals": journals,
+            "total": len(journals),
+            "message": f"Se encontraron {len(journals)} asiento(s) contable(s).",
+        }
+
+    # ACTION-04: consultar_cartera — MongoDB loanbook (NO Alegra)
+    if action_type == "consultar_cartera":
+        logger.info(f"[Phase3] consultar_cartera (MongoDB only)")
+        try:
+            loanbooks = await db.loanbook.find(
+                {"estado": {"$in": ["activo", "mora"]}},
+                {"_id": 0, "codigo": 1, "cliente": 1, "estado": 1,
+                 "saldo_pendiente": 1, "cuotas_pendientes": 1,
+                 "monto_cuota": 1, "fecha_proximo_pago": 1}
+            ).to_list(length=100)
+        except Exception as e:
+            logger.error(f"[Phase3] MongoDB loanbook query fallo: {e}")
+            return {"success": False, "error": f"Error consultando cartera: {e}"}
+        total_saldo = sum(lb.get("saldo_pendiente", 0) for lb in loanbooks)
+        return {
+            "success": True,
+            "cartera": loanbooks,
+            "total_loanbooks": len(loanbooks),
+            "saldo_total": total_saldo,
+            "message": f"Cartera: {len(loanbooks)} loanbook(s) activos, saldo total ${total_saldo:,.0f} COP.",
+        }
+
+    # ACTION-05: consultar_plan_cuentas — GET /categories (NOT /accounts)
+    if action_type == "consultar_plan_cuentas":
+        logger.info(f"[Phase3] consultar_plan_cuentas via /categories")
+        try:
+            cuentas = await service.get_accounts_from_categories()
+        except Exception as e:
+            logger.error(f"[Phase3] GET /categories fallo: {e}")
+            return {"success": False, "error": f"Error consultando plan de cuentas: {e}"}
+        if not isinstance(cuentas, list):
+            cuentas = []
+        return {
+            "success": True,
+            "cuentas": cuentas,
+            "total": len(cuentas),
+            "message": f"Plan de cuentas: {len(cuentas)} cuenta(s) de nivel superior.",
+        }
+
     if action_type not in ACTION_MAP:
         raise ValueError(f"Acción no reconocida: {action_type}")
 
