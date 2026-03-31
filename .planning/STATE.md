@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v23.0
 milestone_name: milestone
 status: Ready to execute
-stopped_at: Completed 05-04-PLAN.md — F6 test isolation fixed, T6 RED for FACTURA-01 format
-last_updated: "2026-03-31T13:37:51.882Z"
+stopped_at: Completed 05-05-PLAN.md — FACTURA-01 format fix GREEN, all 7 F6 tests pass
+last_updated: "2026-03-31T13:43:18.079Z"
 progress:
   total_phases: 8
-  completed_phases: 6
+  completed_phases: 7
   total_plans: 25
-  completed_plans: 24
+  completed_plans: 25
 ---
 
 # Project State
@@ -24,7 +24,7 @@ See: .planning/PROJECT.md (updated 2026-03-30)
 ## Current Position
 
 Phase: 05 (github-production-ready) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 
 ## Performance Metrics
 
@@ -72,6 +72,7 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase 04-agents-router-scheduler]: clasificar_gasto_chat() reutiliza REGLAS_CLASIFICACION matrix con prioridad: socio > honorarios > compras > keywords > fallback 5493 (NUNCA 5495)
 - [Phase 04-agents-router-scheduler]: crear_causacion traduce payload espanol (entradas/fecha/descripcion) a Alegra API (entries/date/observations) en handler especial linea 3987 para garantizar request_with_verify
 - [Phase 05-github-production-ready]: SimpleNamespace used for T1/T2 payloads to bypass Pydantic; patch(routers.ventas.db) required for T2-T6; sys.modules stubs needed for full routers/__init__.py chain
+- [Phase 05-github-production-ready]: observations field uses FACTURA-01 format (Modelo Color - VIN:x / Motor:x) for full vehicle traceability in Alegra invoice PDF
 
 ### Pending Todos
 
@@ -99,9 +100,10 @@ None.
 | Phase 04-agents-router-scheduler P05 | 8 | 1 tasks | 1 files |
 | Phase 04-agents-router-scheduler P06 | 25 | 2 tasks | 2 files |
 | Phase 05-github-production-ready P04 | 525597 | 1 tasks | 1 files |
+| Phase 05-github-production-ready P05 | 525525 | 1 tasks | 2 files |
 
 ## Session Continuity
 
-Last session: 2026-03-31T13:37:51.876Z
-Stopped at: Completed 05-04-PLAN.md — F6 test isolation fixed, T6 RED for FACTURA-01 format
+Last session: 2026-03-31T13:43:18.073Z
+Stopped at: Completed 05-05-PLAN.md — FACTURA-01 format fix GREEN, all 7 F6 tests pass
 Resume file: None

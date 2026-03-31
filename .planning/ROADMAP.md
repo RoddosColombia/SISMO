@@ -20,7 +20,7 @@ BUILD 23 hace al Agente Contador completamente operacional con Alegra. Cada oper
 - [x] **Phase 2: Consolidacion Capa Alegra** - Unica fuente de verdad para Alegra, request_with_verify() robusto, errores en espanol (completed 2026-03-30)
 - [x] **Phase 3: ACTION_MAP Completo** - Cinco acciones de lectura nuevas (facturas, pagos, journals, cartera, plan_cuentas) funcionales en el chat (completed 2026-03-31)
 - [x] **Phase 4: Chat Transaccional Real** - Gasto en lenguaje natural → clasificacion matricial → ReteFuente/ReteICA → journal en Alegra con ID verificado (completed 2026-03-31)
-- [ ] **Phase 5: Facturacion Venta Motos** - POST /invoices con VIN + motor obligatorios, inventario actualizado, loanbook creado
+- [x] **Phase 5: Facturacion Venta Motos** - POST /invoices con VIN + motor obligatorios, inventario actualizado, loanbook creado (completed 2026-03-31)
 - [ ] **Phase 6: Ingresos Cuotas Cartera** - Pago de cuota → POST /payments → journal ingreso en Alegra, anti-duplicados activo
 - [ ] **Phase 7: Nomina Mensual** - Journals discriminados por empleado en Alegra con anti-duplicados por mes
 - [ ] **Phase 8: Smoke Test Final** - 10 criterios Alegra 100% verificados end-to-end en produccion
@@ -138,7 +138,7 @@ Phases execute in strict dependency order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | 2. Consolidacion Capa Alegra | 4/4 | Complete    | 2026-03-31 |
 | 3. ACTION_MAP Completo | 2/2 | Complete   | 2026-03-31 |
 | 4. Chat Transaccional Real | 6/6 | Complete   | 2026-03-31 |
-| 5. Facturacion Venta Motos | 4/5 | In Progress|  |
+| 5. Facturacion Venta Motos | 5/5 | Complete   | 2026-03-31 |
 | 6. Ingresos Cuotas Cartera | 0/TBD | Not started | - |
 | 7. Nomina Mensual | 0/TBD | Not started | - |
 | 8. Smoke Test Final | 0/TBD | Not started | - |
