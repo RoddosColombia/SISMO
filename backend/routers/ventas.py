@@ -360,15 +360,15 @@ async def crear_factura_venta(
             logger.warning(f"[F6] Error obteniendo taxes: {str(e)[:100]}, continuando sin tax_id")
 
         # ── CREATE/LOOKUP PRODUCT in Alegra ───────────────────────────────────────
-        modelo = moto.get("modelo", "Moto").upper()
-        version = moto.get("version", "").upper()
+        modelo = moto.get("modelo", "Moto")
+        version = moto.get("version", "")
         color = moto.get("color", "").strip()
 
-        # Product name: "[Modelo] [Color]"
+        # Product name: "Modelo Color"
         product_name = f"{modelo} {version} {color}".strip() if version and color else f"{modelo} {color}".strip()
 
-        # Product description: "[Modelo] [Color] - VIN: [chasis] / Motor: [motor]"
-        product_description = f"[{modelo}] [{color}] - VIN: {payload.moto_chasis.strip()} / Motor: {payload.moto_motor.strip()}"
+        # Product description: "Modelo Color - VIN:chasis / Motor:motor" (FACTURA-01)
+        product_description = f"{modelo} {color} - VIN:{payload.moto_chasis.strip()} / Motor:{payload.moto_motor.strip()}"
 
         logger.info(f"[F6] Buscando producto '{product_name}' en Alegra...")
         product_id = None
@@ -480,7 +480,7 @@ async def crear_factura_venta(
             "client": {"id": client_id},
             "items": all_items,
             "paymentForm": payment_form,
-            "observations": f"Venta a {payload.cliente_nombre}. Plan {payload.plan} - VIN: {payload.moto_chasis}"
+            "observations": f"{modelo} {color} - VIN:{payload.moto_chasis.strip()} / Motor:{payload.moto_motor.strip()}"
         }
 
         logger.info(f"[F6] Creando factura en Alegra para cliente {client_id}...")
