@@ -3987,6 +3987,24 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
     if action_type == "crear_causacion":
         # PHASE 2 — F2 Chat Transaccional: POST journal to /journals with verification
         # Validar que payload tiene entries array válido
+        # Accept "entradas" (Spanish) as fallback for "entries" (Alegra API key)
+        # Translate Spanish keys to Alegra API keys (chat agent uses Spanish field names)
+        if "entradas" in payload and not payload.get("entries"):
+            entradas_raw = payload.pop("entradas")
+            payload["entries"] = [
+                {
+                    "id": e.get("cuenta_id", e.get("id")),
+                    "debit": e.get("debe", e.get("debit", 0)),
+                    "credit": e.get("haber", e.get("credit", 0)),
+                }
+                for e in entradas_raw
+            ]
+        # Translate "fecha" -> "date" if only Spanish key is present
+        if "fecha" in payload and not payload.get("date"):
+            payload["date"] = payload["fecha"]
+        # Translate "descripcion" -> "observations" if only Spanish key is present
+        if "descripcion" in payload and not payload.get("observations"):
+            payload["observations"] = payload["descripcion"]
         entries = payload.get("entries", [])
         if not entries or len(entries) < 2:
             return {
