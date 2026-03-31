@@ -95,6 +95,12 @@ None — este plan solo crea tests, no implementacion.
 - Los tests definen exactamente el contrato esperado (success=True, keys correctas, limit=50, sin Alegra en cartera)
 - Para GREEN phase: agregar los 5 action_type al ACTION_MAP o como special cases antes del raise ValueError
 
+## Self-Check: PASSED
+
+- `backend/tests/test_phase3_actions.py` — FOUND
+- `.planning/phases/03-mongodb-completo/03-01-SUMMARY.md` — FOUND
+- commit `3506b29` — FOUND
+
 ---
 *Phase: 03-mongodb-completo*
 *Completed: 2026-03-30*
