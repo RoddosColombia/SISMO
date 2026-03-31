@@ -85,6 +85,7 @@ None.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260330-fs8 | Hotfix ERROR-017: consolidar ALEGRA_BASE_URL, eliminar app.alegra.com/api/r1 (6 archivos) | 2026-03-30 | 26ceb5d | [260330-fs8-hotfix](./quick/260330-fs8-hotfix-cr-tico-error-017-la-url-base-de-/) |
+| 260331-9gd | Wiring clasificar_gasto_chat en crear_causacion: lazy import, inject _clasificacion, strip before POST, 2 tests | 2026-03-31 | 805c35c | [260331-9gd-wiring](./quick/260331-9gd-wiring-quir-rgico-importar-y-usar-clasif/) |
 | Phase 01-auditoria-alegra P01 | 20 | 1 tasks | 1 files |
 | Phase 01-auditoria-alegra P02 | 4 | 2 tasks | 3 files |
 | Phase 02-consolidacion-capa-alegra P01 | 112 | 2 tasks | 2 files |
@@ -100,5 +101,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-03-31T03:05:06.659Z
-Stopped at: Completed 04-agents-router-scheduler-06-PLAN.md
+Stopped at: Completed quick task 260331-9gd — Wiring clasificar_gasto_chat en crear_causacion
 Resume file: None
