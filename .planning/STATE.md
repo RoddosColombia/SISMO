@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
-status: Milestone complete
-stopped_at: Completed quick task 260330-fs8
-last_updated: "2026-03-30T16:29:13.754Z"
+status: In progress
+stopped_at: Completed 06-02-PLAN.md — anti-duplicate guard + T8 GREEN
+last_updated: "2026-03-31T22:44:00Z"
 progress:
-  total_phases: 5
+  total_phases: 6
   completed_phases: 5
-  total_plans: 16
-  completed_plans: 16
+  total_plans: 18
+  completed_plans: 18
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-26)
 
 **Core value:** Contabilidad automatizada sin intervencion humana + visibilidad financiera en tiempo real + orquestacion confiable de agentes via bus de eventos
-**Current focus:** Phase 5 — GitHub Production-Ready
+**Current focus:** Phase 6 — Ingresos Cuotas Cartera (complete)
 
 ## Current Position
 
-Phase: 5
-Plan: Not started
+Phase: 6
+Plan: 2 of 2 (06-02 complete)
 
 ## Performance Metrics
 
@@ -53,6 +53,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase 05-github-production-ready]: smoke_test bus health placed outside main DB try block — bus errors give 'degradado' not 'critico'
 - [Phase 05-02]: pytest-build24 job depends on backend-check to fail fast on syntax errors before running tests
 - [Phase 05-02]: smoke-post-deploy runs only on push to main to prevent hitting production on branch pushes
+- [Phase 06-02]: Anti-duplicate guard placed after cuota_numero resolution but before Alegra call — garantizes no double journals
+- [Phase 06-02]: monto_pago is primary field name in cartera_pagos; cfo_agent.py sum uses fallback chain monto_pago > valor_pagado > monto
+- [Phase 06-02]: T8 patches alegra_service.AlegraService (not services.cfo_agent.AlegraService) — AlegraService imported inside function body
 
 ### Pending Todos
 
@@ -70,6 +73,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-30
-Stopped at: Completed quick task 260330-fs8 — Hotfix ERROR-017 URL Alegra
+Last session: 2026-03-31
+Stopped at: Completed 06-02-PLAN.md — F7 cartera full suite T1-T8 GREEN (CARTERA-01, CARTERA-02, CARTERA-03)
 Resume file: None

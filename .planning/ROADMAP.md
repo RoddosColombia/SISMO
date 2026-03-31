@@ -109,8 +109,8 @@ Plans:
   3. CFO consultando portfolio_summaries puede ver el recaudo del pago registrado — el ingreso es visible en reportes financieros
 **Plans:** 2 plans
 Plans:
-- [ ] 06-01-PLAN.md — TDD: Fix test isolation (qrcode stub) + T1-T6 GREEN + T7 RED (anti-duplicado)
-- [ ] 06-02-PLAN.md — Implement anti-duplicate guard (T7 GREEN) + fix cartera_pagos→portfolio wiring (T8 GREEN)
+- [x] 06-01-PLAN.md — TDD: Fix test isolation (qrcode stub) + T1-T6 GREEN + T7 RED (anti-duplicado) (completed 2026-03-31)
+- [x] 06-02-PLAN.md — Implement anti-duplicate guard (T7 GREEN) + fix cartera_pagos→portfolio wiring (T8 GREEN) (completed 2026-03-31)
 
 ### Phase 7: Nomina Mensual
 **Goal**: La nomina de cada mes queda registrada en Alegra con un asiento por empleado, y el sistema impide registrar el mismo mes dos veces
