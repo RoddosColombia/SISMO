@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v23.0
 milestone_name: milestone
-status: Ready to execute
+status: Ready to plan
 stopped_at: Completed 05-05-PLAN.md — FACTURA-01 format fix GREEN, all 7 F6 tests pass
-last_updated: "2026-03-31T13:43:18.079Z"
+last_updated: "2026-03-31T13:50:05.359Z"
 progress:
   total_phases: 8
   completed_phases: 7
@@ -23,8 +23,8 @@ See: .planning/PROJECT.md (updated 2026-03-30)
 
 ## Current Position
 
-Phase: 05 (github-production-ready) — EXECUTING
-Plan: 3 of 5
+Phase: 6
+Plan: Not started
 
 ## Performance Metrics
 
