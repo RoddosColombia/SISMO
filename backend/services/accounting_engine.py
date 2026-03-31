@@ -1723,6 +1723,7 @@ def calcular_retenciones(
     retefuente_pct = 0
     retefuente_tipo = ""
     reteica_valor = 0
+    reteica_pct = 0
     advertencias = []
 
     # Calcular IVA si aplica
@@ -1815,3 +1816,168 @@ def formatear_retenciones_para_prompt(retenciones: dict) -> str:
     neto_section = f"Neto a Pagar: ${retenciones.get('neto_a_pagar', 0):,.2f}"
 
     return base_section + retenciones_section + total_section + "\n" + neto_section
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CLASIFICADOR DE GASTOS PARA CHAT TRANSACCIONAL (Phase 04 — CHAT-01 a CHAT-05)
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Autoretenedores conocidos — NUNCA aplicar ReteFuente (CLAUDE.md)
+AUTORETENEDORES_NIT = {"860024781"}  # Auteco Kawasaki
+
+# Socios RODDOS S.A.S. — CXC socios (5329), NUNCA gasto operativo (CLAUDE.md)
+SOCIOS_CC = {"80075452", "80086601"}  # Andrés San Juan, Iván Echeverri
+
+
+def clasificar_gasto_chat(
+    descripcion: str,
+    proveedor: str = "",
+    nit: str = "",
+    monto: float = 0,
+) -> dict:
+    """
+    Clasifica un gasto descrito en lenguaje natural (chat) usando la matriz REGLAS_CLASIFICACION.
+
+    Retorna un dict con:
+        tipo_gasto: str          — arrendamiento | honorarios | servicios | compras | socio | ...
+        cuenta_debito: int       — ID Alegra de la cuenta de gasto
+        cuenta_credito: int      — ID Alegra de la CXP (5376 default)
+        es_autoretenedor: bool   — True si NIT está en AUTORETENEDORES_NIT (Auteco)
+        es_socio: bool           — True si NIT/CC está en SOCIOS_CC (Andrés, Iván)
+        aplica_reteica: bool     — True siempre (Bogotá), False solo para socios
+        confianza: float         — 0-1
+        razon: str               — Explicación de la clasificación
+
+    REGLAS INAMOVIBLES (CLAUDE.md):
+        - Fallback cuenta_debito: 5493 (Gastos Generales), NUNCA 5495
+        - AUTORETENEDORES_NIT = {"860024781"} → es_autoretenedor=True, nunca ReteFuente
+        - SOCIOS_CC = {"80075452", "80086601"} → es_socio=True, cuenta_debito=5329, nunca gasto operativo
+    """
+    desc_lower = descripcion.lower()
+    prov_lower = proveedor.lower()
+    nit_clean = nit.strip()
+
+    # ── PASO 1: Verificar si es socio (mayor prioridad) ────────────────────
+    es_socio = nit_clean in SOCIOS_CC
+    if not es_socio:
+        # También verificar por nombre del proveedor en REGLAS_CLASIFICACION["gasto_socio"]
+        socio_proveedores = REGLAS_CLASIFICACION.get("gasto_socio", {}).get("proveedores", [])
+        es_socio = any(sp in prov_lower for sp in socio_proveedores)
+
+    if es_socio:
+        return {
+            "tipo_gasto": "socio",
+            "cuenta_debito": 5329,
+            "cuenta_credito": 5376,
+            "es_autoretenedor": False,
+            "es_socio": True,
+            "aplica_reteica": False,
+            "confianza": 0.95,
+            "razon": f"Proveedor identificado como socio RODDOS — CXC socios (5329)",
+        }
+
+    # ── PASO 2: Verificar si es autoretenedor ─────────────────────────────
+    es_autoretenedor = nit_clean in AUTORETENEDORES_NIT
+
+    # ── PASO 3: Detectar honorarios (persona natural o jurídica) ──────────
+    if "honorario" in desc_lower or "honorarios" in prov_lower:
+        # Determinar PN vs PJ: jurídica si nombre tiene indicadores de empresa
+        indicadores_pj = ["sas", "s.a.s", "ltda", "s.a.", "inversiones", "comercializadora",
+                          "soluciones", "consultora", "grupo", "corp"]
+        es_pj = any(ind in prov_lower for ind in indicadores_pj)
+        # También si NIT empieza con 8 o 9 es PJ (NIT persona jurídica Colombia)
+        if nit_clean and nit_clean[0] in ("8", "9"):
+            es_pj = True
+
+        cuenta_debito = 5476 if es_pj else 5475
+        return {
+            "tipo_gasto": "honorarios",
+            "cuenta_debito": cuenta_debito,
+            "cuenta_credito": 5376,
+            "es_autoretenedor": es_autoretenedor,
+            "es_socio": False,
+            "aplica_reteica": True,
+            "confianza": 0.90,
+            "razon": f"Honorarios {'PJ (5476)' if es_pj else 'PN (5475)'} detectado en descripción",
+        }
+
+    # ── PASO 4: Detectar compras ──────────────────────────────────────────
+    if any(kw in desc_lower for kw in ["compra", "repuesto", "compra de"]):
+        return {
+            "tipo_gasto": "compras",
+            "cuenta_debito": 5493,
+            "cuenta_credito": 5376,
+            "es_autoretenedor": es_autoretenedor,
+            "es_socio": False,
+            "aplica_reteica": True,
+            "confianza": 0.85,
+            "razon": "Compra de bienes/repuestos detectada — cuenta 5493 (Gastos Generales)",
+        }
+
+    # ── PASO 5: Iterar REGLAS_CLASIFICACION por palabras_clave ────────────
+    for tipo, regla in REGLAS_CLASIFICACION.items():
+        if tipo in ("gasto_socio", "cxc_gasto_socio_andres", "cxc_gasto_socio_ivan",
+                    "anticipo_nomina_andres"):
+            continue  # Ya manejado en Paso 1
+
+        palabras_clave = regla.get("palabras_clave", [])
+        proveedores_regla = regla.get("proveedores", [])
+
+        hit_kw = any(kw in desc_lower for kw in palabras_clave)
+        hit_prov = any(p in prov_lower for p in proveedores_regla)
+
+        if hit_kw or hit_prov:
+            # Mapear tipo a tipo_gasto normalizado
+            tipo_gasto_map = {
+                "arriendo": "arrendamiento",
+                "nomina": "nomina",
+                "servicios_publicos": "servicios_publicos",
+                "telecomunicaciones": "servicios",
+                "tecnologia": "servicios",
+                "publicidad": "publicidad",
+                "cafeteria": "servicios",
+                "papeleria": "servicios",
+                "combustibles": "servicios",
+                "transporte": "servicios",
+                "intereses_rentistas": "servicios",
+                "gmf": "servicios",
+                "comisiones": "servicios",
+                "gastos_bancarios": "servicios",
+            }
+            tipo_gasto = tipo_gasto_map.get(tipo, "servicios")
+
+            return {
+                "tipo_gasto": tipo_gasto,
+                "cuenta_debito": regla["cuenta_debito"],
+                "cuenta_credito": regla.get("cuenta_credito", 5376) or 5376,
+                "es_autoretenedor": es_autoretenedor,
+                "es_socio": False,
+                "aplica_reteica": True,
+                "confianza": regla.get("confianza_min", 0.75),
+                "razon": f"Clasificado como '{tipo}' por {'palabras clave' if hit_kw else 'proveedor'}",
+            }
+
+    # ── PASO 6: Detectar servicios genéricos ──────────────────────────────
+    if any(kw in desc_lower for kw in ["servicio", "asistencia", "mantenimiento", "soporte"]):
+        return {
+            "tipo_gasto": "servicios",
+            "cuenta_debito": 5493,
+            "cuenta_credito": 5376,
+            "es_autoretenedor": es_autoretenedor,
+            "es_socio": False,
+            "aplica_reteica": True,
+            "confianza": 0.70,
+            "razon": "Servicio genérico — cuenta fallback 5493 (Gastos Generales)",
+        }
+
+    # ── PASO 7: Fallback — NUNCA 5495 (CLAUDE.md) ─────────────────────────
+    return {
+        "tipo_gasto": "servicios",
+        "cuenta_debito": 5493,
+        "cuenta_credito": 5376,
+        "es_autoretenedor": es_autoretenedor,
+        "es_socio": False,
+        "aplica_reteica": True,
+        "confianza": 0.50,
+        "razon": "Clasificación por defecto — cuenta fallback 5493 (Gastos Generales, NUNCA 5495)",
+    }
