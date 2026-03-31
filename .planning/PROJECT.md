@@ -65,7 +65,7 @@ Contabilidad automatizada sin intervencion humana (cada operacion financiera ref
 
 ## Context
 
-- **Estado actual:** BUILD 23 en progreso — Phase 6 completa, Phase 7 (Nomina) siguiente
+- **Estado actual:** BUILD 23 en progreso — Phase 7 completa, Phase 8 (Smoke Test Final) siguiente
 - **Produccion:** 10 loanbooks activos, $94M COP cartera, 34 motos TVS
 - **Stack:** FastAPI + React 19 + TypeScript + MongoDB Atlas + Alegra API + Mercately + Claude Sonnet
 - **Arquitectura:** 6 capas horizontales + 5 nodos de negocio verticales + bus de eventos append-only
