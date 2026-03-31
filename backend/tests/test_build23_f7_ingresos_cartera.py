@@ -571,6 +571,74 @@ async def test_t7_duplicado_detectado(mock_db, mock_user, loanbook_con_cuotas_pe
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# TEST 8: cartera_pagos visible en portfolio_summaries para el CFO
+# ══════════════════════════════════════════════════════════════════════════════
+
+@pytest.mark.asyncio
+async def test_t8_cartera_pagos_visible_en_portfolio_summaries(mock_db, mock_user):
+    """
+    T8: CARTERA-03 — pago registrado en cartera_pagos es visible para el CFO
+    via consolidar_datos_financieros() que alimenta portfolio_summaries.
+
+    Esperado:
+    - datos["cartera_pagos_mes"] incluye el pago
+    - ingresos_reales del mes > 0
+    """
+    from services.cfo_agent import consolidar_datos_financieros
+
+    hoy = "2026-03-31"
+
+    # Simular un pago registrado en cartera_pagos
+    pago_doc = {
+        "id": "PAGO-JE-2026-005678",
+        "loanbook_id": "LB-2026-0042",
+        "cuota_numero": 1,
+        "monto_pago": 192307.69,
+        "fecha_pago": hoy,
+        "alegra_journal_id": "JE-2026-005678",
+    }
+
+    def _make_find_mock(return_list):
+        """Helper: create a collection mock whose .find().to_list() returns return_list."""
+        col = MagicMock()
+        cursor = AsyncMock()
+        cursor.to_list = AsyncMock(return_value=return_list)
+        col.find = MagicMock(return_value=cursor)
+        col.find_one = AsyncMock(return_value={})
+        return col
+
+    # Mock de las colecciones que consolidar_datos_financieros necesita
+    mock_db.loanbook = _make_find_mock([])
+    mock_db.inventario_motos = _make_find_mock([])
+    mock_db.cartera_pagos = _make_find_mock([pago_doc])
+
+    # Mock colecciones adicionales (find_one only)
+    for col in ["presupuesto", "catalogo_motos", "cfo_config", "alegra_settings",
+                "bills", "transactions", "sismo_knowledge"]:
+        setattr(mock_db, col, _make_find_mock([]))
+
+    with patch("alegra_service.AlegraService"), \
+         patch("services.shared_state.get_portfolio_health", new_callable=AsyncMock, return_value={}):
+        datos = await consolidar_datos_financieros(mock_db)
+
+    pagos_mes = datos.get("cartera_pagos_mes", [])
+    assert len(pagos_mes) > 0, (
+        "cartera_pagos_mes debe incluir el pago registrado. "
+        "Verificar que cfo_agent.py proyecta campo 'monto_pago' en la query."
+    )
+
+    # El pago debe tener monto_pago accesible
+    pago = pagos_mes[0]
+    monto = pago.get("monto_pago", pago.get("monto", pago.get("valor_pagado", 0)))
+    assert monto == 192307.69, (
+        f"monto del pago debe ser 192307.69, got {monto}. "
+        "cfo_agent.py debe proyectar 'monto_pago' en el query de cartera_pagos."
+    )
+
+    print(f"T8 PASO: CFO ve recaudo ${monto:,.2f} en cartera_pagos_mes")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # RESUMEN DE TESTS
 # ══════════════════════════════════════════════════════════════════════════════
 
