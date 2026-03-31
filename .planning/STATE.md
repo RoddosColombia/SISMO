@@ -4,12 +4,12 @@ milestone: v23.0
 milestone_name: milestone
 status: Phase complete — ready for verification
 stopped_at: Completed 03-mongodb-completo-02-PLAN.md
-last_updated: "2026-03-31T02:11:59.504Z"
+last_updated: "2026-03-31T02:21:50.013Z"
 progress:
   total_phases: 8
-  completed_phases: 6
+  completed_phases: 7
   total_plans: 21
-  completed_plans: 20
+  completed_plans: 21
 ---
 
 # Project State
@@ -65,6 +65,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase 03-mongodb-completo]: consultar_cartera lee MongoDB directamente (loanbook collection), NO llama AlegraService.request — validado via test patch + assert not called
 - [Phase 03-mongodb-completo]: reset_catalogo admin endpoint retains seed data as local variable _catalogo_seed — keeps emergency reset functional without a module-level CATALOGO_DEFAULT
 - [Phase 03-mongodb-completo]: ai_chat.py plan_cuentas read wrapped in try/except for graceful fallback if collection not seeded
+- [Phase 03-mongodb-completo]: MOCK_PAYMENTS placed in mock_data.py (not alegra_service.py) — consistent with all other MOCK_* constants in the project
+- [Phase 03-mongodb-completo]: 5 handlers inserted as special-case ifs BEFORE ACTION_MAP lookup — consistent with consultar_saldo_socio pattern, no ACTION_MAP modification needed
 
 ### Pending Todos
 
@@ -87,9 +89,10 @@ None.
 | Phase 02-consolidacion-capa-alegra P04 | 10 | 2 tasks | 2 files |
 | Phase 03-mongodb-completo P01 | 15 | 1 tasks | 1 files |
 | Phase 03-mongodb-completo P02 | 12 | 2 tasks | 4 files |
+| Phase 03-mongodb-completo P02 | 20 | 2 tasks | 3 files |
 
 ## Session Continuity
 
-Last session: 2026-03-31T02:11:59.500Z
+Last session: 2026-03-31T02:21:50.006Z
 Stopped at: Completed 03-mongodb-completo-02-PLAN.md
 Resume file: None
