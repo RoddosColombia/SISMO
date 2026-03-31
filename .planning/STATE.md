@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: In progress
-stopped_at: Phase 6 complete — CARTERA-01/02/03 verified, T1-T8 GREEN, Phase 7 ready
-last_updated: "2026-03-31T23:00:00Z"
+stopped_at: "Completed 07-02-PLAN.md — NOMINA-01/02/03 verified, T1-T7 GREEN"
+last_updated: "2026-03-31T23:46:34Z"
 progress:
   total_phases: 8
   completed_phases: 6
-  total_plans: 20
-  completed_plans: 20
+  total_plans: 22
+  completed_plans: 22
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-26)
 
 **Core value:** Contabilidad automatizada sin intervencion humana + visibilidad financiera en tiempo real + orquestacion confiable de agentes via bus de eventos
-**Current focus:** Phase 7 — Nomina Mensual (next)
+**Current focus:** Phase 7 complete — Nomina Mensual NOMINA-01/02/03 GREEN
 
 ## Current Position
 
-Phase: 7 (next)
-Plan: 0 of TBD
+Phase: 7
+Plan: 2 of 2 (COMPLETE)
 
 ## Performance Metrics
 
@@ -56,6 +56,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase 06-02]: Anti-duplicate guard placed after cuota_numero resolution but before Alegra call — garantizes no double journals
 - [Phase 06-02]: monto_pago is primary field name in cartera_pagos; cfo_agent.py sum uses fallback chain monto_pago > valor_pagado > monto
 - [Phase 06-02]: T8 patches alegra_service.AlegraService (not services.cfo_agent.AlegraService) — AlegraService imported inside function body
+- [Phase 07-02]: registrar_nomina_mensual added without removing legacy registrar_nomina — backward compat via RegistrarNominaLegacyRequest rename
+- [Phase 07-02]: Anti-duplicate per empleado+mes+anio tuple (not hash) — finer granularity for per-employee journals
+- [Phase 07-02]: Fallback gastos_nomina 5493 (Gastos Generales) per CLAUDE.md; never 5495
 
 ### Pending Todos
 
@@ -74,5 +77,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-03-31
-Stopped at: Completed 06-02-PLAN.md — F7 cartera full suite T1-T8 GREEN (CARTERA-01, CARTERA-02, CARTERA-03)
+Stopped at: Completed 07-02-PLAN.md — F8 nomina mensual per-employee journals T1-T7 GREEN (NOMINA-01, NOMINA-02, NOMINA-03)
 Resume file: None
