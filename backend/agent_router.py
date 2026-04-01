@@ -54,7 +54,7 @@ async def classify_intent(message: str) -> RouteResult:
             api_key=os.environ.get("ANTHROPIC_API_KEY", "")
         )
         response = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-opus-4-6",
             max_tokens=100,
             system=ROUTER_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": message}],
