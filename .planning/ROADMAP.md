@@ -24,6 +24,7 @@ BUILD 23 hace al Agente Contador completamente operacional con Alegra. Cada oper
 - [x] **Phase 6: Ingresos Cuotas Cartera** - Pago de cuota → POST /payments → journal ingreso en Alegra, anti-duplicados activo (completed 2026-03-31)
 - [x] **Phase 7: Nomina Mensual** - Journals discriminados por empleado en Alegra con anti-duplicados por mes (completed 2026-03-31)
 - [ ] **Phase 8: Smoke Test Final** - 10 criterios Alegra 100% verificados end-to-end en produccion
+- [ ] **Phase 9: Tool Use Agente Contador** - Migrar process_chat() de ACTION_MAP + XML parsing a loop nativo tool_use de Anthropic API
 
 ## Phase Details
 
@@ -134,6 +135,18 @@ Plans:
   2. El COMMIT PROTOCOL da 0 resultados en todos los greps: app.alegra.com/api/r1, /journal-entries, estado.*pending
   3. Un usuario real puede ejecutar desde el chat: consultar facturas, registrar un gasto, crear factura de moto, y registrar pago de cuota — todo con confirmacion en Alegra
   4. Alegra caido → el sistema retorna error en espanol y la UI sigue funcionando sin romper
+**Plans**: TBD
+
+### Phase 9: Tool Use Agente Contador
+**Goal**: process_chat() usa el loop nativo tool_use de Anthropic API — sin `<action>` XML parsing, sin ACTION_MAP string dispatch, con definiciones de herramientas tipadas y loop agentico real
+**Depends on**: Phase 8
+**Requirements**: TOOLUSE-01, TOOLUSE-02, TOOLUSE-03, TOOLUSE-04, TOOLUSE-05
+**Success Criteria** (what must be TRUE):
+  1. "Pagamos arriendo $3.614.953" → Claude llama tool `crear_causacion` con JSON estructurado → journal en Alegra con HTTP 200 verificado — sin intermediacion XML
+  2. Cero usos de `<action>` o `</action>` en el flujo contador — el XML parsing es codigo muerto
+  3. Cada tool tiene input_schema JSON con tipos, required fields, y descriptions — el LLM no puede llamar una tool con payload invalido
+  4. Rollback: una variable de entorno `TOOL_USE_ENABLED=false` activa el flujo antiguo sin deployar nuevo codigo
+  5. Los tests del BUILD activo (permissions, event_bus, mongodb_init, phase4_agents) siguen pasando sin modificacion
 **Plans**: TBD
 
 ## Progress
