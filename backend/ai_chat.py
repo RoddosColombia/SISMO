@@ -10,6 +10,12 @@ from datetime import datetime, timezone, timedelta
 from fastapi import HTTPException
 import anthropic
 
+# ── Knowledge Base Service — RAG para reglas de negocio institucionales ───────
+try:
+    from services.knowledge_base_service import get_context_for_operation as _kb_get_context
+except ImportError:
+    _kb_get_context = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -3025,6 +3031,33 @@ async def process_chat(
         .replace("{honorarios_instruccion}", honorarios_instruccion)
         .replace("{cfo_context}", cfo_ctx_str)
     )
+
+    # ── MODULE KB: Inyectar reglas de negocio relevantes desde Knowledge Base ──
+    # Detecta el intent basico del mensaje para buscar reglas RAG relevantes.
+    # Solo inyecta si hay reglas disponibles para el tipo de operacion detectado.
+    if _kb_get_context is not None:
+        _msg_lower_kb = user_message.lower()
+        _kb_operation = None
+        if any(kw in _msg_lower_kb for kw in ["arriendo", "arrendamiento", "alquiler"]):
+            _kb_operation = "registrar_arriendo"
+        elif any(kw in _msg_lower_kb for kw in ["factura", "moto", "vin", "motor"]):
+            _kb_operation = "crear_factura_moto"
+        elif any(kw in _msg_lower_kb for kw in ["pago", "cuota", "cartera", "abonar"]):
+            _kb_operation = "registrar_pago_cartera"
+        elif any(kw in _msg_lower_kb for kw in ["nomina", "nómina", "salario", "sueldo"]):
+            _kb_operation = "registrar_nomina"
+        elif any(kw in _msg_lower_kb for kw in ["gasto", "servicio", "honorario", "compra", "proveedor"]):
+            _kb_operation = "registrar_gasto"
+        elif any(kw in _msg_lower_kb for kw in ["conciliacion", "extracto", "banco"]):
+            _kb_operation = "conciliacion"
+
+        if _kb_operation:
+            try:
+                _kb_context = await _kb_get_context(_kb_operation, db)
+                if _kb_context:
+                    system_prompt += "\n\n" + _kb_context
+            except Exception as _kb_err:
+                logger.warning(f"knowledge_base_service error (non-blocking): {_kb_err}")
 
     # ── MODULE 4: Inyectar temas pendientes del usuario (BUILD 21) ────────────
     user_id = user.get("id", "")
