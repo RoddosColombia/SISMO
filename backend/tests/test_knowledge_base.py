@@ -245,7 +245,15 @@ class TestArriendoE2E(unittest.TestCase):
 
     def test_seed_knowledge_count(self):
         """SISMO_KNOWLEDGE debe tener >= 22 reglas despues del seed ampliado."""
-        sys.path.insert(0, "/c/Users/AndresSanJuan/roddos-workspace/SISMO/.claude/worktrees/agent-ac734c83")
+        import os
+        # Detectar raiz del proyecto (dos niveles arriba de backend/tests/)
+        _here = os.path.dirname(os.path.abspath(__file__))
+        _project_root = os.path.dirname(os.path.dirname(_here))
+        if _project_root not in sys.path:
+            sys.path.insert(0, _project_root)
+        # Limpiar modulo cacheado si existia con ruta distinta
+        if "init_mongodb_sismo" in sys.modules:
+            del sys.modules["init_mongodb_sismo"]
         from init_mongodb_sismo import SISMO_KNOWLEDGE
         self.assertGreaterEqual(
             len(SISMO_KNOWLEDGE),

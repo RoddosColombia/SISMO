@@ -359,7 +359,8 @@ def _create_indexes(db):
     _safe_index(db.sismo_knowledge, [("rule_id", ASC)], unique=True,
                                      name="sismo_knowledge_rule_id_unique")
     _safe_index(db.sismo_knowledge, [("categoria", ASC)], name="sismo_knowledge_categoria")
-    total_indexes += 2
+    _safe_index(db.sismo_knowledge, [("tags", ASC)], name="sismo_knowledge_tags")
+    total_indexes += 3
 
     # ── notifications ────────────────────────────────────────────────────────
     _safe_index(db.notifications, [("user_id", ASC), ("leido", ASC)],
@@ -637,6 +638,144 @@ SISMO_KNOWLEDGE = [
             "Planes disponibles: P39S (39 semanas), P52S (52 semanas), P78S (78 semanas), Contado."
         ),
         "tags": ["frecuencias", "multiplicadores", "loanbook", "planes"],
+    },
+    # ── Reglas nuevas (12) — agregadas en task 260401-d5z ──────────────────────
+    {
+        "rule_id": "auteco_autoretenedor",
+        "categoria": "impuestos",
+        "titulo": "Auteco es autoretenedor — NUNCA aplicar ReteFuente",
+        "contenido": (
+            "AUTECO KAWASAKI S.A.S. NIT 860024781 es autoretenedor. "
+            "A este proveedor NUNCA se le aplica ReteFuente (ellos mismos la declaran). "
+            "Verificar certificado vigente. En SISMO: marcar autoretenedor=True en proveedores_config."
+        ),
+        "tags": ["autoretenedores", "retefuente", "auteco", "proveedores"],
+    },
+    {
+        "rule_id": "endpoint_journals",
+        "categoria": "contabilidad",
+        "titulo": "Endpoint correcto para comprobantes: /journals",
+        "contenido": (
+            "SIEMPRE usar el endpoint /journals para crear comprobantes contables en Alegra. "
+            "NUNCA usar /journal-entries — retorna 403 sin mensaje de error util. "
+            "Este error costo un build completo (ERROR-008)."
+        ),
+        "tags": ["endpoints_alegra", "journals", "asientos", "contabilidad"],
+    },
+    {
+        "rule_id": "endpoint_categories",
+        "categoria": "contabilidad",
+        "titulo": "Endpoint correcto para cuentas: /categories",
+        "contenido": (
+            "SIEMPRE usar /categories para consultar el plan de cuentas en Alegra. "
+            "NUNCA usar /accounts — retorna 403. "
+            "Confirmado en auditoria Phase 01 con HTTP real."
+        ),
+        "tags": ["endpoints_alegra", "categories", "cuentas", "contabilidad"],
+    },
+    {
+        "rule_id": "fechas_alegra",
+        "categoria": "contabilidad",
+        "titulo": "Formato de fechas para Alegra: yyyy-MM-dd",
+        "contenido": (
+            "Las fechas para Alegra API deben ser formato yyyy-MM-dd estricto. "
+            "Ejemplo correcto: 2026-03-31. "
+            "NUNCA enviar ISO-8601 con timezone (ej: 2026-03-31T00:00:00Z) — "
+            "retorna 0 resultados sin error, lo que produce datos silenciosamente incorrectos."
+        ),
+        "tags": ["endpoints_alegra", "fechas", "formato", "contabilidad"],
+    },
+    {
+        "rule_id": "socios_cxc",
+        "categoria": "contabilidad",
+        "titulo": "Socios RODDOS: CXC, NUNCA gasto operativo",
+        "contenido": (
+            "Andres Sanjuan (CC 80075452) e Ivan Echeverri (CC 80086601) son socios de RODDOS. "
+            "Cualquier pago o prestamo a los socios va a CXC socios (cuenta Alegra ID 5329). "
+            "NUNCA registrar como gasto operativo. "
+            "Confirmar siempre si es CXC, anticipo de nomina, o gasto personal pagado por empresa."
+        ),
+        "tags": ["socios", "cxc", "gastos", "contabilidad"],
+    },
+    {
+        "rule_id": "retefuente_arriendo",
+        "categoria": "impuestos",
+        "titulo": "ReteFuente arrendamiento: 3.5%",
+        "contenido": (
+            "Tasa de retencion en la fuente para pagos de arrendamiento: 3.5%. "
+            "Aplica sobre el valor del canon mensual. "
+            "No aplica si el arrendador es autoretenedor."
+        ),
+        "tags": ["retefuente", "retenciones", "arrendamiento"],
+    },
+    {
+        "rule_id": "retefuente_servicios",
+        "categoria": "impuestos",
+        "titulo": "ReteFuente servicios: 4%",
+        "contenido": (
+            "Tasa de retencion en la fuente para pagos de servicios generales: 4%. "
+            "Aplica sobre el valor bruto del servicio. "
+            "No aplica si el proveedor es autoretenedor."
+        ),
+        "tags": ["retefuente", "retenciones", "servicios"],
+    },
+    {
+        "rule_id": "retefuente_compras",
+        "categoria": "impuestos",
+        "titulo": "ReteFuente compras: 2.5% (base minima $1.344.573)",
+        "contenido": (
+            "Tasa de retencion en la fuente para compras de bienes: 2.5%. "
+            "Base minima para aplicar: $1.344.573 COP (2026). "
+            "Compras por debajo de la base minima no tienen retencion. "
+            "No aplica si el proveedor es autoretenedor."
+        ),
+        "tags": ["retefuente", "retenciones", "compras"],
+    },
+    {
+        "rule_id": "reteica_bogota",
+        "categoria": "impuestos",
+        "titulo": "ReteICA Bogota: 0.414% en toda operacion",
+        "contenido": (
+            "ReteICA Bogota: tasa 0.414% (4.14 por mil) sobre el valor bruto de toda operacion comercial. "
+            "Aplica en Bogota para RODDOS en todas sus transacciones. "
+            "Se suma siempre a ReteFuente — son retenciones independientes."
+        ),
+        "tags": ["reteica", "retenciones", "bogota"],
+    },
+    {
+        "rule_id": "global66_alegra",
+        "categoria": "contabilidad",
+        "titulo": "Global66 en Alegra: ID 11100507",
+        "contenido": (
+            "La cuenta bancaria de Global66 en Alegra tiene ID 11100507. "
+            "Usar este ID en asientos de conciliacion bancaria cuando el banco origen es Global66. "
+            "Confirmar este ID antes de cada conciliacion si hay actualizaciones en el plan de cuentas."
+        ),
+        "tags": ["bancos", "global66", "alegra", "conciliacion"],
+    },
+    {
+        "rule_id": "vin_motor_factura",
+        "categoria": "contabilidad",
+        "titulo": "VIN y motor OBLIGATORIOS en factura de moto",
+        "contenido": (
+            "Toda factura de venta de motocicleta DEBE incluir VIN (numero de chasis) y numero de motor. "
+            "Formato Alegra: '[Modelo] [Color] - VIN: [chasis] / Motor: [motor]'. "
+            "Sin VIN y motor: HTTP 400. "
+            "Esta regla previene doble venta y permite trazabilidad completa (ERROR-014)."
+        ),
+        "tags": ["VIN", "motor", "factura", "moto", "inventario"],
+    },
+    {
+        "rule_id": "mora_diaria",
+        "categoria": "cartera",
+        "titulo": "Mora diaria RODDOS: $2.000/dia",
+        "contenido": (
+            "La mora en RODDOS es de $2.000 COP por dia de atraso. "
+            "Se cobra desde el jueves siguiente al vencimiento de la cuota (no el dia exacto). "
+            "Se calcula sobre la cuota vencida, no sobre el saldo total del loanbook. "
+            "DPD (Days Past Due) > 0 activa cobro de mora."
+        ),
+        "tags": ["mora", "cartera", "cobro", "cobranza", "duplicado", "pago"],
     },
 ]
 
