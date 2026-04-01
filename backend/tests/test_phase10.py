@@ -224,137 +224,141 @@ async def test_t4_approve_plan_false_cancels():
 
 
 # =============================================================================
-# GROUP 2: agent_memory — T5-T9 (xfail RED — Phase 10B not implemented yet)
+# GROUP 2: agent_memory — T5-T8 (GREEN — Phase 10B implemented)
+# T9: xfail — end-to-end with real Alegra requires deploy
 # =============================================================================
 
-@pytest.mark.xfail(reason="RED: Phase 10B — extract_and_save_memory not implemented yet")
 @pytest.mark.asyncio
-async def test_t5_extract_memory_saves_with_confidence():
+async def test_t5_extract_and_save_memory_saves_with_high_confidence():
     """T5: extract_and_save_memory() guarda en agent_memory con confidence >= 0.7."""
+    import json
     from tool_executor import extract_and_save_memory
 
     db = MagicMock()
     db.agent_memory = AsyncMock()
-    db.agent_memory.find_one = AsyncMock(return_value=None)
-    db.agent_memory.insert_one = AsyncMock(return_value=MagicMock(inserted_id="mem-001"))
+    db.agent_memory.update_one = AsyncMock()
 
-    conversation_text = (
-        "Usuario: ¿Cuánto le debo a Bancolombia?\n"
-        "Agente: Según los loanbooks activos, la deuda total es $94M COP."
-    )
-    result = await extract_and_save_memory(
-        conversation_text=conversation_text,
-        session_id="sess-memory-001",
-        db=db,
-        user={"id": "user-001"},
-    )
+    user = {"id": "user-001"}
+
+    # Mock anthropic client para retornar aprendizaje válido
+    mock_resp_content = MagicMock()
+    mock_resp_content.text = json.dumps({
+        "has_learning": True,
+        "key": "auteco_autoretenedor",
+        "value": "Auteco NIT 860024781 es AUTORETENEDOR — nunca aplicar ReteFuente",
+        "source": "correction",
+        "confidence": 0.95,
+    })
+    mock_resp = MagicMock()
+    mock_resp.content = [mock_resp_content]
+
+    mock_client = AsyncMock()
+    mock_client.messages.create = AsyncMock(return_value=mock_resp)
+
+    import os
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch("tool_executor._anthropic") as mock_anthropic:
+            mock_anthropic.AsyncAnthropic.return_value = mock_client
+
+            result = await extract_and_save_memory(
+                request="Registra gasto proveedor Auteco",
+                result={"success": True, "alegra_id": "J-005"},
+                db=db,
+                user=user,
+            )
 
     assert result is not None
-    assert "saved" in result or "memories" in result
-    # Verificar que se llamó insert_one con confidence >= 0.7
-    if db.agent_memory.insert_one.called:
-        call_doc = db.agent_memory.insert_one.call_args[0][0]
-        assert call_doc.get("confidence", 0) >= 0.7
+    assert result["key"] == "auteco_autoretenedor"
+    assert result["confidence"] >= 0.7
+    assert db.agent_memory.update_one.called
 
 
-@pytest.mark.xfail(reason="RED: Phase 10B — extract_and_save_memory upsert not implemented yet")
 @pytest.mark.asyncio
-async def test_t6_extract_memory_upsert_no_duplicate():
-    """T6: extract_and_save_memory() hace upsert (no duplica si key existe)."""
+async def test_t6_extract_and_save_memory_upserts_not_duplicates():
+    """T6: extract_and_save_memory() hace upsert — no duplica si key ya existe."""
+    import json
     from tool_executor import extract_and_save_memory
 
-    existing_memory = {
-        "memory_key": "deuda_bancolombia",
-        "value": "$94M COP",
-        "confidence": 0.85,
-        "user_id": "user-001",
-    }
-
     db = MagicMock()
     db.agent_memory = AsyncMock()
-    db.agent_memory.find_one = AsyncMock(return_value=existing_memory)
     db.agent_memory.update_one = AsyncMock()
-    db.agent_memory.insert_one = AsyncMock()
 
-    conversation_text = (
-        "Usuario: ¿Cuánto le debo a Bancolombia?\n"
-        "Agente: La deuda total es $94M COP."
-    )
-    await extract_and_save_memory(
-        conversation_text=conversation_text,
-        session_id="sess-memory-002",
-        db=db,
-        user={"id": "user-001"},
-    )
+    user = {"id": "user-001"}
 
-    # Upsert: update_one debe ser llamado, insert_one NO
-    assert db.agent_memory.update_one.called
-    assert not db.agent_memory.insert_one.called
+    mock_resp_content = MagicMock()
+    mock_resp_content.text = json.dumps({
+        "has_learning": True,
+        "key": "banco_preferido_nequi",
+        "value": "Usuario prefiere Nequi para pagos de cartera",
+        "source": "preference",
+        "confidence": 0.80,
+    })
+    mock_resp = MagicMock()
+    mock_resp.content = [mock_resp_content]
+
+    mock_client = AsyncMock()
+    mock_client.messages.create = AsyncMock(return_value=mock_resp)
+
+    import os
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}):
+        with patch("tool_executor._anthropic") as mock_anthropic:
+            mock_anthropic.AsyncAnthropic.return_value = mock_client
+
+            # Llamar 2 veces con mismo request
+            await extract_and_save_memory("Pago cartera Nequi", {"success": True}, db, user)
+            await extract_and_save_memory("Pago cartera Nequi", {"success": True}, db, user)
+
+    # update_one con upsert=True fue llamado 2 veces (no insert_one)
+    assert db.agent_memory.update_one.call_count == 2
+    # Verificar que usa upsert=True en ambas llamadas
+    for call in db.agent_memory.update_one.call_args_list:
+        assert call[1].get("upsert") is True
 
 
-@pytest.mark.xfail(reason="RED: Phase 10B — build_agent_prompt memory section not implemented yet")
 @pytest.mark.asyncio
-async def test_t7_build_agent_prompt_includes_memory():
-    """T7: build_agent_prompt() incluye sección MEMORIA PERSISTENTE cuando hay registros."""
-    from ai_chat import build_agent_prompt
+async def test_t7_system_prompt_includes_memory_section():
+    """T7: _load_persistent_memory_section() incluye sección MEMORIA PERSISTENTE cuando hay registros."""
+    from ai_chat import _load_persistent_memory_section
 
     db = MagicMock()
-    db.agent_memory = AsyncMock()
-    # Simulate 2 memory records
-    db.agent_memory.find = MagicMock()
-    db.agent_memory.find.return_value.to_list = AsyncMock(return_value=[
-        {
-            "memory_key": "cliente_frecuente",
-            "value": "Andrés Martínez paga los lunes",
-            "confidence": 0.9,
-        },
-        {
-            "memory_key": "banco_preferido",
-            "value": "Bancolombia cuenta corriente",
-            "confidence": 0.8,
-        },
+    db.agent_memory = MagicMock()
+
+    # Mock the chained find().sort().to_list() call
+    mock_cursor = MagicMock()
+    mock_cursor.sort = MagicMock(return_value=mock_cursor)
+    mock_cursor.to_list = AsyncMock(return_value=[
+        {"key": "auteco_autoretenedor", "value": "Auteco NIT 860024781 es AUTORETENEDOR",
+         "source": "correction", "confidence": 0.95, "usage_count": 3},
+        {"key": "banco_preferido_nequi", "value": "Usuario prefiere Nequi para pagos",
+         "source": "preference", "confidence": 0.80, "usage_count": 1},
     ])
+    db.agent_memory.find = MagicMock(return_value=mock_cursor)
 
-    prompt = await build_agent_prompt(
-        user_id="user-001",
-        db=db,
-        include_memory=True,
-    )
+    section = await _load_persistent_memory_section(db, "user-001")
 
-    assert "MEMORIA" in prompt.upper() or "memoria" in prompt.lower()
-    assert "cliente_frecuente" in prompt or "Andrés Martínez" in prompt
+    assert "MEMORIA PERSISTENTE" in section
+    assert "auteco_autoretenedor" in section or "Auteco NIT" in section
 
 
-@pytest.mark.xfail(reason="RED: Phase 10B — single read action direct execution not implemented yet")
 @pytest.mark.asyncio
-async def test_t8_single_read_action_no_plan_created():
-    """T8: Plan con una sola acción de lectura NO crea agent_plans — ejecuta directo."""
-    from tool_executor import create_plan_or_execute_direct
+async def test_t8_single_read_tool_no_plan_created():
+    """T8: should_create_plan() retorna False para lectura única, True para escritura/multi."""
+    from tool_executor import should_create_plan
 
-    db = MagicMock()
-    db.agent_plans = AsyncMock()
-    db.agent_plans.insert_one = AsyncMock()
+    # Solo una lectura → no crear plan
+    single_read = [{"tool_name": "consultar_facturas", "tool_input": {"fecha_inicio": "2026-04-01", "fecha_fin": "2026-04-30"}}]
+    assert should_create_plan(single_read) is False
 
-    tool_calls = [
-        {
-            "tool_name": "consultar_cartera",
-            "tool_input": {},
-        }
+    # Una escritura → crear plan
+    single_write = [{"tool_name": "crear_causacion", "tool_input": {"description": "Gasto", "date": "2026-04-01", "entries": []}}]
+    assert should_create_plan(single_write) is True
+
+    # Múltiples acciones → crear plan
+    multi = [
+        {"tool_name": "consultar_facturas", "tool_input": {}},
+        {"tool_name": "crear_causacion", "tool_input": {}},
     ]
-
-    with patch("tool_executor.execute_chat_action_for_plan") as mock_exec:
-        mock_exec.return_value = {"success": True, "result": {"cartera": []}, "alegra_id": None}
-        result = await create_plan_or_execute_direct(
-            request="Muéstrame la cartera",
-            tool_calls=tool_calls,
-            session_id="sess-direct",
-            db=db,
-            user={"id": "user-001"},
-        )
-
-    # Single read action → executed directly, NO plan created
-    assert not db.agent_plans.insert_one.called
-    assert result.get("executed_direct") is True or result.get("status") == "completed"
+    assert should_create_plan(multi) is True
 
 
 @pytest.mark.xfail(reason="RED: Phase 10B — end-to-end 2 real actions not implemented yet")
