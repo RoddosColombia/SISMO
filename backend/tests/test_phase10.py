@@ -361,6 +361,66 @@ async def test_t8_single_read_tool_no_plan_created():
     assert should_create_plan(multi) is True
 
 
+# =============================================================================
+# GROUP 3: should_create_plan() with request text — T10-T12 (GREEN)
+# =============================================================================
+
+def test_t10_should_create_plan_detects_multi_op_from_request_text():
+    """T10: should_create_plan() retorna True cuando request describe 2 operaciones
+    aunque Anthropic haya retornado solo 1 tool_call (caso normal para Claude).
+    """
+    from tool_executor import should_create_plan
+
+    # Una sola tool_call de escritura + request con "e" multi-op
+    single_write = [{"tool_name": "crear_causacion", "tool_input": {}}]
+    assert should_create_plan(
+        single_write,
+        request="Registra arrendamiento $3.614.953 e internet $180.000",
+    ) is True
+
+
+def test_t11_should_create_plan_multi_op_keywords():
+    """T11: should_create_plan() detecta keywords "y", "también", "además" en request."""
+    from tool_executor import should_create_plan
+
+    # "y" connective
+    assert should_create_plan(
+        [{"tool_name": "crear_causacion", "tool_input": {}}],
+        request="Registra el arrendamiento y el gasto de internet",
+    ) is True
+
+    # "también"
+    assert should_create_plan(
+        [{"tool_name": "crear_causacion", "tool_input": {}}],
+        request="Registra el arrendamiento, también internet $180.000",
+    ) is True
+
+    # "además"
+    assert should_create_plan(
+        [{"tool_name": "crear_causacion", "tool_input": {}}],
+        request="Registra el arrendamiento, además registra internet",
+    ) is True
+
+
+def test_t12_should_create_plan_single_op_no_false_positive():
+    """T12: should_create_plan() no genera falsos positivos para requests simples."""
+    from tool_executor import should_create_plan
+
+    # Request simple sin multi-op → read tool no debe crear plan
+    single_read = [{"tool_name": "consultar_cartera", "tool_input": {}}]
+    assert should_create_plan(
+        single_read,
+        request="Muéstrame la cartera activa",
+    ) is False
+
+    # Request simple sin multi-op → write debe crear plan (comportamiento anterior)
+    single_write = [{"tool_name": "crear_causacion", "tool_input": {}}]
+    assert should_create_plan(
+        single_write,
+        request="Registra el arrendamiento $3.614.953",
+    ) is True
+
+
 @pytest.mark.xfail(reason="RED: Phase 10B — end-to-end 2 real actions not implemented yet")
 @pytest.mark.asyncio
 async def test_t9_execute_plan_2_real_actions_returns_alegra_ids():

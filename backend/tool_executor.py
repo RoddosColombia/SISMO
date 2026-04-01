@@ -392,7 +392,7 @@ async def cancel_plan(plan_id: str, db) -> dict:
 # ReAct Nivel 1 — Memoria Persistente (Phase 10B)
 # =============================================================================
 
-def should_create_plan(tool_calls: list) -> bool:
+def should_create_plan(tool_calls: list, request: str = "") -> bool:
     """
     Determina si se debe crear un agent_plan para las tool_calls dadas.
 
@@ -400,14 +400,35 @@ def should_create_plan(tool_calls: list) -> bool:
     - Una sola tool_call de LECTURA (consultar_facturas, consultar_cartera): False
     - Cualquier tool_call de ESCRITURA: True
     - Múltiples tool_calls (sin importar tipo): True
+    - request describe múltiples operaciones (keywords: "e", "y", "más", "también",
+      "además", "registra ... e", "registra ... y") aunque LLM haya retornado 1 sola
+      tool_call: True — el agente debe crear un plan de N pasos.
 
     Returns:
         True si se debe crear un plan y pedir aprobación al usuario
     """
+    import re as _re
+
     READ_TOOLS = {"consultar_facturas", "consultar_cartera"}
 
     if len(tool_calls) > 1:
         return True
+
+    # Detectar múltiples operaciones en el texto del request incluso cuando Anthropic
+    # solo retorna 1 tool_call por turno.
+    # Patrón: "Registra X e Y", "Registra X y Y", "registra X, Y", etc.
+    if request:
+        _req_lower = request.lower()
+        _MULTI_OP_PATTERNS = [
+            r"\be\s+\w",          # "e internet", "e arrendamiento"
+            r"\by\s+\w",          # "y también", "y el pago"
+            r"\btambién\b",
+            r"\bademás\b",
+            r"\bmás\b.*\bregistra\b|\bregistra\b.*\bmás\b",
+        ]
+        for pattern in _MULTI_OP_PATTERNS:
+            if _re.search(pattern, _req_lower):
+                return True
 
     if len(tool_calls) == 1:
         tool_name = tool_calls[0].get("tool_name") or tool_calls[0].get("name", "")
@@ -417,7 +438,7 @@ def should_create_plan(tool_calls: list) -> bool:
         # Escritura → crear plan
         return True
 
-    return False  # lista vacía — no crear plan
+    return False  # lista vacía y sin indicios multi-op — no crear plan
 
 
 import anthropic as _anthropic  # noqa: E402 — needed for mock patching in tests

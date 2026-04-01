@@ -2879,10 +2879,34 @@ async def process_chat(
     # ── Pending action intercept (tool_use confirmation flow) ────────────────
     # Must run BEFORE intent router so "Confirmar"/"Cancelar" never reaches LLM.
     _msg_lower = (user_message or "").strip().lower()
-    _CONFIRM_WORDS = {"confirmar", "confirm", "aceptar"}
-    _CANCEL_WORDS  = {"cancelar", "cancel", "rechazar"}
+    _CONFIRM_WORDS = {"confirmar", "confirm", "confirmo", "aceptar", "sí", "si", "ok", "dale"}
+    _CANCEL_WORDS  = {"cancelar", "cancel", "rechazar", "no"}
     if _msg_lower in _CONFIRM_WORDS or _msg_lower in _CANCEL_WORDS:
         _session = await db.agent_sessions.find_one({"session_id": session_id})
+
+        # ── Plan intercept (multi-action plan confirmation) ───────────────────
+        if _session and _session.get("pending_plan"):
+            _plan_id = _session["pending_plan"]["plan_id"]
+            from tool_executor import execute_plan, cancel_plan
+            if _msg_lower in _CONFIRM_WORDS:
+                _plan_result = await execute_plan(_plan_id, db, user)
+                await db.agent_sessions.update_one(
+                    {"session_id": session_id},
+                    {"$unset": {"pending_plan": ""}}
+                )
+                _plan_msg = _plan_result.get("summary") or f"Plan ejecutado: {_plan_result.get('completed_steps', 0)}/{_plan_result.get('total_steps', 0)} pasos completados."
+                if _plan_result.get("status") == "failed":
+                    _plan_msg = f"❌ Error en el plan: {_plan_result.get('error', 'Error desconocido')}"
+                return {"message": _plan_msg, "pending_action": None, "pending_plan": None, "session_id": session_id}
+            else:
+                await cancel_plan(_plan_id, db)
+                await db.agent_sessions.update_one(
+                    {"session_id": session_id},
+                    {"$unset": {"pending_plan": ""}}
+                )
+                return {"message": "Plan cancelado.", "pending_action": None, "pending_plan": None, "session_id": session_id}
+
+        # ── Single-action pending_action intercept ────────────────────────────
         if _session and _session.get("pending_action"):
             from tool_executor import confirm_pending_action
             if _msg_lower in _CONFIRM_WORDS:
@@ -3931,7 +3955,7 @@ async def process_chat(
 
         # Multi-tool or write tool → create plan + request approval (Phase 10B)
         from tool_executor import should_create_plan, create_plan as _create_plan
-        if should_create_plan(tool_calls_for_plan):
+        if should_create_plan(tool_calls_for_plan, request=user_message):
             plan_result = await _create_plan(
                 request=user_message,
                 tool_calls=tool_calls_for_plan,
@@ -3949,6 +3973,20 @@ async def process_chat(
                 "timestamp": now.isoformat(),
                 "user_id": user.get("id"),
             })
+            # Persist pending_plan in agent_sessions so "Confirmo" intercept can find it
+            await db.agent_sessions.update_one(
+                {"session_id": session_id},
+                {
+                    "$set": {
+                        "pending_plan": {
+                            "plan_id": plan_result["plan_id"],
+                            "total_steps": plan_result["total_steps"],
+                        },
+                        "updated_at": now.isoformat(),
+                    }
+                },
+                upsert=True,
+            )
             return {
                 "message": plan_description,
                 "pending_plan": plan_result,
