@@ -359,7 +359,8 @@ def _create_indexes(db):
     _safe_index(db.sismo_knowledge, [("rule_id", ASC)], unique=True,
                                      name="sismo_knowledge_rule_id_unique")
     _safe_index(db.sismo_knowledge, [("categoria", ASC)], name="sismo_knowledge_categoria")
-    total_indexes += 2
+    _safe_index(db.sismo_knowledge, [("tags", ASC)], name="sismo_knowledge_tags")
+    total_indexes += 3
 
     # ── notifications ────────────────────────────────────────────────────────
     _safe_index(db.notifications, [("user_id", ASC), ("leido", ASC)],
@@ -486,6 +487,8 @@ PLAN_CUENTAS_RODDOS = [
     {"categoria": "Financiero", "subcategoria": "Gastos_Bancarios",    "alegra_id": 5507, "cuenta_codigo": "530505", "cuenta_nombre": "Gastos bancarios",               "tipo_retefuente": "otros"},
     {"categoria": "Financiero", "subcategoria": "Seguros",             "alegra_id": 5493, "cuenta_codigo": "5195",   "cuenta_nombre": "Gastos generales (seguros)",     "tipo_retefuente": "otros"},
     {"categoria": "Financiero", "subcategoria": "GMF",                 "alegra_id": 5509, "cuenta_codigo": "531520", "cuenta_nombre": "Gravamen al movimiento financiero", "tipo_retefuente": "otros"},
+    # BANCOS
+    {"categoria": "Bancos", "subcategoria": "Global66", "alegra_id": 11100507, "cuenta_codigo": "11100507", "cuenta_nombre": "Global66 Colombia", "uso": "Banco principal operaciones RODDOS — pagos proveedores y recaudo", "tipo_retefuente": None},
     # OTROS — excluye Representacion (5495) pero mantiene Varios (5493) y Depreciacion
     {"categoria": "Otros", "subcategoria": "Varios",      "alegra_id": 5493, "cuenta_codigo": "5195", "cuenta_nombre": "Gastos generales",  "tipo_retefuente": "otros"},
     {"categoria": "Otros", "subcategoria": "Depreciacion", "alegra_id": 5501, "cuenta_codigo": "5160", "cuenta_nombre": "Depreciacion",      "tipo_retefuente": None},
@@ -638,11 +641,367 @@ SISMO_KNOWLEDGE = [
         ),
         "tags": ["frecuencias", "multiplicadores", "loanbook", "planes"],
     },
+    # ── Reglas nuevas (12) — agregadas en task 260401-d5z ──────────────────────
+    {
+        "rule_id": "auteco_autoretenedor",
+        "categoria": "impuestos",
+        "titulo": "Auteco es autoretenedor — NUNCA aplicar ReteFuente",
+        "contenido": (
+            "AUTECO KAWASAKI S.A.S. NIT 860024781 es autoretenedor. "
+            "A este proveedor NUNCA se le aplica ReteFuente (ellos mismos la declaran). "
+            "Verificar certificado vigente. En SISMO: marcar autoretenedor=True en proveedores_config."
+        ),
+        "tags": ["autoretenedores", "retefuente", "auteco", "proveedores"],
+    },
+    {
+        "rule_id": "endpoint_journals",
+        "categoria": "contabilidad",
+        "titulo": "Endpoint correcto para comprobantes: /journals",
+        "contenido": (
+            "SIEMPRE usar el endpoint /journals para crear comprobantes contables en Alegra. "
+            "NUNCA usar /journal-entries — retorna 403 sin mensaje de error util. "
+            "Este error costo un build completo (ERROR-008)."
+        ),
+        "tags": ["endpoints_alegra", "journals", "asientos", "contabilidad"],
+    },
+    {
+        "rule_id": "endpoint_categories",
+        "categoria": "contabilidad",
+        "titulo": "Endpoint correcto para cuentas: /categories",
+        "contenido": (
+            "SIEMPRE usar /categories para consultar el plan de cuentas en Alegra. "
+            "NUNCA usar /accounts — retorna 403. "
+            "Confirmado en auditoria Phase 01 con HTTP real."
+        ),
+        "tags": ["endpoints_alegra", "categories", "cuentas", "contabilidad"],
+    },
+    {
+        "rule_id": "fechas_alegra",
+        "categoria": "contabilidad",
+        "titulo": "Formato de fechas para Alegra: yyyy-MM-dd",
+        "contenido": (
+            "Las fechas para Alegra API deben ser formato yyyy-MM-dd estricto. "
+            "Ejemplo correcto: 2026-03-31. "
+            "NUNCA enviar ISO-8601 con timezone (ej: 2026-03-31T00:00:00Z) — "
+            "retorna 0 resultados sin error, lo que produce datos silenciosamente incorrectos."
+        ),
+        "tags": ["endpoints_alegra", "fechas", "formato", "contabilidad"],
+    },
+    {
+        "rule_id": "socios_cxc",
+        "categoria": "contabilidad",
+        "titulo": "Socios RODDOS: CXC, NUNCA gasto operativo",
+        "contenido": (
+            "Andres Sanjuan (CC 80075452) e Ivan Echeverri (CC 80086601) son socios de RODDOS. "
+            "Cualquier pago o prestamo a los socios va a CXC socios (cuenta Alegra ID 5329). "
+            "NUNCA registrar como gasto operativo. "
+            "Confirmar siempre si es CXC, anticipo de nomina, o gasto personal pagado por empresa."
+        ),
+        "tags": ["socios", "cxc", "gastos", "contabilidad"],
+    },
+    {
+        "rule_id": "retefuente_arriendo",
+        "categoria": "impuestos",
+        "titulo": "ReteFuente arrendamiento: 3.5%",
+        "contenido": (
+            "Tasa de retencion en la fuente para pagos de arrendamiento: 3.5%. "
+            "Aplica sobre el valor del canon mensual. "
+            "No aplica si el arrendador es autoretenedor."
+        ),
+        "tags": ["retefuente", "retenciones", "arrendamiento"],
+    },
+    {
+        "rule_id": "retefuente_servicios",
+        "categoria": "impuestos",
+        "titulo": "ReteFuente servicios: 4%",
+        "contenido": (
+            "Tasa de retencion en la fuente para pagos de servicios generales: 4%. "
+            "Aplica sobre el valor bruto del servicio. "
+            "No aplica si el proveedor es autoretenedor."
+        ),
+        "tags": ["retefuente", "retenciones", "servicios"],
+    },
+    {
+        "rule_id": "retefuente_compras",
+        "categoria": "impuestos",
+        "titulo": "ReteFuente compras: 2.5% (base minima $1.344.573)",
+        "contenido": (
+            "Tasa de retencion en la fuente para compras de bienes: 2.5%. "
+            "Base minima para aplicar: $1.344.573 COP (2026). "
+            "Compras por debajo de la base minima no tienen retencion. "
+            "No aplica si el proveedor es autoretenedor."
+        ),
+        "tags": ["retefuente", "retenciones", "compras"],
+    },
+    {
+        "rule_id": "reteica_bogota",
+        "categoria": "impuestos",
+        "titulo": "ReteICA Bogota: 0.414% en toda operacion",
+        "contenido": (
+            "ReteICA Bogota: tasa 0.414% (4.14 por mil) sobre el valor bruto de toda operacion comercial. "
+            "Aplica en Bogota para RODDOS en todas sus transacciones. "
+            "Se suma siempre a ReteFuente — son retenciones independientes."
+        ),
+        "tags": ["reteica", "retenciones", "bogota"],
+    },
+    {
+        "rule_id": "global66_alegra",
+        "categoria": "contabilidad",
+        "titulo": "Global66 en Alegra: ID 11100507",
+        "contenido": (
+            "La cuenta bancaria de Global66 en Alegra tiene ID 11100507. "
+            "Usar este ID en asientos de conciliacion bancaria cuando el banco origen es Global66. "
+            "Confirmar este ID antes de cada conciliacion si hay actualizaciones en el plan de cuentas."
+        ),
+        "tags": ["bancos", "global66", "alegra", "conciliacion"],
+    },
+    {
+        "rule_id": "vin_motor_factura",
+        "categoria": "contabilidad",
+        "titulo": "VIN y motor OBLIGATORIOS en factura de moto",
+        "contenido": (
+            "Toda factura de venta de motocicleta DEBE incluir VIN (numero de chasis) y numero de motor. "
+            "Formato Alegra: '[Modelo] [Color] - VIN: [chasis] / Motor: [motor]'. "
+            "Sin VIN y motor: HTTP 400. "
+            "Esta regla previene doble venta y permite trazabilidad completa (ERROR-014)."
+        ),
+        "tags": ["VIN", "motor", "factura", "moto", "inventario"],
+    },
+    {
+        "rule_id": "mora_diaria",
+        "categoria": "cartera",
+        "titulo": "Mora diaria RODDOS: $2.000/dia",
+        "contenido": (
+            "La mora en RODDOS es de $2.000 COP por dia de atraso. "
+            "Se cobra desde el jueves siguiente al vencimiento de la cuota (no el dia exacto). "
+            "Se calcula sobre la cuota vencida, no sobre el saldo total del loanbook. "
+            "DPD (Days Past Due) > 0 activa cobro de mora."
+        ),
+        "tags": ["mora", "cartera", "cobro", "cobranza", "duplicado", "pago"],
+    },
+    {
+        "rule_id": "url_base_alegra",
+        "categoria": "contabilidad",
+        "titulo": "URL base correcta de Alegra",
+        "contenido": (
+            "URL base: https://api.alegra.com/api/v1/ — "
+            "NUNCA https://app.alegra.com/api/r1/ que es incorrecta y retorna errores. "
+            "Auth: Basic base64(contabilidad@roddos.com:17a8a3b7016e1c15c514)"
+        ),
+        "tags": ["url", "alegra", "autenticacion", "contabilidad"],
+        "prioridad": 1,
+        "activo": True,
+    },
+    {
+        "rule_id": "rog1_verificacion",
+        "categoria": "contabilidad",
+        "titulo": "ROG-1: Verificar HTTP 200 antes de reportar exito",
+        "contenido": (
+            "Despues de todo POST a Alegra, hacer GET de verificacion. "
+            "Solo si HTTP 200 reportar exito. Usar request_with_verify(). "
+            "El juez es Alegra, no el agente. Sin verificacion hay exito falso."
+        ),
+        "tags": ["verificacion", "HTTP200", "request_with_verify", "alegra"],
+        "prioridad": 1,
+        "activo": True,
+    },
+    {
+        "rule_id": "mapa_endpoints",
+        "categoria": "contabilidad",
+        "titulo": "Mapa completo de endpoints Alegra",
+        "contenido": (
+            "GET/POST /invoices: facturas venta. "
+            "GET/POST /bills: facturas proveedor. "
+            "POST /journals: comprobantes. "
+            "DELETE /journals/{id}: eliminar. "
+            "GET /journals: listar. "
+            "GET /categories: plan cuentas. "
+            "GET/POST /payments: pagos. "
+            "GET /contacts: terceros."
+        ),
+        "tags": ["endpoints", "alegra", "journals", "invoices", "payments"],
+        "prioridad": 2,
+        "activo": True,
+    },
+    {
+        "rule_id": "ids_cuentas_gastos",
+        "categoria": "contabilidad",
+        "titulo": "IDs reales Alegra - cuentas de gastos",
+        "contenido": (
+            "Sueldos 5462, Honorarios 5470, Seguridad social 5471, Dotaciones 5472, "
+            "Arrendamiento 5480, Servicios publicos 5484, Telefono/Internet 5487, "
+            "Mantenimiento 5490, Transporte 5491, Papeleria 5497, Publicidad 5500, "
+            "Comisiones bancarias 5508, Seguros 5510, Intereses 5533, "
+            "Gastos Generales 5493 (FALLBACK). NUNCA ID 5495."
+        ),
+        "tags": ["cuentas", "gastos", "IDs", "alegra", "fallback"],
+        "prioridad": 1,
+        "activo": True,
+    },
+    {
+        "rule_id": "ids_cuentas_bancarias",
+        "categoria": "contabilidad",
+        "titulo": "IDs Alegra - cuentas bancarias RODDOS",
+        "contenido": (
+            "Bancolombia 111005 (recaudo cuotas), "
+            "BBVA 111010 (pagos proveedores), "
+            "Davivienda 111015, "
+            "Banco de Bogota 111020, "
+            "Global66 11100507 (banco principal operaciones 2026)."
+        ),
+        "tags": ["bancos", "cuentas", "IDs", "Bancolombia", "Global66", "BBVA"],
+        "prioridad": 1,
+        "activo": True,
+    },
+    {
+        "rule_id": "ids_retenciones",
+        "categoria": "contabilidad",
+        "titulo": "IDs Alegra - cuentas de retenciones",
+        "contenido": (
+            "ReteFuente practicada: ID 236505. "
+            "ReteICA practicada: ID 236560. "
+            "Siempre en CREDITO cuando RODDOS practica la retencion."
+        ),
+        "tags": ["retenciones", "ReteFuente", "ReteICA", "IDs", "alegra"],
+        "prioridad": 1,
+        "activo": True,
+    },
+    {
+        "rule_id": "empleados_nomina",
+        "categoria": "contabilidad",
+        "titulo": "Empleados RODDOS y salarios 2026",
+        "contenido": (
+            "Alexa: $4.500.000 desde feb 2026 (enero: $3.220.000). "
+            "Liz: $2.200.000 desde feb 2026 (enero: $1.472.000). "
+            "Luis: $3.220.000 enero 2026. "
+            "Anti-dup por empleado+mes+ano obligatorio."
+        ),
+        "tags": ["nomina", "empleados", "salarios", "Alexa", "Liz", "Luis"],
+        "prioridad": 2,
+        "activo": True,
+    },
+    {
+        "rule_id": "prestaciones_sociales",
+        "categoria": "contabilidad",
+        "titulo": "Prestaciones sociales Colombia",
+        "contenido": (
+            "Prima: 1 salario en junio y diciembre. "
+            "Vacaciones: 1.25 dias por mes trabajado. "
+            "Cesantias: salario/12 por mes, consignar antes 15 febrero. "
+            "Intereses cesantias: 12% anual, pagar en enero."
+        ),
+        "tags": ["prestaciones", "prima", "vacaciones", "cesantias", "nomina"],
+        "prioridad": 2,
+        "activo": True,
+    },
+    {
+        "rule_id": "umbral_conciliacion",
+        "categoria": "contabilidad",
+        "titulo": "Umbral de confianza para causacion automatica",
+        "contenido": (
+            "Motor matricial evalua cada movimiento bancario con puntuacion 0-1. "
+            "Mayor o igual 70%: causacion automatica en Alegra. "
+            "Menor 70%: estado pendiente + WhatsApp CEO+CGO. "
+            "Ningun movimiento se descarta silenciosamente."
+        ),
+        "tags": ["conciliacion", "umbral", "confianza", "automatico", "pendiente"],
+        "prioridad": 2,
+        "activo": True,
+    },
+    {
+        "rule_id": "anti_dup_tres_capas",
+        "categoria": "contabilidad",
+        "titulo": "Anti-duplicados en 3 capas para operaciones masivas",
+        "contenido": (
+            "Capa 1: hash en MongoDB. "
+            "Capa 2: verificar roddos_events. "
+            "Capa 3: GET en Alegra /journals. "
+            "Si pasa las 3: causar. Si falla en alguna: marcar duplicado, continuar. "
+            "Lotes >10 registros: BackgroundTasks + job_id obligatorio."
+        ),
+        "tags": ["duplicado", "anti-dup", "hash", "roddos_events", "journals"],
+        "prioridad": 1,
+        "activo": True,
+    },
+    {
+        "rule_id": "reglas_arquitectura",
+        "categoria": "contabilidad",
+        "titulo": "Reglas tecnicas inamovibles SISMO",
+        "contenido": (
+            "post_action_sync() despues de toda escritura en Alegra. "
+            "cfo_cache invalida inmediatamente. "
+            "Fechas siempre yyyy-MM-dd. "
+            "IDs cuentas desde plan_cuentas_roddos MongoDB, nunca hardcodeados. "
+            "Cobranza 100% remota, nunca visitas en campo."
+        ),
+        "tags": ["arquitectura", "post_action_sync", "cache", "fechas", "cobranza"],
+        "prioridad": 1,
+        "activo": True,
+    },
+    {
+        "rule_id": "asiento_completo_ejemplo",
+        "categoria": "contabilidad",
+        "titulo": "Ejemplo completo de asiento con retenciones",
+        "contenido": (
+            "Arrendamiento $3.614.953: "
+            "DEBITO Arrendamiento 5480 por $3.614.953. "
+            "CREDITO ReteFuente 236505 por $126.523 (3.5%). "
+            "CREDITO ReteICA 236560 por $14.966 (0.414%). "
+            "CREDITO Banco por $3.473.464 (neto a pagar). "
+            "Debitos = Creditos siempre."
+        ),
+        "tags": ["asiento", "retenciones", "arrendamiento", "ejemplo", "ReteFuente", "ReteICA"],
+        "prioridad": 2,
+        "activo": True,
+    },
+    {
+        "rule_id": "ingresos_tipos",
+        "categoria": "contabilidad",
+        "titulo": "Tipos de ingresos RODDOS y como causarlos",
+        "contenido": (
+            "Cuotas cartera: journal ingreso financiero cuenta 4165XX via tool B1. "
+            "Ventas motos: POST /invoices via tool B2, no journal manual. "
+            "Motos recuperadas: cuenta 4135XX journal. "
+            "Intereses bancarios: cuenta 4160XX journal. "
+            "Otros no operacionales: cuenta 4815XX journal."
+        ),
+        "tags": ["ingresos", "cartera", "ventas", "motos", "journals", "invoices"],
+        "prioridad": 2,
+        "activo": True,
+    },
+    {
+        "rule_id": "formato_item_factura",
+        "categoria": "contabilidad",
+        "titulo": "Formato obligatorio item factura venta moto",
+        "contenido": (
+            "Formato exacto: [Modelo] [Color] - VIN:[chasis] / Motor:[motor]. "
+            "Ejemplo: TVS Raider 125 Negro - VIN:9FL25AF31VDB95058 / Motor:BF3AT18C2356. "
+            "Sin brackets, sin uppercase forzado. "
+            "Sin este formato el inventario no detecta el VIN y la moto queda Disponible."
+        ),
+        "tags": ["VIN", "motor", "factura", "moto", "formato", "inventario"],
+        "prioridad": 1,
+        "activo": True,
+    },
+    {
+        "rule_id": "sismo_no_aprueba_creditos",
+        "categoria": "cartera",
+        "titulo": "SISMO evalua comportamiento, no aprueba creditos",
+        "contenido": (
+            "SISMO no es un sistema de aprobacion de creditos. "
+            "Es un sistema de evaluacion de comportamiento de pago. "
+            "El score A+ a E mide historial de pago de clientes existentes de RODDOS. "
+            "Permite saber si se puede volver a dar credito a alguien de forma agil basado en datos propios."
+        ),
+        "tags": ["creditos", "score", "comportamiento", "cartera", "evaluacion"],
+        "prioridad": 2,
+        "activo": True,
+    },
 ]
 
 
 def seed_sismo_knowledge(db) -> int:
-    """Siembra las 10 reglas de negocio para RAG. Upsert por rule_id."""
+    """Siembra las 37 reglas de negocio para RAG. Upsert por rule_id."""
     now = datetime.now(timezone.utc).isoformat()
     for rule in SISMO_KNOWLEDGE:
         db.sismo_knowledge.update_one(

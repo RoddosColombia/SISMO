@@ -39,6 +39,7 @@ class Banco(Enum):
     BBVA = "bbva"
     DAVIVIENDA = "davivienda"
     NEQUI = "nequi"
+    GLOBAL66 = "global66"
 
 
 @dataclass

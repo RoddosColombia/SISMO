@@ -1,30 +1,30 @@
 ---
 gsd_state_version: 1.0
-milestone: v23.0
+milestone: v2.0
 milestone_name: milestone
-status: Ready to plan
-stopped_at: Completed 07-01-PLAN.md — TDD RED phase for nomina mensual per-employee journals
-last_updated: "2026-03-31T23:36:19.879Z"
+status: In progress
+stopped_at: Completed 09-02 TDD GREEN phase — tool_executor.py + TOOL_USE_ENABLED branch + all 10 tests GREEN
+last_updated: "2026-04-01T18:57:00Z"
 progress:
-  total_phases: 8
-  completed_phases: 7
-  total_plans: 25
-  completed_plans: 25
+  total_phases: 9
+  completed_phases: 5
+  total_plans: 17
+  completed_plans: 18
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-30)
+See: .planning/PROJECT.md (updated 2026-03-26)
 
 **Core value:** Contabilidad automatizada sin intervencion humana + visibilidad financiera en tiempo real + orquestacion confiable de agentes via bus de eventos
-**Current focus:** Phase 05 — github-production-ready
+**Current focus:** Phase 5 — GitHub Production-Ready
 
 ## Current Position
 
-Phase: 6
-Plan: Not started
+Phase: 9
+Plan: 02 complete (Phase 9 complete — both waves done)
 
 ## Performance Metrics
 
@@ -42,72 +42,43 @@ Plan: Not started
 
 Decisions are logged in PROJECT.md Key Decisions table.
 
-- [2026-03-30]: Phase numbering reset to 1 for milestone v23.0 (fresh cycle after BUILD 24 complete)
-- [2026-03-30]: 8 phases map directly to 8 sprints S0-S7 defined by user — Phase 1 = S0 (auditoria), Phase 8 = S7 (smoke test)
-- [2026-03-30]: SMOKE requirements (SMOKE-01 to SMOKE-10) mapped as full requirements in Phase 8 — they are acceptance criteria AND requirements
-- [2026-03-30]: Phase 5 (Facturacion) marked with UI hint — involves invoices workflow that may touch frontend
-- [260330-fs8]: Hotfix ERROR-017 aplicado — ALEGRA_BASE_URL consolidada en 6 archivos, app.alegra.com/api/r1 eliminado
-- [Phase 01-auditoria-alegra]: backend/alegra_service.py es la UNICA fuente de verdad para llamadas Alegra — no existe utils/alegra.py ni services/alegra_service.py
-- [Phase 01-auditoria-alegra]: 5 modulos hacen bypass de AlegraService.request() con ALEGRA_BASE_URL directo — a consolidar en plan 01-02
-- [Phase 01-auditoria-alegra]: ACTION_MAP tiene 0 acciones de lectura directas a Alegra — las 5 faltantes son trabajo del plan 01-02
-- [Phase 01-auditoria-alegra]: Credenciales Alegra ausentes en entorno de agente — auditoria HTTP en modo estatico, script re-ejecutable con credenciales reales disponible en .planning/scripts/
-- [Phase 01-auditoria-alegra]: ACTION_MAP es 100% write-only via Alegra directa — las 5 acciones de lectura faltantes son trabajo prioritario de Fase 3
-- [Phase 01-auditoria-alegra]: 5 modulos hacen bypass de AlegraService.request() con ALEGRA_BASE_URL directo — consolidacion obligatoria en Fase 2
-- [Phase 01-VERIFIED]: AUDIT-02 cerrado con evidencia HTTP real por Andrés. Todos los endpoints criticos retornan 200. GET /accounts confirma 403. Phase 1 COMPLETE 4/4.
-- [Phase 02-nota]: Usar limit=50 en GET /invoices para traer todas las facturas de RODDOS (no limit=3). Aplicar en toda accion consultar_facturas del ACTION_MAP.
-- [Phase 02-consolidacion-capa-alegra]: Tests AlegraService usan asyncio.run() (patron existente en el proyecto, no @pytest.mark.asyncio)
-- [Phase 02-consolidacion-capa-alegra]: Mock _mock() solo acepta 'journals' — 'journal-entries' retorna {} para reflejar comportamiento real de produccion (403)
-- [Phase 02-consolidacion-capa-alegra]: causar_factura_en_alegra usa request_with_verify() — agrega verificacion POST+GET automatica (ALEGRA-03)
-- [Phase 02-consolidacion-capa-alegra]: crear_journal_alegra() usa request_with_verify() — POST + GET verificacion en un call, elimina ~40 lineas de logica httpx manual en bank_reconciliation.py
-- [Phase 02-consolidacion-capa-alegra]: _get_alegra_auth() eliminada de alegra_webhooks.py — AlegraService.is_demo_mode() es la unica fuente de verdad de credenciales
-- [Phase 02-consolidacion-capa-alegra]: Pre-flight guards en request() y _mock() bloquean /journal-entries y /accounts con HTTPException(400) antes de emitir llamada HTTP — ALEGRA-06 satisfecho
-- [Phase 03-mongodb-completo]: Lazy import de ai_chat dentro de cada test method — anthropic no instalado en Python 3.14 del worktree, patron identico a test_build23_f2
-- [Phase 03-mongodb-completo]: consultar_cartera lee MongoDB directamente (loanbook collection), NO llama AlegraService.request — validado via test patch + assert not called
-- [Phase 03-mongodb-completo]: reset_catalogo admin endpoint retains seed data as local variable _catalogo_seed — keeps emergency reset functional without a module-level CATALOGO_DEFAULT
-- [Phase 03-mongodb-completo]: ai_chat.py plan_cuentas read wrapped in try/except for graceful fallback if collection not seeded
-- [Phase 03-mongodb-completo]: MOCK_PAYMENTS placed in mock_data.py (not alegra_service.py) — consistent with all other MOCK_* constants in the project
-- [Phase 03-mongodb-completo]: 5 handlers inserted as special-case ifs BEFORE ACTION_MAP lookup — consistent with consultar_saldo_socio pattern, no ACTION_MAP modification needed
-- [Phase 04-agents-router-scheduler]: test_reteica_siempre_aplica_bogota passes in RED phase because calcular_retenciones already exists — 9/10 tests fail confirming RED
-- [Phase 04-agents-router-scheduler]: Phase 04-05 TDD: try/except ImportError at module level with None fallback — canonical RED phase import pattern for clasificar_gasto_chat
-- [Phase 04-agents-router-scheduler]: clasificar_gasto_chat() reutiliza REGLAS_CLASIFICACION matrix con prioridad: socio > honorarios > compras > keywords > fallback 5493 (NUNCA 5495)
-- [Phase 04-agents-router-scheduler]: crear_causacion traduce payload espanol (entradas/fecha/descripcion) a Alegra API (entries/date/observations) en handler especial linea 3987 para garantizar request_with_verify
-- [Phase 05-github-production-ready]: SimpleNamespace used for T1/T2 payloads to bypass Pydantic; patch(routers.ventas.db) required for T2-T6; sys.modules stubs needed for full routers/__init__.py chain
-- [Phase 05-github-production-ready]: observations field uses FACTURA-01 format (Modelo Color - VIN:x / Motor:x) for full vehicle traceability in Alegra invoice PDF
-- [Phase 06-01]: patch('routers.cartera.db', mock_db) required in each test — global db object must be replaced to make mock_db fixture effective
-- [Phase 06-01]: Module stubs loop (qrcode, cryptography, pdfplumber) added to cartera test isolation block — CI environment doesn't have these optional deps
-- [Phase 07]: One journal per employee in nomina mensual — independent Alegra records for audit trail. RegistrarNominaRequest uses mes: int + anio: int with per-empleado anti-duplicate guard (409).
+- [Phase 04]: Contador prompt kept verbatim from ai_chat.py AGENT_SYSTEM_PROMPT to preserve production-tested behavior
+- [Phase 04]: build_agent_prompt uses graceful fallback for missing kwargs placeholders — prevents KeyError in production
+- [Phase 04-02]: Used Claude Haiku for LLM-based intent routing with INTENT_THRESHOLD=0.7 replacing keyword-based is_cfo_query()
+- [Phase 04-03]: Use portfolio.resumen.calculado event type from catalog; source_agent=cfo for pipeline events; datos_override pattern in process_cfo_query for cache-first CFO reads
+- [Phase 04]: Stubbed anthropic module via sys.modules for tests without API key requirement
+- [Phase 04]: SC1 test validates CFO router entry via P&L/semaforo terms (cartera routes to RADAR)
+- [Phase 05]: Full README rewrite (not surgical cleanup) to eliminate Emergent/BUILD18/concesionario identity drift
+- [Phase 05]: CLAUDE.md appended with bus.emit() protocol and known errors — existing content preserved
+- [Phase 05-github-production-ready]: smoke_test bus health placed outside main DB try block — bus errors give 'degradado' not 'critico'
+- [Phase 05-02]: pytest-build24 job depends on backend-check to fail fast on syntax errors before running tests
+- [Phase 05-02]: smoke-post-deploy runs only on push to main to prevent hitting production on branch pushes
+- [Phase 09-01]: TOOL_DEFS standalone module (no ai_chat.py import) to avoid circular dependencies
+- [Phase 09-01]: requires_confirmation is metadata-only — stripped by get_tool_schemas_for_api() before Anthropic API call
+- [Phase 09-01]: T6 xfail asserts MongoDB persistence of pending_action to agent_sessions (production-safety, not just return dict)
+- [Phase 09-02]: TOOL_USE_ENABLED default=false ensures zero production behavior change until explicitly opted in
+- [Phase 09-02]: pending_action persisted to MongoDB agent_sessions both in process_chat() and tool_executor.py (belt-and-suspenders for Render cold starts)
+- [Phase 09-02]: timedelta local import at line 3467 removed — was causing UnboundLocalError via Python function scope shadowing of module-level import
 
 ### Pending Todos
 
-- Plan Phase 2: Consolidacion Capa Alegra (`/gsd:plan-phase 2`)
+None yet.
 
 ### Blockers/Concerns
 
-None.
+None yet.
 
 ### Quick Tasks Completed
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260330-fs8 | Hotfix ERROR-017: consolidar ALEGRA_BASE_URL, eliminar app.alegra.com/api/r1 (6 archivos) | 2026-03-30 | 26ceb5d | [260330-fs8-hotfix](./quick/260330-fs8-hotfix-cr-tico-error-017-la-url-base-de-/) |
-| 260331-9gd | Wiring clasificar_gasto_chat en crear_causacion: lazy import, inject _clasificacion, strip before POST, 2 tests | 2026-03-31 | 805c35c | [260331-9gd-wiring](./quick/260331-9gd-wiring-quir-rgico-importar-y-usar-clasif/) |
-| Phase 01-auditoria-alegra P01 | 20 | 1 tasks | 1 files |
-| Phase 01-auditoria-alegra P02 | 4 | 2 tasks | 3 files |
-| Phase 02-consolidacion-capa-alegra P01 | 112 | 2 tasks | 2 files |
-| Phase 02-consolidacion-capa-alegra P02 | 8 | 3 tasks | 3 files |
-| Phase 02-consolidacion-capa-alegra P03 | 525504 | 2 tasks | 2 files |
-| Phase 02-consolidacion-capa-alegra P04 | 10 | 2 tasks | 2 files |
-| Phase 03-mongodb-completo P01 | 15 | 1 tasks | 1 files |
-| Phase 03-mongodb-completo P02 | 12 | 2 tasks | 4 files |
-| Phase 03-mongodb-completo P02 | 20 | 2 tasks | 3 files |
-| Phase 04-agents-router-scheduler P05 | 8 | 1 tasks | 1 files |
-| Phase 04-agents-router-scheduler P06 | 25 | 2 tasks | 2 files |
-| Phase 05-github-production-ready P04 | 525597 | 1 tasks | 1 files |
-| Phase 05-github-production-ready P05 | 525525 | 1 tasks | 2 files |
-| Phase 06-ingresos-cuotas-cartera P01 | 12 | 1 tasks | 1 files |
+| 260401-d5z | Knowledge Base Service RAG: service + 22 reglas seed + admin API + process_chat() integration | 2026-04-01 | 78f2764 | [260401-d5z](./quick/260401-d5z-knowledge-base-service-rag-para-agentes-/) |
+| 260401-esw | Global66 webhook router: HMAC-SHA256 + MD5 anti-dup + confianza routing (Alegra /journals vs conciliacion_partidas) | 2026-04-01 | dcac02d | [260401-esw](./quick/260401-esw-global66-webhook-router-post-api-global6/) |
+| 260401-fq4 | Admin seed endpoints: POST /api/admin/run-seed + GET /api/admin/seed-status, 3 tests (knowledge_base/plan_cuentas/invalid) | 2026-04-01 | 567c8ed | [260401-fq4](./quick/260401-fq4-admin-seed-endpoint-post-api-admin-run-s/) |
 
 ## Session Continuity
 
-Last session: 2026-03-31T23:36:07.504Z
-Stopped at: Completed 07-01-PLAN.md — TDD RED phase for nomina mensual per-employee journals
+Last session: 2026-04-01
+Stopped at: Completed 09-02 — TDD GREEN phase for tool_use migration (tool_executor.py + ai_chat.py TOOL_USE_ENABLED + 10 tests GREEN)
 Resume file: None

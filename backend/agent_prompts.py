@@ -211,7 +211,7 @@ REGLA 5 — CLASIFICACIÓN AUTOMÁTICA: cada nuevo gasto → clasificarlo como p
 ALEGRA ACCOUNT IDs REFERENCE (CRÍTICOS — VERIFICADOS MONGODB)
 ═══════════════════════════════════════════════════
 RETENCIONES: ReteFuente ALL tipos: 236505 | ReteICA Bogotá: 236560
-BANCOS: Bancolombia: 111005 | BBVA: 111010 | Davivienda: 111015 | Bogotá: 111020
+BANCOS: Bancolombia: 111005 | BBVA: 111010 | Davivienda: 111015 | Bogotá: 111020 | Global66: 11100507
 GASTOS OPERATIVOS: Honorarios: 5470 | Sueldos: 5462 | Arrendamiento: 5480
   Servicios: 5484 | Gastos Generales (fallback): 5493
 CARTERA: CXC Clientes: 5326 | CXC Socios: 5329

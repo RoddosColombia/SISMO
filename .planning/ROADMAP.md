@@ -20,10 +20,11 @@ BUILD 23 hace al Agente Contador completamente operacional con Alegra. Cada oper
 - [x] **Phase 2: Consolidacion Capa Alegra** - Unica fuente de verdad para Alegra, request_with_verify() robusto, errores en espanol (completed 2026-03-30)
 - [x] **Phase 3: ACTION_MAP Completo** - Cinco acciones de lectura nuevas (facturas, pagos, journals, cartera, plan_cuentas) funcionales en el chat (completed 2026-03-31)
 - [x] **Phase 4: Chat Transaccional Real** - Gasto en lenguaje natural → clasificacion matricial → ReteFuente/ReteICA → journal en Alegra con ID verificado (completed 2026-03-31)
-- [x] **Phase 5: Facturacion Venta Motos** - POST /invoices con VIN + motor obligatorios, inventario actualizado, loanbook creado (completed 2026-03-31)
-- [ ] **Phase 6: Ingresos Cuotas Cartera** - Pago de cuota → POST /payments → journal ingreso en Alegra, anti-duplicados activo
-- [ ] **Phase 7: Nomina Mensual** - Journals discriminados por empleado en Alegra con anti-duplicados por mes
+- [ ] **Phase 5: Facturacion Venta Motos** - POST /invoices con VIN + motor obligatorios, inventario actualizado, loanbook creado
+- [x] **Phase 6: Ingresos Cuotas Cartera** - Pago de cuota → POST /payments → journal ingreso en Alegra, anti-duplicados activo (completed 2026-03-31)
+- [x] **Phase 7: Nomina Mensual** - Journals discriminados por empleado en Alegra con anti-duplicados por mes (completed 2026-03-31)
 - [ ] **Phase 8: Smoke Test Final** - 10 criterios Alegra 100% verificados end-to-end en produccion
+- [ ] **Phase 9: Tool Use Agente Contador** - Migrar process_chat() de ACTION_MAP + XML parsing a loop nativo tool_use de Anthropic API
 
 ## Phase Details
 
@@ -93,7 +94,10 @@ Plans:
   2. Intento de crear factura sin VIN o sin motor retorna HTTP 400 con mensaje claro — Alegra nunca recibe la llamada
   3. Factura creada exitosamente → moto en inventario_motos aparece con estado Vendida
   4. Factura creada exitosamente → loanbook en estado pendiente_entrega existe + evento factura.venta.creada aparece en roddos_events
-**Plans**: TBD
+**Plans:** 2 plans (05-04, 05-05)
+Plans:
+- [ ] 05-04-PLAN.md -- TDD: Fix test isolation (qrcode stub) + update T6 for FACTURA-01 format
+- [ ] 05-05-PLAN.md -- Fix ventas.py description format per FACTURA-01 (GREEN)
 **UI hint**: yes
 
 ### Phase 6: Ingresos Cuotas Cartera
@@ -104,7 +108,10 @@ Plans:
   1. Registrar un pago de cuota → POST /payments type:in → journal ingreso aparece en Alegra con cuenta de plan_ingresos_roddos — HTTP 200 confirmado
   2. Intentar registrar el mismo pago dos veces → sistema detecta el duplicado y retorna error claro, ningun segundo registro creado en Alegra
   3. CFO consultando portfolio_summaries puede ver el recaudo del pago registrado — el ingreso es visible en reportes financieros
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [x] 06-01-PLAN.md — TDD: Fix test isolation (qrcode stub) + T1-T6 GREEN + T7 RED (anti-duplicado) (completed 2026-03-31)
+- [x] 06-02-PLAN.md — Implement anti-duplicate guard (T7 GREEN) + fix cartera_pagos→portfolio wiring (T8 GREEN) (completed 2026-03-31)
 
 ### Phase 7: Nomina Mensual
 **Goal**: La nomina de cada mes queda registrada en Alegra con un asiento por empleado, y el sistema impide registrar el mismo mes dos veces
@@ -114,7 +121,10 @@ Plans:
   1. Registrar nomina enero 2026 → tres journals en Alegra (Alexa $3.220.000, Luis $3.220.000, Liz $1.472.000) — cada uno con HTTP 200 verificado
   2. Registrar nomina febrero 2026 → dos journals en Alegra (Alexa $4.500.000, Liz $2.200.000) — cada uno con HTTP 200 verificado
   3. Intentar registrar nomina de enero 2026 por segunda vez → sistema bloquea con error claro "nomina enero ya registrada para [empleado]"
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 07-01-PLAN.md — TDD: Test suite T1-T7 for nomina mensual (journals per employee, anti-duplicate)
+- [ ] 07-02-PLAN.md — Implement nomina.py router + wire into server.py (T1-T7 GREEN)
 
 ### Phase 8: Smoke Test Final
 **Goal**: Los 10 criterios de Alegra 100% estan verificados end-to-end en produccion — BUILD 23 puede darse por completado al 8.5/10
@@ -127,6 +137,21 @@ Plans:
   4. Alegra caido → el sistema retorna error en espanol y la UI sigue funcionando sin romper
 **Plans**: TBD
 
+### Phase 9: Tool Use Agente Contador
+**Goal**: process_chat() usa el loop nativo tool_use de Anthropic API — sin `<action>` XML parsing, sin ACTION_MAP string dispatch, con definiciones de herramientas tipadas y loop agentico real
+**Depends on**: Phase 8
+**Requirements**: TOOLUSE-01, TOOLUSE-02, TOOLUSE-03, TOOLUSE-04, TOOLUSE-05
+**Success Criteria** (what must be TRUE):
+  1. "Pagamos arriendo $3.614.953" → Claude llama tool `crear_causacion` con JSON estructurado → journal en Alegra con HTTP 200 verificado — sin intermediacion XML
+  2. Cero usos de `<action>` o `</action>` en el flujo contador — el XML parsing es codigo muerto
+  3. Cada tool tiene input_schema JSON con tipos, required fields, y descriptions — el LLM no puede llamar una tool con payload invalido
+  4. Rollback: una variable de entorno `TOOL_USE_ENABLED=false` activa el flujo antiguo sin deployar nuevo codigo
+  5. Los tests del BUILD activo (permissions, event_bus, mongodb_init, phase4_agents) siguen pasando sin modificacion
+**Plans:** 2 plans
+Plans:
+- [ ] 09-01-PLAN.md -- TDD RED: Tool definitions + failing test suite for tool_use loop
+- [ ] 09-02-PLAN.md -- TDD GREEN: Implement tool_use branch in process_chat + tool_executor
+
 ## Progress
 
 **Execution Order:**
@@ -138,7 +163,7 @@ Phases execute in strict dependency order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | 2. Consolidacion Capa Alegra | 4/4 | Complete    | 2026-03-31 |
 | 3. ACTION_MAP Completo | 2/2 | Complete   | 2026-03-31 |
 | 4. Chat Transaccional Real | 6/6 | Complete   | 2026-03-31 |
-| 5. Facturacion Venta Motos | 5/5 | Complete   | 2026-03-31 |
-| 6. Ingresos Cuotas Cartera | 0/TBD | Not started | - |
-| 7. Nomina Mensual | 0/TBD | Not started | - |
+| 5. Facturacion Venta Motos | 0/2 | In progress | - |
+| 6. Ingresos Cuotas Cartera | 2/2 | Complete | 2026-03-31 |
+| 7. Nomina Mensual | 0/2 | Not started | - |
 | 8. Smoke Test Final | 0/TBD | Not started | - |

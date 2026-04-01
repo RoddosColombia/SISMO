@@ -10,6 +10,12 @@ from datetime import datetime, timezone, timedelta
 from fastapi import HTTPException
 import anthropic
 
+# ── Knowledge Base Service — RAG para reglas de negocio institucionales ───────
+try:
+    from services.knowledge_base_service import get_context_for_operation as _kb_get_context
+except ImportError:
+    _kb_get_context = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -1783,7 +1789,7 @@ RETENCIONES PRACTICADAS (Cuentas por Pagar):
   ReteICA Bogotá (0.414%): 236560
 
 BANCOS (Cuentas por Pagar/Activos):
-  Bancolombia: 111005 | BBVA: 111010 | Davivienda: 111015 | Banco de Bogotá: 111020
+  Bancolombia: 111005 | BBVA: 111010 | Davivienda: 111015 | Banco de Bogotá: 111020 | Global66: 11100507
 
 GASTOS OPERATIVOS (Ingresos y Gastos):
   Honorarios: 5470 | Sueldos: 5462 | Arrendamiento: 5480 | Servicios: 5484
@@ -2082,8 +2088,17 @@ async def gather_context(user_message: str, alegra_service, db) -> dict:
         except Exception:
             pass
         # Include plan_ingresos + CXC socios context
-        from routers.ingresos import PLAN_INGRESOS_RODDOS
-        context["plan_ingresos_roddos"] = PLAN_INGRESOS_RODDOS
+        try:
+            _plan_ingresos = await db.plan_ingresos_roddos.find(
+                {"activo": True}, {"_id": 0}
+            ).to_list(100)
+            context["plan_ingresos_roddos"] = [
+                {"tipo_ingreso": e.get("tipo_ingreso", ""), "alegra_id": e.get("alegra_id"),
+                 "cuenta_nombre": e.get("cuenta_nombre", "")}
+                for e in _plan_ingresos
+            ]
+        except Exception:
+            pass
         context["socios_cxc"] = [
             {"nombre": "Andres Sanjuan",  "cedula": "80075452", "cxc_alegra_id": 5329},
             {"nombre": "Ivan Echeverri",  "cedula": "80086601", "cxc_alegra_id": 5329},
@@ -2693,7 +2708,7 @@ async def process_document_chat(
     else:
         _file_block = {"type": "image", "source": {"type": "base64", "media_type": file_type, "data": file_content}}
     _doc_resp = await _doc_client.messages.create(
-        model="claude-sonnet-4-5-20250929",
+        model="claude-opus-4-6",
         max_tokens=4096,
         system=system_prompt,
         messages=[{"role": "user", "content": [_file_block, {"type": "text", "text": text}]}],
@@ -2829,6 +2844,23 @@ async def process_chat(
             file_name or "documento", file_type or "image/jpeg",
             db, user
         )
+
+    # ── Pending action intercept (tool_use confirmation flow) ────────────────
+    # Must run BEFORE intent router so "Confirmar"/"Cancelar" never reaches LLM.
+    _msg_lower = (user_message or "").strip().lower()
+    if _msg_lower in ("confirmar", "confirm", "sí", "si", "yes", "ok", "aceptar"):
+        _session = await db.agent_sessions.find_one({"session_id": session_id})
+        if _session and _session.get("pending_action"):
+            from tool_executor import confirm_pending_action
+            _result = await confirm_pending_action(session_id, confirmed=True, db=db, user=user)
+            _msg = _result.get("message", "Acción ejecutada exitosamente.")
+            return {"message": _msg, "pending_action": None, "session_id": session_id}
+    elif _msg_lower in ("cancelar", "cancel", "no", "rechazar"):
+        _session = await db.agent_sessions.find_one({"session_id": session_id})
+        if _session and _session.get("pending_action"):
+            from tool_executor import confirm_pending_action
+            _result = await confirm_pending_action(session_id, confirmed=False, db=db, user=user)
+            return {"message": "Acción cancelada.", "pending_action": None, "session_id": session_id}
 
     # ── Intent Router (LLM-based confidence scoring) ─────────────────────────
     from agent_router import classify_intent
@@ -3025,6 +3057,33 @@ async def process_chat(
         .replace("{honorarios_instruccion}", honorarios_instruccion)
         .replace("{cfo_context}", cfo_ctx_str)
     )
+
+    # ── MODULE KB: Inyectar reglas de negocio relevantes desde Knowledge Base ──
+    # Detecta el intent basico del mensaje para buscar reglas RAG relevantes.
+    # Solo inyecta si hay reglas disponibles para el tipo de operacion detectado.
+    if _kb_get_context is not None:
+        _msg_lower_kb = user_message.lower()
+        _kb_operation = None
+        if any(kw in _msg_lower_kb for kw in ["arriendo", "arrendamiento", "alquiler"]):
+            _kb_operation = "registrar_arriendo"
+        elif any(kw in _msg_lower_kb for kw in ["factura", "moto", "vin", "motor"]):
+            _kb_operation = "crear_factura_moto"
+        elif any(kw in _msg_lower_kb for kw in ["pago", "cuota", "cartera", "abonar"]):
+            _kb_operation = "registrar_pago_cartera"
+        elif any(kw in _msg_lower_kb for kw in ["nomina", "nómina", "salario", "sueldo"]):
+            _kb_operation = "registrar_nomina"
+        elif any(kw in _msg_lower_kb for kw in ["gasto", "servicio", "honorario", "compra", "proveedor"]):
+            _kb_operation = "registrar_gasto"
+        elif any(kw in _msg_lower_kb for kw in ["conciliacion", "extracto", "banco"]):
+            _kb_operation = "conciliacion"
+
+        if _kb_operation:
+            try:
+                _kb_context = await _kb_get_context(_kb_operation, db)
+                if _kb_context:
+                    system_prompt += "\n\n" + _kb_context
+            except Exception as _kb_err:
+                logger.warning(f"knowledge_base_service error (non-blocking): {_kb_err}")
 
     # ── MODULE 4: Inyectar temas pendientes del usuario (BUILD 21) ────────────
     user_id = user.get("id", "")
@@ -3431,7 +3490,6 @@ async def process_chat(
         )
         if _session_errors == 0:
             # Also check by recent timestamp (last 30 min, same user)
-            from datetime import timedelta
             _cutoff = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
             _session_errors = await db.agent_errors.count_documents({
                 "timestamp": {"$gte": _cutoff},
@@ -3583,7 +3641,7 @@ async def process_chat(
             _summary_msgs = [m for m in old_msgs[:60] if m.get("role") in ("user", "assistant")]
             _summary_msgs.append({"role": "user", "content": "Resume los puntos clave de esta conversación."})
             _summary_resp = await _summary_client.messages.create(
-                model="claude-sonnet-4-5-20250929",
+                model="claude-opus-4-6",
                 max_tokens=512,
                 system=(
                     "Eres un asistente que resume conversaciones de contabilidad. "
@@ -3778,18 +3836,129 @@ async def process_chat(
 
     _system_text = "\n\n".join(_system_parts) if _system_parts else system_prompt
 
-    _chat_resp = await _chat_client.messages.create(
-        model="claude-sonnet-4-5-20250929",
+    # ── Feature flag: TOOL_USE_ENABLED (D-02) ───────────────────────────────
+    tool_use_enabled = os.environ.get("TOOL_USE_ENABLED", "").lower() == "true"
+
+    if tool_use_enabled:
+        from tool_definitions import get_tool_schemas_for_api, TOOL_DEFS
+        tools_param = get_tool_schemas_for_api()
+    else:
+        tools_param = None  # No tools= kwarg → XML flow sin cambios
+
+    # ── LLM call — preserva cache_control ephemeral (D-05) ──────────────────
+    create_kwargs = dict(
+        model="claude-opus-4-6",
         max_tokens=4096,
         system=[
             {
                 "type": "text",
                 "text": _system_text,
-                "cache_control": {"type": "ephemeral"}
+                "cache_control": {"type": "ephemeral"},
             }
         ],
         messages=_chat_msgs,
     )
+    if tools_param:
+        create_kwargs["tools"] = tools_param
+
+    _chat_resp = await _chat_client.messages.create(**create_kwargs)
+
+    # ── Tool use detection (D-01, D-04) ──────────────────────────────────────
+    if tool_use_enabled and _chat_resp.stop_reason == "tool_use":
+        text_parts = [b.text for b in _chat_resp.content if b.type == "text"]
+        tool_block = next(
+            (b for b in _chat_resp.content if b.type == "tool_use"), None
+        )
+
+        clean_response = "\n".join(text_parts).strip()
+        tool_name = tool_block.name
+        tool_input = tool_block.input
+        tool_id = tool_block.id
+
+        tool_def = TOOL_DEFS.get(tool_name)
+
+        if tool_def and tool_def["requires_confirmation"]:
+            # Write tool — persistir en MongoDB y retornar propuesta (D-01)
+            now = datetime.now(timezone.utc)
+            pending_mongo = {
+                "type": tool_name,
+                "payload": tool_input,
+                "tool_name": tool_name,
+                "tool_input": tool_input,
+                "created_at": now.isoformat(),
+                "expires_at": (now + timedelta(hours=72)).isoformat(),
+            }
+            await db.agent_sessions.update_one(
+                {"session_id": session_id},
+                {
+                    "$set": {
+                        "pending_action": pending_mongo,
+                        "updated_at": now.isoformat(),
+                    }
+                },
+                upsert=True,
+            )
+
+            pending_action = {
+                "type": tool_name,
+                "payload": tool_input,
+                "tool_use_id": tool_id,
+            }
+            await db.chat_messages.insert_one({
+                "id": str(uuid.uuid4()),
+                "session_id": session_id,
+                "role": "assistant",
+                "content": clean_response,
+                "timestamp": now.isoformat(),
+                "user_id": user.get("id"),
+            })
+            return {
+                "message": clean_response,
+                "pending_action": pending_action,
+                "session_id": session_id,
+            }
+
+        elif tool_def and not tool_def["requires_confirmation"]:
+            # Read tool — auto-ejecutar y hacer segundo LLM call (D-01)
+            from tool_executor import execute_tool
+            tool_result = await execute_tool(
+                tool_name, tool_input, db, user, session_id=session_id
+            )
+
+            # Agentic loop: enviar resultado al modelo para respuesta en lenguaje natural
+            _chat_msgs.append({"role": "assistant", "content": _chat_resp.content})
+            _chat_msgs.append({
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tool_id,
+                        "content": json.dumps(tool_result, ensure_ascii=False, default=str),
+                    }
+                ],
+            })
+
+            _followup = await _chat_client.messages.create(
+                **{**create_kwargs, "messages": _chat_msgs}
+            )
+            followup_text = _followup.content[0].text
+
+            await db.chat_messages.insert_one({
+                "id": str(uuid.uuid4()),
+                "session_id": session_id,
+                "role": "assistant",
+                "content": followup_text,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "user_id": user.get("id"),
+            })
+            return {
+                "message": followup_text,
+                "pending_action": None,
+                "session_id": session_id,
+                "tool_result": tool_result,
+            }
+
+    # ── Fallback: XML flow (para end_turn o TOOL_USE_ENABLED=false) (D-04) ───
     response_text = _chat_resp.content[0].text
 
     # Parse action block

@@ -165,7 +165,7 @@ async def consolidar_datos_financieros(db) -> dict:
     try:
         cartera_pagos_mes = await db.cartera_pagos.find(
             {"fecha_pago": {"$gte": mes_inicio, "$lte": mes_fin}},
-            {"_id": 0, "valor_pagado": 1, "monto": 1, "fecha_pago": 1},
+            {"_id": 0, "valor_pagado": 1, "monto": 1, "monto_pago": 1, "fecha_pago": 1},
         ).to_list(5000)
     except Exception as e:
         logger.warning(f"[CFO] cartera_pagos: {e}")
@@ -418,7 +418,7 @@ async def analizar_flujo_caja(datos: dict) -> dict:
     # Ingresos reales del mes desde cartera_pagos
     cartera_pagos = datos.get("cartera_pagos_mes", [])
     ingresos_reales = sum(
-        float(p.get("valor_pagado", p.get("monto", 0)) or 0)
+        float(p.get("monto_pago", p.get("valor_pagado", p.get("monto", 0))) or 0)
         for p in cartera_pagos
     )
     # Si cartera_pagos está vacío, usar cobrado_mes como proxy

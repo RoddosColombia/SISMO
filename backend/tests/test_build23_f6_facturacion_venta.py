@@ -4,6 +4,40 @@ BUILD 23 — F6 Facturación Venta Motos: Test Suite (T1-T6)
 Tests for automatic invoice creation and loanbook generation.
 Each test validates a critical scenario for F6 functionality.
 """
+import os
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from unittest.mock import MagicMock
+
+# Stub heavy/unavailable modules — imported transitively through routers chain
+# This matches the Phase 3/4 pattern to make imports test-environment safe
+for _mod in (
+    # 2FA / security
+    "qrcode", "qrcode.constants", "qrcode.image", "qrcode.image.svg",
+    "pyotp",
+    "cryptography", "cryptography.fernet",
+    # MongoDB
+    "motor", "motor.motor_asyncio",
+    # PDF/Excel
+    "pdfplumber",
+    "openpyxl",
+    "pandas",
+    # AI / external
+    "anthropic",
+    # APScheduler
+    "apscheduler", "apscheduler.schedulers", "apscheduler.schedulers.asyncio",
+    "apscheduler.triggers", "apscheduler.triggers.interval", "apscheduler.triggers.cron",
+):
+    if _mod not in sys.modules:
+        sys.modules[_mod] = MagicMock()
+
+# Stub database module — prevents MONGO_URL KeyError at import time
+if "database" not in sys.modules:
+    _db_stub = MagicMock()
+    _db_stub.db = MagicMock()
+    sys.modules["database"] = _db_stub
+
 import pytest
 import json
 from datetime import datetime
@@ -21,6 +55,8 @@ def mock_db():
     db.inventario_motos = AsyncMock()
     db.loanbook = AsyncMock()
     db.roddos_events = AsyncMock()
+    db.catalogo_planes = AsyncMock()
+    db.catalogo_planes.find_one = AsyncMock(return_value=None)  # no custom plan config
     return db
 
 
@@ -76,19 +112,26 @@ async def test_t1_bloquear_sin_vin(mock_db, mock_user):
     """
     from routers.ventas import crear_factura_venta
     from fastapi import HTTPException
+    from types import SimpleNamespace
 
-    payload = {
-        "cliente_nombre": "Test Client",
-        "cliente_nit": "1023456789",
-        "cliente_telefono": "3001234567",
-        "moto_chasis": "",  # MISSING VIN
-        "moto_motor": "BF3AT18C2356",
-        "plan": "P39S",
-        "precio_venta": 9000000,
-        "cuota_inicial": 1500000,
-        "valor_cuota": 192307.69,
-        "modo_pago": "semanal",
-    }
+    # Use SimpleNamespace to simulate payload with attribute access (bypasses Pydantic)
+    payload = SimpleNamespace(
+        cliente_nombre="Test Client",
+        cliente_nit="1023456789",
+        cliente_telefono="3001234567",
+        moto_chasis="",  # MISSING VIN
+        moto_motor="BF3AT18C2356",
+        plan="P39S",
+        precio_venta=9000000,
+        cuota_inicial=1500000,
+        valor_cuota=192307.69,
+        modo_pago="semanal",
+        tipo_identificacion="CC",
+        incluir_soat=False,
+        incluir_matricula=False,
+        incluir_gps=False,
+        moto_modelo_key=None,
+    )
 
     with pytest.raises(HTTPException) as exc_info:
         await crear_factura_venta(payload, mock_user)
@@ -111,24 +154,33 @@ async def test_t2_mutex_anti_doble_venta(mock_db, mock_user, moto_vendida):
     """
     from routers.ventas import crear_factura_venta
     from fastapi import HTTPException
+    from types import SimpleNamespace
 
     mock_db.inventario_motos.find_one = AsyncMock(return_value=moto_vendida)
 
-    payload = {
-        "cliente_nombre": "Test Client",
-        "cliente_nit": "1023456789",
-        "cliente_telefono": "3001234567",
-        "moto_chasis": moto_vendida["chasis"],
-        "moto_motor": moto_vendida["motor"],
-        "plan": "P39S",
-        "precio_venta": 9000000,
-        "cuota_inicial": 1500000,
-        "valor_cuota": 192307.69,
-        "modo_pago": "semanal",
-    }
+    # Use SimpleNamespace to simulate payload with attribute access (bypasses Pydantic)
+    payload = SimpleNamespace(
+        cliente_nombre="Test Client",
+        cliente_nit="1023456789",
+        cliente_telefono="3001234567",
+        moto_chasis=moto_vendida["chasis"],
+        moto_motor=moto_vendida["motor"],
+        plan="P39S",
+        precio_venta=9000000,
+        cuota_inicial=1500000,
+        valor_cuota=192307.69,
+        modo_pago="semanal",
+        tipo_identificacion="CC",
+        incluir_soat=False,
+        incluir_matricula=False,
+        incluir_gps=False,
+        moto_modelo_key=None,
+    )
 
-    with pytest.raises(HTTPException) as exc_info:
-        await crear_factura_venta(payload, mock_user)
+    # Patch module-level db so the function uses mock_db
+    with patch("routers.ventas.db", mock_db):
+        with pytest.raises(HTTPException) as exc_info:
+            await crear_factura_venta(payload, mock_user)
 
     assert exc_info.value.status_code == 400
     assert "no se puede vender" in str(exc_info.value.detail)
@@ -180,24 +232,26 @@ async def test_t3_crear_factura_retorna_id(mock_db, mock_user, moto_disponible):
         cuota_inicial=1500000,
         valor_cuota=192307.69,
         modo_pago="semanal",
+        tipo_identificacion="CC",
     )
 
-    with patch("routers.ventas.AlegraService") as MockService:
-        mock_service = AsyncMock()
-        MockService.return_value = mock_service
+    with patch("routers.ventas.db", mock_db):
+        with patch("routers.ventas.AlegraService") as MockService:
+            mock_service = AsyncMock()
+            MockService.return_value = mock_service
 
-        # Mock service methods
-        mock_service.request = AsyncMock(side_effect=[
-            mock_client,  # GET contacts/{nit}
-            [{"id": "TAX19", "percentage": 19}],  # GET taxes
-            [],  # GET products (empty, will create)
-            {"id": "PROD-123", "name": "TVS Raider 125 Negro"},  # POST products
-        ])
-        mock_service.request_with_verify = AsyncMock(return_value=mock_invoice)
+            # Mock service methods
+            mock_service.request = AsyncMock(side_effect=[
+                mock_client,  # GET contacts/{nit}
+                [{"id": "TAX19", "percentage": 19}],  # GET taxes
+                [],  # GET products (empty, will create)
+                {"id": "PROD-123", "name": "TVS Raider 125 Negro"},  # POST products
+            ])
+            mock_service.request_with_verify = AsyncMock(return_value=mock_invoice)
 
-        with patch("routers.ventas.post_action_sync", new_callable=AsyncMock):
-            with patch("routers.ventas.invalidar_cache_cfo", new_callable=AsyncMock):
-                result = await crear_factura_venta(payload, mock_user)
+            with patch("routers.ventas.post_action_sync", new_callable=AsyncMock):
+                with patch("routers.ventas.invalidar_cache_cfo", new_callable=AsyncMock):
+                    result = await crear_factura_venta(payload, mock_user)
 
     # Validaciones
     assert result["success"] is True, "POST debe retornar success=True"
@@ -246,24 +300,24 @@ async def test_t4_moto_cambio_estado(mock_db, mock_user, moto_disponible):
         cuota_inicial=1500000,
         valor_cuota=192307.69,
         modo_pago="semanal",
+        tipo_identificacion="CC",
     )
 
-    with patch("routers.ventas.AlegraService"):
-        with patch("routers.ventas.AlegraService.return_value.request", new_callable=AsyncMock):
-            with patch("routers.ventas.AlegraService.return_value.request_with_verify", new_callable=AsyncMock, return_value=mock_invoice):
-                with patch("routers.ventas.post_action_sync", new_callable=AsyncMock):
-                    with patch("routers.ventas.invalidar_cache_cfo", new_callable=AsyncMock):
-                        with patch("routers.ventas.AlegraService") as MockService:
-                            mock_service = AsyncMock()
-                            MockService.return_value = mock_service
-                            mock_service.request = AsyncMock(side_effect=[
-                                {"id": "CT-123"},
-                                [{"id": "TAX19"}],
-                                [],
-                            ])
-                            mock_service.request_with_verify = AsyncMock(return_value=mock_invoice)
+    with patch("routers.ventas.db", mock_db):
+        with patch("routers.ventas.AlegraService") as MockService:
+            mock_service = AsyncMock()
+            MockService.return_value = mock_service
+            mock_service.request = AsyncMock(side_effect=[
+                {"id": "CT-123"},
+                [{"id": "TAX19"}],
+                [],  # GET products — empty, triggers POST products
+                {"id": "PROD-001", "name": "TVS Raider 125 Negro"},  # POST products
+            ])
+            mock_service.request_with_verify = AsyncMock(return_value=mock_invoice)
 
-                            result = await crear_factura_venta(payload, mock_user)
+            with patch("routers.ventas.post_action_sync", new_callable=AsyncMock):
+                with patch("routers.ventas.invalidar_cache_cfo", new_callable=AsyncMock):
+                    result = await crear_factura_venta(payload, mock_user)
 
     # Verificar que update_one fue llamado
     assert mock_db.inventario_motos.update_one.called, "update_one debe ser llamado"
@@ -323,21 +377,24 @@ async def test_t5_loanbook_pendiente_entrega(mock_db, mock_user, moto_disponible
         cuota_inicial=1500000,
         valor_cuota=192307.69,
         modo_pago="semanal",
+        tipo_identificacion="CC",
     )
 
-    with patch("routers.ventas.AlegraService") as MockService:
-        mock_service = AsyncMock()
-        MockService.return_value = mock_service
-        mock_service.request = AsyncMock(side_effect=[
-            {"id": "CT-123"},
-            [{"id": "TAX19"}],
-            [],
-        ])
-        mock_service.request_with_verify = AsyncMock(return_value=mock_invoice)
+    with patch("routers.ventas.db", mock_db):
+        with patch("routers.ventas.AlegraService") as MockService:
+            mock_service = AsyncMock()
+            MockService.return_value = mock_service
+            mock_service.request = AsyncMock(side_effect=[
+                {"id": "CT-123"},
+                [{"id": "TAX19"}],
+                [],  # GET products — empty, triggers POST products
+                {"id": "PROD-001", "name": "TVS Raider 125 Negro"},  # POST products
+            ])
+            mock_service.request_with_verify = AsyncMock(return_value=mock_invoice)
 
-        with patch("routers.ventas.post_action_sync", new_callable=AsyncMock):
-            with patch("routers.ventas.invalidar_cache_cfo", new_callable=AsyncMock):
-                result = await crear_factura_venta(payload, mock_user)
+            with patch("routers.ventas.post_action_sync", new_callable=AsyncMock):
+                with patch("routers.ventas.invalidar_cache_cfo", new_callable=AsyncMock):
+                    result = await crear_factura_venta(payload, mock_user)
 
     # Validaciones
     assert captured_loanbook is not None, "Loanbook debe ser creado"
@@ -401,21 +458,24 @@ async def test_t6_formato_vin_en_item(mock_db, mock_user, moto_disponible):
         cuota_inicial=1500000,
         valor_cuota=192307.69,
         modo_pago="semanal",
+        tipo_identificacion="CC",
     )
 
-    with patch("routers.ventas.AlegraService") as MockService:
-        mock_service = AsyncMock()
-        MockService.return_value = mock_service
-        mock_service.request = AsyncMock(side_effect=[
-            {"id": "CT-123"},
-            [{"id": "TAX19"}],
-            [],
-        ])
-        mock_service.request_with_verify = AsyncMock(side_effect=capture_invoice_payload)
+    with patch("routers.ventas.db", mock_db):
+        with patch("routers.ventas.AlegraService") as MockService:
+            mock_service = AsyncMock()
+            MockService.return_value = mock_service
+            mock_service.request = AsyncMock(side_effect=[
+                {"id": "CT-123"},
+                [{"id": "TAX19"}],
+                [],  # GET products — empty, triggers POST products
+                {"id": "PROD-001", "name": "TVS Raider 125 Negro"},  # POST products
+            ])
+            mock_service.request_with_verify = AsyncMock(side_effect=capture_invoice_payload)
 
-        with patch("routers.ventas.post_action_sync", new_callable=AsyncMock):
-            with patch("routers.ventas.invalidar_cache_cfo", new_callable=AsyncMock):
-                result = await crear_factura_venta(payload, mock_user)
+            with patch("routers.ventas.post_action_sync", new_callable=AsyncMock):
+                with patch("routers.ventas.invalidar_cache_cfo", new_callable=AsyncMock):
+                    result = await crear_factura_venta(payload, mock_user)
 
     # Validaciones
     assert captured_invoice_payload is not None, "Invoice payload debe ser capturado"
@@ -424,15 +484,16 @@ async def test_t6_formato_vin_en_item(mock_db, mock_user, moto_disponible):
     item = captured_invoice_payload["items"][0]
     description = item.get("description", "")
 
-    # Verificar formato exacto
-    expected_format = f"[TVS Raider 125] [Negro] - VIN: {moto_disponible['chasis']} / Motor: {moto_disponible['motor']}"
+    # FACTURA-01 required format: "Modelo Color - VIN:chasis / Motor:motor"
+    # Original case from inventario (NOT .upper()), no brackets, no space after VIN: and Motor:
+    expected_format = f"TVS Raider 125 Negro - VIN:{moto_disponible['chasis']} / Motor:{moto_disponible['motor']}"
     assert description == expected_format, f"Descripción no coincide. Expected: {expected_format}, Got: {description}"
 
-    # Verificar componentes
-    assert "[TVS Raider 125]" in description or "[Raider 125]" in description, "Debe incluir modelo"
-    assert "[Negro]" in description or "Negro" in description, "Debe incluir color"
-    assert f"VIN: {moto_disponible['chasis']}" in description, "Debe incluir VIN exacto"
-    assert f"Motor: {moto_disponible['motor']}" in description, "Debe incluir motor exacto"
+    # Verify individual components
+    assert "TVS Raider 125" in description, "Debe incluir modelo en case original (no .upper())"
+    assert "Negro" in description, "Debe incluir color"
+    assert f"VIN:{moto_disponible['chasis']}" in description, "Debe incluir VIN exacto sin espacio"
+    assert f"Motor:{moto_disponible['motor']}" in description, "Debe incluir motor exacto sin espacio"
 
     print(f"✅ T6 PASÓ: Formato VIN exacto en ítem: {description}")
 

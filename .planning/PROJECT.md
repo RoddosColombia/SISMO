@@ -26,28 +26,19 @@ Contabilidad automatizada sin intervencion humana (cada operacion financiera ref
 - [x] Clasificacion contable con accounting_engine (50+ reglas) — existing
 - [x] Registro de pagos de cuotas con sync a Alegra — existing
 - [x] Scheduler para tareas en background (APScheduler) — existing
+- [x] Anti-duplicate guard para pagos de cartera (HTTP 409) + cartera_pagos visible en portfolio CFO — Validated in Phase 06: ingresos-cuotas-cartera
 
-### Validated (BUILD 24 — Cimientos Definitivos)
+### Active (BUILD 24 — Cimientos Definitivos)
 
-- [x] Bus de eventos tipado y validado (EventBusService + DLQ + retry) — BUILD 24 Phase 2
-- [x] Permisos de escritura de agentes validados en codigo Python — BUILD 24 Phase 1
-- [x] MongoDB completo: 30+ colecciones con indices ESR, schema validation, datos sembrados — BUILD 24 Phase 3
-- [x] System prompts diferenciados por agente + router confidence 0.7 — BUILD 24 Phase 4
-- [x] Portfolio summaries pre-calculados (Computed Pattern) + financial reports — BUILD 24 Phase 4
-- [x] GitHub CI/CD expandido: pytest, smoke test, anti-pending check, Dependabot — BUILD 24 Phase 5
-- [x] CFO leyendo portfolio_summaries en vez de Alegra directo — BUILD 24 Phase 4
-
-### Active (BUILD 23 — Agente Contador 8.5/10 + Alegra 100%)
-
-- [ ] Auditoria completa de la capa Alegra — mapear que funciona, que esta roto, que falta
-- [ ] Unica fuente de verdad para comunicacion con Alegra (consolidar utils/alegra.py + alegra_service.py)
-- [ ] request_with_verify() robusto: POST → verificar con GET → HTTP 200 obligatorio
-- [ ] ACTION_MAP completo con acciones de lectura (consultar_facturas, consultar_pagos, consultar_journals, consultar_cartera, consultar_plan_cuentas)
-- [ ] Chat transaccional: gasto en lenguaje natural → clasificacion → ReteFuente/ReteICA → POST /journals → ID verificado
-- [ ] Facturacion venta motos: POST /invoices con VIN + motor obligatorios, formato "[Modelo] [Color] - VIN:[x] / Motor:[x]"
-- [ ] Ingresos cuotas: cada pago → POST /payments → journal ingreso en Alegra, anti-duplicados
-- [ ] Nomina mensual discriminada por empleado con anti-duplicados por mes
-- [ ] Smoke test final: 10 criterios Alegra 100% verificados
+- [ ] Bus de eventos tipado y validado (EventBusService + DLQ + retry, reemplaza event_bus.py falso)
+- [ ] Permisos de escritura de agentes validados en codigo Python (no en prompts del LLM)
+- [ ] MongoDB completo: 30+ colecciones con indices ESR, schema validation, datos sembrados
+- [ ] System prompts diferenciados por agente + router con confidence threshold 0.7
+- [ ] Portfolio summaries pre-calculados (Computed Pattern) + financial reports mensuales
+- [ ] sismo_knowledge como base RAG para reglas de negocio de los agentes
+- [x] GitHub CI/CD expandido: pytest, smoke test, anti-pending check, Dependabot — Validated in Phase 05: github-production-ready
+- [x] Facturación venta motos: FACTURA-01 (formato VIN/Motor), FACTURA-02 (validación HTTP 400), FACTURA-03 (estado Vendida), FACTURA-04 (loanbook + evento) — Validated in Phase 05: github-production-ready
+- [ ] CFO leyendo portfolio_summaries en vez de Alegra directo (70% menos llamadas API)
 
 ### Out of Scope
 
@@ -56,37 +47,25 @@ Contabilidad automatizada sin intervencion humana (cada operacion financiera ref
 - Integracion con bancos directa — se usa reconciliacion via CSV/Excel
 - Facturacion electronica DIAN en produccion — DIAN stubbed, se implementara cuando haya certificado
 
-## Previous Milestone: v2.0 BUILD 24 — Cimientos Definitivos ✓
+## Current Milestone: v2.0 BUILD 24 — Cimientos Definitivos
 
-**Goal:** Establecer los cimientos estructurales de SISMO — MongoDB completo, bus de eventos real, permisos de agentes en codigo, system prompts diferenciados, y CI/CD con pytest.
-**Score alcanzado:** 9.3/10 | Tag: `v24.0.0` | Hotfix: `v24-hotfix-alegra` (ERROR-017 URL base Alegra)
-
-## Current Milestone: v23.0 BUILD 23 — Agente Contador 8.5/10 + Alegra 100%
-
-**Goal:** Hacer al Agente Contador completamente operacional con Alegra — toda operacion financiera (gasto, pago, factura, nomina) ejecutada correctamente via API con verificacion HTTP 200.
+**Goal:** Establecer los cimientos estructurales de SISMO para escalar como fintech: MongoDB completo, bus de eventos real, permisos de agentes en codigo, system prompts diferenciados, y CI/CD con pytest.
 
 **Target features:**
-- S0: Auditoria Alegra — mapear exactamente que funciona con URL corregida
-- S1: Consolidacion capa Alegra (unica fuente de verdad, request_with_verify robusto)
-- S2: ACTION_MAP completo — acciones de lectura + escritura funcionales
-- S3: Chat transaccional real — gasto en lenguaje natural → journal en Alegra (F2: 3/10 → 7/10)
-- S4: Facturacion venta motos con VIN obligatorio (F6: 1/10 → 8/10)
-- S5: Ingresos cuotas cartera → journal ingreso en Alegra (F7: 5/10 → 8/10)
-- S6: Nomina mensual discriminada con anti-duplicados (F4: 0/10 → 7/10)
-- S7: Smoke test final — 10 criterios Alegra 100%
+- Bus de eventos real (EventBusService + DLQ + retry)
+- Permisos de escritura de agentes en codigo (WRITE_PERMISSIONS)
+- MongoDB 30+ colecciones con indices, validation, datos sembrados
+- System prompts diferenciados + confidence router 0.7
+- Portfolio summaries + financial reports pre-calculados
+- sismo_knowledge base RAG
+- GitHub CI/CD expandido + Dependabot
+- CFO lee portfolio_summaries, no Alegra directo
 
-**Score objetivo:** 9.3/10 → 8.5/10 Agente Contador (score independiente del sistema)
-
-**Restricciones tecnicas inamovibles:**
-- URL base: `https://api.alegra.com/api/v1/` (hotfix v24-hotfix-alegra aplicado)
-- `request_with_verify()` obligatorio en TODA operacion de escritura
-- Fechas: `yyyy-MM-dd` estricto — NUNCA ISO-8601 con timezone
-- Fallback cuentas: ID 5493 — NUNCA ID 5495
-- Auteco NIT 860024781 = AUTORETENEDOR — nunca aplicar ReteFuente
+**Score objetivo:** 9.0/10 → 9.3/10
 
 ## Context
 
-- **Estado actual:** BUILD 23 completado — Score 9.0/10
+- **Estado actual:** BUILD 23 en progreso — Phase 7 completa, Phase 8 (Smoke Test Final) siguiente
 - **Produccion:** 10 loanbooks activos, $94M COP cartera, 34 motos TVS
 - **Stack:** FastAPI + React 19 + TypeScript + MongoDB Atlas + Alegra API + Mercately + Claude Sonnet
 - **Arquitectura:** 6 capas horizontales + 5 nodos de negocio verticales + bus de eventos append-only
@@ -135,4 +114,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-03-30 — Milestone v23.0 BUILD 23 started*
+*Last updated: 2026-03-31 — Phase 05 complete: GitHub CI/CD + FACTURA-01-04 enforced in tests and production*

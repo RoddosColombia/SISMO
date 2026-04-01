@@ -1,10 +1,12 @@
-"""nomina.py — BUILD 23 — F4: Módulo Nómina Mensual
+"""nomina.py — BUILD 23 — F4/F8: Módulo Nómina Mensual
 
 Endpoints:
-  POST /api/nomina/registrar        — Register monthly payroll → create journal in Alegra
+  POST /api/nomina/registrar        — [F4] Register monthly payroll (aggregate journal)
+  POST /api/nomina/registrar-mensual — [F8] Register monthly payroll (one journal per employee)
   GET  /api/nomina/historial        — Get payroll history
   GET  /api/nomina/plan-cuentas     — Payroll account mappings
 """
+import calendar
 import logging
 import hashlib
 from datetime import datetime, timezone
@@ -99,16 +101,33 @@ async def obtener_cuenta_bancaria_nomina(banco_origen: str) -> int:
 # ══════════════════════════════════════════════════════════════════════════════
 
 class Empleado(BaseModel):
-    """Empleado y su monto de nómina."""
+    """Empleado y su monto de nómina (F4 legacy)."""
     nombre: str
     monto: float
 
 
-class RegistrarNominaRequest(BaseModel):
-    """Request schema for registering monthly payroll."""
+class RegistrarNominaLegacyRequest(BaseModel):
+    """Request schema for F4 legacy aggregate payroll (preserved for backward compat)."""
     mes: str              # "YYYY-MM" format
     empleados: List[Empleado]
     banco_pago: str       # "Bancolombia" | "BBVA" | etc.
+    observaciones: Optional[str] = None
+
+
+# ── F8: Per-employee journal models ─────────────────────────────────────────
+
+class EmpleadoNomina(BaseModel):
+    """Empleado con salario para F8 nómina mensual (un journal por empleado)."""
+    nombre: str
+    salario: float
+
+
+class RegistrarNominaRequest(BaseModel):
+    """Request schema for F8 per-employee monthly payroll registration."""
+    mes: int                    # 1-12
+    anio: int                   # e.g. 2026
+    empleados: List[EmpleadoNomina]
+    banco_origen: str = "Bancolombia"
     observaciones: Optional[str] = None
 
 
@@ -145,7 +164,7 @@ async def verificar_nomina_existente(mes: str, empleados: List[Empleado]) -> Opt
 
 @router.post("/registrar")
 async def registrar_nomina(
-    payload: RegistrarNominaRequest,
+    payload: RegistrarNominaLegacyRequest,
     current_user=Depends(get_current_user),
 ):
     """
@@ -371,6 +390,215 @@ async def registrar_nomina(
     except Exception as e:
         logger.error(f"[F4] Error registrando nómina: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error registrando nómina: {str(e)[:200]}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# F8: PER-EMPLOYEE JOURNAL HELPERS
+# ══════════════════════════════════════════════════════════════════════════════
+
+MESES = {
+    1: "enero", 2: "febrero", 3: "marzo", 4: "abril",
+    5: "mayo", 6: "junio", 7: "julio", 8: "agosto",
+    9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre"
+}
+
+
+def ultimo_dia_mes(mes: int, anio: int) -> str:
+    """Return the last day of the given month as YYYY-MM-DD."""
+    last_day = calendar.monthrange(anio, mes)[1]
+    return f"{anio}-{mes:02d}-{last_day:02d}"
+
+
+async def obtener_cuenta_gastos_nomina() -> int:
+    """
+    Get gastos nomina account ID from plan_cuentas_roddos.
+    Fallback: 5493 (Gastos Generales — per CLAUDE.md).
+    """
+    cuenta = await db.plan_cuentas_roddos.find_one({
+        "tipo": "gasto",
+        "categoria": {"$regex": "nomina|sueldos|salarios", "$options": "i"},
+        "activo": True
+    })
+    if cuenta:
+        return cuenta["alegra_id"]
+    logger.warning("[F8] Cuenta gastos nomina no encontrada, usando fallback 5493 (Gastos Generales)")
+    return 5493
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# F8: ENDPOINT — POST /registrar-mensual
+# ══════════════════════════════════════════════════════════════════════════════
+
+@router.post("/registrar-mensual")
+async def registrar_nomina_mensual(
+    payload: RegistrarNominaRequest,
+    current_user=Depends(get_current_user),
+):
+    """
+    [F8] Register monthly payroll — ONE journal per employee in Alegra.
+
+    CRITICAL FLOW:
+    1. Validate: mes 1-12, anio > 2020, empleados not empty, each salario > 0
+    2. FOR EACH empleado:
+       a. Anti-duplicate check: db.nomina_registros.find_one({empleado, mes, anio})
+          → If found: raise HTTPException(409)
+       b. Build journal payload (debit gastos_nomina, credit banco)
+       c. POST /journals via request_with_verify
+       d. If NOT _verificado → raise HTTPException(500) — DO NOT insert in nomina_registros
+       e. If _verificado → insert into nomina_registros
+    3. Publish nomina.mensual.registrada event
+    4. Return journal_ids list + totals
+    """
+    try:
+        # ── VALIDATIONS ───────────────────────────────────────────────────────
+        if not (1 <= payload.mes <= 12):
+            raise HTTPException(status_code=400, detail="mes debe estar entre 1 y 12")
+
+        if payload.anio <= 2020:
+            raise HTTPException(status_code=400, detail="anio debe ser mayor a 2020")
+
+        if not payload.empleados:
+            raise HTTPException(status_code=400, detail="empleados no puede estar vacío")
+
+        for emp in payload.empleados:
+            if not emp.nombre or not emp.nombre.strip():
+                raise HTTPException(status_code=400, detail="Nombre de empleado obligatorio")
+            if emp.salario <= 0:
+                raise HTTPException(status_code=400, detail=f"Salario para {emp.nombre} debe ser > 0")
+
+        mes_nombre = MESES[payload.mes]
+        fecha_pago = ultimo_dia_mes(payload.mes, payload.anio)
+
+        logger.info(
+            f"[F8] Registrar nómina {mes_nombre} {payload.anio}: "
+            f"{len(payload.empleados)} empleados"
+        )
+
+        # ── LOOKUP SHARED ACCOUNTS ────────────────────────────────────────────
+        gastos_nomina_id = await obtener_cuenta_gastos_nomina()
+        banco_id = await obtener_cuenta_bancaria_nomina(payload.banco_origen)
+        logger.info(f"[F8] Cuentas → gastos_nomina={gastos_nomina_id}, banco={banco_id}")
+
+        service = AlegraService(db)
+        resultados = []
+        errores = []
+
+        # ── PER-EMPLOYEE LOOP ─────────────────────────────────────────────────
+        for emp in payload.empleados:
+            nombre = emp.nombre.strip()
+            salario = emp.salario
+
+            # ANTI-DUPLICATE: check BEFORE calling Alegra
+            existing = await db.nomina_registros.find_one({
+                "empleado": nombre,
+                "mes": payload.mes,
+                "anio": payload.anio,
+            })
+            if existing:
+                logger.warning(
+                    f"[F8] DUPLICADO: nómina {mes_nombre} {payload.anio} para {nombre} "
+                    f"ya registrada (journal: {existing.get('alegra_journal_id')})"
+                )
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"nomina {mes_nombre} ya registrada para {nombre}"
+                )
+
+            # BUILD JOURNAL PAYLOAD
+            journal_payload = {
+                "date": fecha_pago,
+                "observations": f"Nomina {mes_nombre} {payload.anio} - {nombre}",
+                "entries": [
+                    {"id": gastos_nomina_id, "debit": salario, "credit": 0},
+                    {"id": banco_id, "debit": 0, "credit": salario},
+                ],
+            }
+
+            # CALL ALEGRA via request_with_verify
+            try:
+                journal_response = await service.request_with_verify(
+                    "journals", "POST", journal_payload
+                )
+            except Exception as e:
+                logger.error(f"[F8] POST /journals falló para {nombre}: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error creando journal en Alegra para {nombre}: {str(e)}"
+                )
+
+            # VERIFY — CRITICAL: only insert if _verificado=True
+            if not journal_response.get("_verificado"):
+                error_msg = journal_response.get(
+                    "_error_verificacion", "Verificación fallida sin detalles"
+                )
+                logger.error(f"[F8] Journal no verificado para {nombre}: {error_msg}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Journal no verificado en Alegra para {nombre}: {error_msg}"
+                )
+
+            journal_id = journal_response.get("id")
+            if not journal_id:
+                raise HTTPException(
+                    status_code=500, detail=f"Alegra no retornó ID del journal para {nombre}"
+                )
+
+            # INSERT INTO nomina_registros (only after _verificado=True)
+            nomina_doc = {
+                "empleado": nombre,
+                "mes": payload.mes,
+                "anio": payload.anio,
+                "salario": salario,
+                "alegra_journal_id": journal_id,
+                "fecha_registro": datetime.now(timezone.utc).isoformat(),
+            }
+            await db.nomina_registros.insert_one(nomina_doc)
+
+            resultados.append({
+                "empleado": nombre,
+                "salario": salario,
+                "journal_id": journal_id,
+            })
+            logger.info(f"[F8] ✅ Journal creado para {nombre}: {journal_id}")
+
+        # ── PUBLISH EVENT ─────────────────────────────────────────────────────
+        total_nomina = sum(r["salario"] for r in resultados)
+        event_doc = {
+            "event_type": "nomina.mensual.registrada",
+            "mes": payload.mes,
+            "anio": payload.anio,
+            "mes_nombre": mes_nombre,
+            "total_nomina": total_nomina,
+            "empleados_count": len(resultados),
+            "journals": [r["journal_id"] for r in resultados],
+            "fecha": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.roddos_events.insert_one(event_doc)
+        logger.info(
+            f"[F8] Evento nomina.mensual.registrada publicado — "
+            f"total=${total_nomina:,.0f}, empleados={len(resultados)}"
+        )
+
+        # ── RESPONSE ──────────────────────────────────────────────────────────
+        return {
+            "success": True,
+            "mes": payload.mes,
+            "anio": payload.anio,
+            "mes_nombre": mes_nombre,
+            "resultados": resultados,
+            "journal_ids": [r["journal_id"] for r in resultados],
+            "total_nomina": total_nomina,
+            "empleados_registrados": len(resultados),
+            "errores": errores,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[F8] Error registrando nómina mensual: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500, detail=f"Error registrando nómina mensual: {str(e)[:200]}"
+        )
 
 
 @router.get("/historial")
