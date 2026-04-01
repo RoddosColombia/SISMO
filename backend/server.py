@@ -62,6 +62,13 @@ except Exception as e:
     admin_kb_router = None
 
 try:
+    from routers import admin_seeds as admin_seeds_router
+    print("[OK] admin_seeds router loaded successfully")
+except Exception as e:
+    print(f"[ERROR] Failed to load admin_seeds router: {e}")
+    admin_seeds_router = None
+
+try:
     from routers import global66 as global66_router
     print("[OK] global66 router loaded successfully")
 except Exception as e:
@@ -213,6 +220,11 @@ if admin_kb_router:
     app.include_router(admin_kb_router.router, prefix=PREFIX)
 else:
     print("[WARN] admin_kb_router not loaded, skipping registration")
+
+if admin_seeds_router:
+    app.include_router(admin_seeds_router.router, prefix=PREFIX)
+else:
+    print("[WARN] admin_seeds_router not loaded, skipping registration")
 
 if global66_router:
     app.include_router(global66_router.router, prefix=PREFIX)
