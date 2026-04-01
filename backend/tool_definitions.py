@@ -21,33 +21,47 @@ TOOL_DEFS: dict = {
 
     "crear_causacion": {
         "description": (
-            "Crea un asiento contable (causación) en Alegra para registrar un gasto. "
-            "Úsalo cuando el usuario quiera registrar un pago o gasto con cargo a una cuenta del plan de cuentas. "
-            "Requiere monto, descripción, cuenta contable, fecha y banco de origen."
+            "Crea un asiento contable de partida doble (causación) en Alegra para registrar un gasto. "
+            "Úsalo cuando el usuario quiera registrar un pago o gasto con cargo a cuentas del plan de cuentas. "
+            "Requiere las líneas de débito y crédito (entries), fecha yyyy-MM-dd y descripción. "
+            "Débitos totales DEBEN ser iguales a créditos totales (ecuación contable)."
         ),
         "input_schema": {
             "type": "object",
-            "required": ["monto", "descripcion", "cuenta_id", "fecha", "banco_id"],
+            "required": ["entries", "date", "observations"],
             "properties": {
-                "monto": {
-                    "type": "number",
-                    "description": "Monto bruto de la transacción en COP (ej: 150000.0)"
+                "entries": {
+                    "type": "array",
+                    "description": (
+                        "Líneas del asiento contable — mínimo 2. Suma de débitos DEBE igualar suma de créditos. "
+                        "Usar IDs de cuentas desde plan_cuentas_roddos (ej: gasto=5493, banco=ID cuenta bancaria)."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "required": ["id", "debit", "credit"],
+                        "properties": {
+                            "id": {
+                                "type": "integer",
+                                "description": "ID numérico de la cuenta Alegra según plan_cuentas_roddos"
+                            },
+                            "debit": {
+                                "type": "number",
+                                "description": "Valor débito en COP. Poner 0 si esta línea es crédito."
+                            },
+                            "credit": {
+                                "type": "number",
+                                "description": "Valor crédito en COP. Poner 0 si esta línea es débito."
+                            },
+                        },
+                    },
                 },
-                "descripcion": {
+                "date": {
                     "type": "string",
-                    "description": "Descripción del gasto (ej: 'Arrendamiento bodega enero 2026')"
+                    "description": "Fecha del asiento en formato yyyy-MM-dd estricto (ej: '2026-01-15')"
                 },
-                "cuenta_id": {
-                    "type": "integer",
-                    "description": "ID de la cuenta Alegra del gasto según plan_cuentas_roddos (ej: 5493)"
-                },
-                "fecha": {
+                "observations": {
                     "type": "string",
-                    "description": "Fecha de la transacción en formato yyyy-MM-dd estricto (ej: '2026-01-15')"
-                },
-                "banco_id": {
-                    "type": "string",
-                    "description": "ID de la cuenta bancaria de origen en Alegra (ej: 'bbva_cte')"
+                    "description": "Descripción del asiento (ej: 'Arrendamiento bodega enero 2026')"
                 },
             },
         },
