@@ -2848,19 +2848,28 @@ async def process_chat(
     # ── Pending action intercept (tool_use confirmation flow) ────────────────
     # Must run BEFORE intent router so "Confirmar"/"Cancelar" never reaches LLM.
     _msg_lower = (user_message or "").strip().lower()
-    if _msg_lower in ("confirmar", "confirm", "sí", "si", "yes", "ok", "aceptar"):
+    _CONFIRM_WORDS = {"confirmar", "confirm", "aceptar"}
+    _CANCEL_WORDS  = {"cancelar", "cancel", "rechazar"}
+    if _msg_lower in _CONFIRM_WORDS or _msg_lower in _CANCEL_WORDS:
         _session = await db.agent_sessions.find_one({"session_id": session_id})
         if _session and _session.get("pending_action"):
             from tool_executor import confirm_pending_action
-            _result = await confirm_pending_action(session_id, confirmed=True, db=db, user=user)
-            _msg = _result.get("message", "Acción ejecutada exitosamente.")
-            return {"message": _msg, "pending_action": None, "session_id": session_id}
-    elif _msg_lower in ("cancelar", "cancel", "no", "rechazar"):
+            if _msg_lower in _CONFIRM_WORDS:
+                _result = await confirm_pending_action(session_id, confirmed=True, db=db, user=user)
+                _msg = _result.get("message", "Acción ejecutada exitosamente.")
+                return {"message": _msg, "pending_action": None, "session_id": session_id}
+            else:
+                await confirm_pending_action(session_id, confirmed=False, db=db, user=user)
+                return {"message": "Acción cancelada.", "pending_action": None, "session_id": session_id}
+    else:
+        # Not a confirm/cancel word — if pending_action exists, clear it to unblock future conversations
         _session = await db.agent_sessions.find_one({"session_id": session_id})
         if _session and _session.get("pending_action"):
-            from tool_executor import confirm_pending_action
-            _result = await confirm_pending_action(session_id, confirmed=False, db=db, user=user)
-            return {"message": "Acción cancelada.", "pending_action": None, "session_id": session_id}
+            await db.agent_sessions.update_one(
+                {"session_id": session_id},
+                {"$unset": {"pending_action": ""}}
+            )
+            # Continue to normal flow (do not return here)
 
     # ── Intent Router (LLM-based confidence scoring) ─────────────────────────
     from agent_router import classify_intent
