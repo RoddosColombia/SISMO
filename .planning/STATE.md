@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
 status: Milestone complete
-stopped_at: Completed quick task 260401-esw
-last_updated: "2026-04-01T00:00:00Z"
+stopped_at: Completed quick task 260401-fq4
+last_updated: "2026-04-01T16:28:00Z"
 progress:
   total_phases: 5
   completed_phases: 5
@@ -69,9 +69,10 @@ None yet.
 | 260330-fs8 | Hotfix ERROR-017: consolidar ALEGRA_BASE_URL, eliminar app.alegra.com/api/r1 (6 archivos) | 2026-03-30 | 26ceb5d | [260330-fs8-hotfix](./quick/260330-fs8-hotfix-cr-tico-error-017-la-url-base-de-/) |
 | 260401-d5z | Knowledge Base Service RAG: service + 22 reglas seed + admin API + process_chat() integration | 2026-04-01 | 78f2764 | [260401-d5z](./quick/260401-d5z-knowledge-base-service-rag-para-agentes-/) |
 | 260401-esw | Global66 webhook router: HMAC-SHA256 + MD5 anti-dup + confianza routing (Alegra /journals vs conciliacion_partidas) | 2026-04-01 | dcac02d | [260401-esw](./quick/260401-esw-global66-webhook-router-post-api-global6/) |
+| 260401-fq4 | Admin seed endpoints: POST /api/admin/run-seed + GET /api/admin/seed-status, 3 tests (knowledge_base/plan_cuentas/invalid) | 2026-04-01 | 567c8ed | [260401-fq4](./quick/260401-fq4-admin-seed-endpoint-post-api-admin-run-s/) |
 
 ## Session Continuity
 
 Last session: 2026-04-01
-Stopped at: Completed quick task 260401-esw — Global66 webhook router
+Stopped at: Completed quick task 260401-fq4 — Admin seed endpoints
 Resume file: None
