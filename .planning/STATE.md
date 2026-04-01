@@ -67,9 +67,10 @@ None yet.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260330-fs8 | Hotfix ERROR-017: consolidar ALEGRA_BASE_URL, eliminar app.alegra.com/api/r1 (6 archivos) | 2026-03-30 | 26ceb5d | [260330-fs8-hotfix](./quick/260330-fs8-hotfix-cr-tico-error-017-la-url-base-de-/) |
+| 260401-d5z | Knowledge Base Service RAG: service + 22 reglas seed + admin API + process_chat() integration | 2026-04-01 | 78f2764 | [260401-d5z](./quick/260401-d5z-knowledge-base-service-rag-para-agentes-/) |
 
 ## Session Continuity
 
-Last session: 2026-03-30
-Stopped at: Completed quick task 260330-fs8 — Hotfix ERROR-017 URL Alegra
+Last session: 2026-04-01
+Stopped at: Completed quick task 260401-d5z — Knowledge Base Service RAG para agentes
 Resume file: None
