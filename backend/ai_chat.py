@@ -4318,15 +4318,19 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
         logger.info(f"[F2] ✅ Journal creado en Alegra: ID={alegra_id}")
 
         # Llamar post_action_sync() para sincronizar MongoDB
+        post_action_sync = None
+        sync_result = {}
         try:
-            sync_result = await post_action_sync(
-                "crear_causacion",
-                result,
-                payload,
-                db,
-                user,
-                metadata=internal_metadata
-            )
+            from post_action_sync import post_action_sync
+            if post_action_sync is not None:
+                sync_result = await post_action_sync(
+                    "crear_causacion",
+                    result,
+                    payload,
+                    db,
+                    user,
+                    metadata=internal_metadata
+                )
         except Exception as e:
             logger.error(f"[F2] post_action_sync falló (no fatal): {str(e)}")
             sync_result = {"sync_messages": [f"⚠️ Asiento creado pero sincronización parcial: {str(e)}"]}
