@@ -1,15 +1,15 @@
 ---
 gsd_state_version: 1.0
-milestone: v2.0
+milestone: v23.0
 milestone_name: milestone
-status: In progress
-stopped_at: Completed 09-02 TDD GREEN phase — tool_executor.py + TOOL_USE_ENABLED branch + all 10 tests GREEN
-last_updated: "2026-04-01T18:57:00Z"
+status: Phase complete — ready for verification
+stopped_at: "Completed 10-02 — Persistent memory: extract_and_save_memory + should_create_plan + _load_persistent_memory_section + T5-T8 GREEN"
+last_updated: "2026-04-01T22:35:07.593Z"
 progress:
-  total_phases: 9
-  completed_phases: 5
-  total_plans: 17
-  completed_plans: 18
+  total_phases: 11
+  completed_phases: 11
+  total_plans: 33
+  completed_plans: 33
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-26)
 
 **Core value:** Contabilidad automatizada sin intervencion humana + visibilidad financiera en tiempo real + orquestacion confiable de agentes via bus de eventos
-**Current focus:** Phase 5 — GitHub Production-Ready
+**Current focus:** Phase 10 — ReAct Nivel 1 + Memoria Persistente
 
 ## Current Position
 
-Phase: 9
-Plan: 02 complete (Phase 9 complete — both waves done)
+Phase: 10 (ReAct Nivel 1 + Memoria Persistente) — EXECUTING
+Plan: 2 of 2
 
 ## Performance Metrics
 
@@ -59,6 +59,11 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase 09-02]: TOOL_USE_ENABLED default=false ensures zero production behavior change until explicitly opted in
 - [Phase 09-02]: pending_action persisted to MongoDB agent_sessions both in process_chat() and tool_executor.py (belt-and-suspenders for Render cold starts)
 - [Phase 09-02]: timedelta local import at line 3467 removed — was causing UnboundLocalError via Python function scope shadowing of module-level import
+- [Phase 10]: execute_plan() calls execute_chat_action_for_plan() wrapper — never calls Alegra directly (ERROR-004 prevention)
+- [Phase 10]: cancel_plan() is a standalone function (not method) to allow direct import in routers/chat.py without circular dependencies
+- [Phase 10]: extract_and_save_memory uses claude-haiku-4-5-20251001 for lightweight memory extraction (NOT Sonnet)
+- [Phase 10]: should_create_plan: READ_TOOLS={consultar_facturas,consultar_cartera}; any write or 2+ tools → create plan for approval
+- [Phase 10]: agent_memory new schema uses 'source' discriminator; legacy 'tipo' docs untouched
 
 ### Pending Todos
 
@@ -76,9 +81,11 @@ None yet.
 | 260401-d5z | Knowledge Base Service RAG: service + 22 reglas seed + admin API + process_chat() integration | 2026-04-01 | 78f2764 | [260401-d5z](./quick/260401-d5z-knowledge-base-service-rag-para-agentes-/) |
 | 260401-esw | Global66 webhook router: HMAC-SHA256 + MD5 anti-dup + confianza routing (Alegra /journals vs conciliacion_partidas) | 2026-04-01 | dcac02d | [260401-esw](./quick/260401-esw-global66-webhook-router-post-api-global6/) |
 | 260401-fq4 | Admin seed endpoints: POST /api/admin/run-seed + GET /api/admin/seed-status, 3 tests (knowledge_base/plan_cuentas/invalid) | 2026-04-01 | 567c8ed | [260401-fq4](./quick/260401-fq4-admin-seed-endpoint-post-api-admin-run-s/) |
+| Phase 10-react-nivel1-memoria-persistente P01 | 5 | 4 tasks | 3 files |
+| Phase 10 P02 | 6 | 4 tasks | 3 files |
 
 ## Session Continuity
 
-Last session: 2026-04-01
-Stopped at: Completed 09-02 — TDD GREEN phase for tool_use migration (tool_executor.py + ai_chat.py TOOL_USE_ENABLED + 10 tests GREEN)
+Last session: 2026-04-01T22:35:07.587Z
+Stopped at: Completed 10-02 — Persistent memory: extract_and_save_memory + should_create_plan + _load_persistent_memory_section + T5-T8 GREEN
 Resume file: None

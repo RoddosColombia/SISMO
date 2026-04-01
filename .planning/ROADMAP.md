@@ -25,6 +25,7 @@ BUILD 23 hace al Agente Contador completamente operacional con Alegra. Cada oper
 - [x] **Phase 7: Nomina Mensual** - Journals discriminados por empleado en Alegra con anti-duplicados por mes (completed 2026-03-31)
 - [ ] **Phase 8: Smoke Test Final** - 10 criterios Alegra 100% verificados end-to-end en produccion
 - [ ] **Phase 9: Tool Use Agente Contador** - Migrar process_chat() de ACTION_MAP + XML parsing a loop nativo tool_use de Anthropic API
+- [x] **Phase 10: ReAct Nivel 1 + Memoria Persistente** - Plan multi-accion aprobado por usuario + ejecucion autonoma secuencial + agent_memory sin TTL inyectada en system prompt (completed 2026-04-01)
 
 ## Phase Details
 
@@ -152,6 +153,23 @@ Plans:
 - [ ] 09-01-PLAN.md -- TDD RED: Tool definitions + failing test suite for tool_use loop
 - [ ] 09-02-PLAN.md -- TDD GREEN: Implement tool_use branch in process_chat + tool_executor
 
+### Phase 10: ReAct Nivel 1 + Memoria Persistente
+**Goal**: El Agente Contador puede ejecutar planes de multiples acciones de forma autonoma tras una sola aprobacion del usuario, y aprende de cada interaccion persistiendo aprendizajes sin TTL en agent_memory
+**Depends on**: Phase 9
+**Requirements**: REACT-01, REACT-02, REACT-03, REACT-04, REACT-05, REACT-06, REACT-07, REACT-08, REACT-09
+**Success Criteria** (what must be TRUE):
+  1. "Registra gasto internet Y pago cartera LB-0001" → agente propone plan de 2 pasos → usuario aprueba una vez → ambas acciones ejecutadas autonomamente con 2 alegra_ids en evidencia
+  2. create_plan() crea documento en agent_plans con status pending_approval antes de ejecutar nada
+  3. execute_plan() para en el primer paso fallido y retorna error descriptivo al usuario
+  4. Una sola accion de lectura se ejecuta directo sin crear agent_plans (comportamiento anterior preservado)
+  5. extract_and_save_memory() detecta aprendizajes y los persiste en agent_memory con confidence >= 0.7
+  6. System prompt incluye seccion "MEMORIA PERSISTENTE" con los ultimos 20 aprendizajes del usuario
+  7. T1-T8 pasan GREEN (T9 acepta xfail — requiere Alegra real para verificar 2 alegra_ids)
+**Plans:** 2/2 plans complete
+Plans:
+- [x] 10-01-PLAN.md -- Phase 10A: agent_plans + create_plan + execute_plan + approve-plan endpoint (T1-T4 GREEN)
+- [x] 10-02-PLAN.md -- Phase 10B: extract_and_save_memory + memory injection en system prompt (T5-T8 GREEN)
+
 ## Progress
 
 **Execution Order:**
@@ -167,3 +185,5 @@ Phases execute in strict dependency order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
 | 6. Ingresos Cuotas Cartera | 2/2 | Complete | 2026-03-31 |
 | 7. Nomina Mensual | 0/2 | Not started | - |
 | 8. Smoke Test Final | 0/TBD | Not started | - |
+| 9. Tool Use Agente Contador | 2/2 | Complete | 2026-04-01 |
+| 10. ReAct Nivel 1 + Memoria Persistente | 2/2 | Complete   | 2026-04-01 |
