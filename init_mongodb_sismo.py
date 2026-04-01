@@ -486,6 +486,8 @@ PLAN_CUENTAS_RODDOS = [
     {"categoria": "Financiero", "subcategoria": "Gastos_Bancarios",    "alegra_id": 5507, "cuenta_codigo": "530505", "cuenta_nombre": "Gastos bancarios",               "tipo_retefuente": "otros"},
     {"categoria": "Financiero", "subcategoria": "Seguros",             "alegra_id": 5493, "cuenta_codigo": "5195",   "cuenta_nombre": "Gastos generales (seguros)",     "tipo_retefuente": "otros"},
     {"categoria": "Financiero", "subcategoria": "GMF",                 "alegra_id": 5509, "cuenta_codigo": "531520", "cuenta_nombre": "Gravamen al movimiento financiero", "tipo_retefuente": "otros"},
+    # BANCOS
+    {"categoria": "Bancos", "subcategoria": "Global66", "alegra_id": 11100507, "cuenta_codigo": "11100507", "cuenta_nombre": "Global66 Colombia", "uso": "Banco principal operaciones RODDOS — pagos proveedores y recaudo", "tipo_retefuente": None},
     # OTROS — excluye Representacion (5495) pero mantiene Varios (5493) y Depreciacion
     {"categoria": "Otros", "subcategoria": "Varios",      "alegra_id": 5493, "cuenta_codigo": "5195", "cuenta_nombre": "Gastos generales",  "tipo_retefuente": "otros"},
     {"categoria": "Otros", "subcategoria": "Depreciacion", "alegra_id": 5501, "cuenta_codigo": "5160", "cuenta_nombre": "Depreciacion",      "tipo_retefuente": None},

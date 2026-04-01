@@ -1783,7 +1783,7 @@ RETENCIONES PRACTICADAS (Cuentas por Pagar):
   ReteICA Bogotá (0.414%): 236560
 
 BANCOS (Cuentas por Pagar/Activos):
-  Bancolombia: 111005 | BBVA: 111010 | Davivienda: 111015 | Banco de Bogotá: 111020
+  Bancolombia: 111005 | BBVA: 111010 | Davivienda: 111015 | Banco de Bogotá: 111020 | Global66: 11100507
 
 GASTOS OPERATIVOS (Ingresos y Gastos):
   Honorarios: 5470 | Sueldos: 5462 | Arrendamiento: 5480 | Servicios: 5484

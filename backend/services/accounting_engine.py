@@ -100,6 +100,7 @@ CUENTAS_ACTIVOS = {
     "bbva_0212": {"id": 5319, "nombre": "BBVA 0212", "use": "movement"},
     "banco_bogota_047674460": {"id": 5321, "nombre": "Banco de Bogotá Ahorros 047674460", "use": "movement"},
     "davivienda_482": {"id": 5322, "nombre": "Banco Davivienda Sa cuenta ahorros 482", "use": "movement"},
+    "global66": {"id": 11100507, "nombre": "Global66 Colombia", "use": "movement"},
     "cxc_clientes_nacionales": {"id": 5326, "nombre": "Cuentas por cobrar clientes nacionales", "use": "movement"},
     "creditos_directos_roddos": {"id": 5327, "nombre": "Créditos Directos Roddos (CXC cartera)", "use": "movement"},
     "cxc_socios_accionistas": {"id": 5329, "nombre": "Cuentas por cobrar a socios y accionistas", "use": "movement"},
