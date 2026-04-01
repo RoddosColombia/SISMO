@@ -386,3 +386,140 @@ async def cancel_plan(plan_id: str, db) -> dict:
         {"$set": {"status": "cancelled"}},
     )
     return {"cancelled": True, "plan_id": plan_id, "message": "Plan cancelado por el usuario"}
+
+
+# =============================================================================
+# ReAct Nivel 1 — Memoria Persistente (Phase 10B)
+# =============================================================================
+
+def should_create_plan(tool_calls: list) -> bool:
+    """
+    Determina si se debe crear un agent_plan para las tool_calls dadas.
+
+    Regla:
+    - Una sola tool_call de LECTURA (consultar_facturas, consultar_cartera): False
+    - Cualquier tool_call de ESCRITURA: True
+    - Múltiples tool_calls (sin importar tipo): True
+
+    Returns:
+        True si se debe crear un plan y pedir aprobación al usuario
+    """
+    READ_TOOLS = {"consultar_facturas", "consultar_cartera"}
+
+    if len(tool_calls) > 1:
+        return True
+
+    if len(tool_calls) == 1:
+        tool_name = tool_calls[0].get("tool_name") or tool_calls[0].get("name", "")
+        # Solo lectura pura → ejecutar directo
+        if tool_name in READ_TOOLS:
+            return False
+        # Escritura → crear plan
+        return True
+
+    return False  # lista vacía — no crear plan
+
+
+import anthropic as _anthropic  # noqa: E402 — needed for mock patching in tests
+
+
+async def extract_and_save_memory(
+    request: str,
+    result: dict,
+    db,
+    user: dict,
+) -> dict | None:
+    """
+    Extrae aprendizajes de la interacción y los persiste en agent_memory sin TTL.
+
+    Usa claude-haiku-4-5-20251001 para detectar:
+    - correction: usuario corrigió una clasificación o cuenta
+    - pattern: una cuenta específica fue usada para un proveedor nuevo
+    - preference: usuario prefirió un banco/forma de pago específica
+
+    Solo guarda si confidence >= 0.7.
+    Hace upsert por {user_id, key} — no duplica.
+
+    Returns:
+        dict con {key, value, source, confidence} si se guardó, None si no
+    """
+    import os
+    import json as _json
+
+    user_id = user.get("id", "unknown")
+
+    # Prompt ligero para extracción de aprendizaje
+    extraction_prompt = f"""Analiza esta interacción del Agente Contador de RODDOS y determina si hay un aprendizaje persistente.
+
+Solicitud del usuario: {request}
+Resultado: {str(result)[:500]}
+
+Responde SOLO con JSON (sin markdown):
+{{
+  "has_learning": true/false,
+  "key": "identificador_semantico_corto_snake_case",
+  "value": "aprendizaje en lenguaje natural, máximo 100 caracteres",
+  "source": "correction" | "pattern" | "preference",
+  "confidence": 0.0-1.0
+}}
+
+Patrones a detectar:
+- correction: el usuario corrigió una clasificación contable o cuenta
+- pattern: una cuenta/proveedor específico fue usado por primera vez
+- preference: el usuario eligió banco o forma de pago específica
+
+Si no hay aprendizaje claro con confidence >= 0.7, retorna has_learning: false."""
+
+    try:
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            return None
+
+        client = _anthropic.AsyncAnthropic(api_key=api_key)
+        resp = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=256,
+            messages=[{"role": "user", "content": extraction_prompt}],
+        )
+        raw = resp.content[0].text.strip()
+
+        # Limpiar markdown si viene envuelto
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+
+        data = _json.loads(raw)
+
+        if not data.get("has_learning") or float(data.get("confidence", 0)) < 0.7:
+            return None
+
+        key = data["key"]
+        value = data["value"]
+        source = data.get("source", "pattern")
+        confidence = float(data["confidence"])
+
+        now = datetime.now(timezone.utc).isoformat()
+
+        await db.agent_memory.update_one(
+            {"user_id": user_id, "key": key},
+            {
+                "$set": {
+                    "value": value,
+                    "source": source,
+                    "confidence": confidence,
+                    "updated_at": now,
+                    "user_id": user_id,
+                    "key": key,
+                },
+                "$setOnInsert": {"created_at": now},
+                "$inc": {"usage_count": 1},
+            },
+            upsert=True,
+        )
+
+        return {"key": key, "value": value, "source": source, "confidence": confidence}
+
+    except Exception as exc:
+        logger.warning("extract_and_save_memory error: %s", exc)
+        return None
