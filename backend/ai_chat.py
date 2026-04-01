@@ -2088,8 +2088,17 @@ async def gather_context(user_message: str, alegra_service, db) -> dict:
         except Exception:
             pass
         # Include plan_ingresos + CXC socios context
-        from routers.ingresos import PLAN_INGRESOS_RODDOS
-        context["plan_ingresos_roddos"] = PLAN_INGRESOS_RODDOS
+        try:
+            _plan_ingresos = await db.plan_ingresos_roddos.find(
+                {"activo": True}, {"_id": 0}
+            ).to_list(100)
+            context["plan_ingresos_roddos"] = [
+                {"tipo_ingreso": e.get("tipo_ingreso", ""), "alegra_id": e.get("alegra_id"),
+                 "cuenta_nombre": e.get("cuenta_nombre", "")}
+                for e in _plan_ingresos
+            ]
+        except Exception:
+            pass
         context["socios_cxc"] = [
             {"nombre": "Andres Sanjuan",  "cedula": "80075452", "cxc_alegra_id": 5329},
             {"nombre": "Ivan Echeverri",  "cedula": "80086601", "cxc_alegra_id": 5329},
