@@ -2,20 +2,27 @@
 tool_executor.py — Despachador de herramientas para el Agente Contador de SISMO.
 
 Provee:
-  execute_tool()          — Ejecuta un tool; si requires_confirmation=True, persiste
-                            en MongoDB agent_sessions y retorna propuesta. Si False,
-                            ejecuta inmediatamente (lectura).
-  confirm_pending_action() — Ejecuta o cancela la acción pendiente almacenada en
-                             agent_sessions para una sesión dada.
+  execute_tool()               — Ejecuta un tool; si requires_confirmation=True, persiste
+                                  en MongoDB agent_sessions y retorna propuesta. Si False,
+                                  ejecuta inmediatamente (lectura).
+  confirm_pending_action()     — Ejecuta o cancela la acción pendiente almacenada en
+                                  agent_sessions para una sesión dada.
+  create_plan()                — Crea un plan multi-acción en agent_plans con status
+                                  pending_approval. NO ejecuta nada.
+  execute_plan()               — Carga un plan y ejecuta sus acciones en orden.
+  cancel_plan()                — Cancela un plan (status cancelled).
+  execute_chat_action_for_plan() — Wrapper de execute_chat_action para execute_plan().
 
 Reglas:
   - NUNCA llamar directamente a api.alegra.com — siempre via AlegraService
   - SIEMPRE usar /journals (NUNCA /journal-entries)
   - pending_action persiste en MongoDB para sobrevivir Render cold starts
+  - execute_plan() llama execute_chat_action() — NUNCA llama Alegra directo
 """
 
 import json
 import logging
+import uuid as _uuid
 from datetime import datetime, timezone, timedelta
 
 logger = logging.getLogger(__name__)
@@ -156,3 +163,226 @@ async def confirm_pending_action(
     from ai_chat import execute_chat_action
     result = await execute_chat_action(tool_name, tool_input, db, user)
     return result
+
+
+# =============================================================================
+# ReAct Nivel 1 — Plan Multi-Acción (Phase 10A)
+# =============================================================================
+
+async def create_plan(
+    request: str,
+    tool_calls: list,
+    session_id: str,
+    db,
+    user: dict,
+) -> dict:
+    """
+    Crea un plan multi-acción en agent_plans con status pending_approval.
+    NO ejecuta nada — solo persiste el plan y retorna descripción natural.
+
+    Args:
+        request:    El mensaje original del usuario
+        tool_calls: Lista de dicts {tool_name, tool_input, description?}
+        session_id: ID de la sesión activa
+        db:         Motor AsyncIOMotorDatabase
+        user:       Dict del usuario autenticado
+
+    Returns:
+        {"plan_id": str, "description": str, "total_steps": int}
+    """
+    from tool_definitions import TOOL_DEFS
+
+    plan_id = str(_uuid.uuid4())
+    now = datetime.now(timezone.utc)
+
+    actions = []
+    desc_lines = []
+    for i, tc in enumerate(tool_calls, start=1):
+        tool_name = tc.get("tool_name") or tc.get("name", "")
+        tool_input = tc.get("tool_input") or tc.get("input", {})
+        tool_def = TOOL_DEFS.get(tool_name, {})
+        natural = tc.get("description") or tool_def.get("description", tool_name)
+        actions.append({
+            "step": i,
+            "tool_name": tool_name,
+            "tool_input": tool_input,
+            "description": natural,
+            "status": "pending",
+            "result": None,
+            "alegra_id": None,
+            "error": None,
+            "executed_at": None,
+        })
+        desc_lines.append(f"Paso {i}: {natural}")
+
+    plan_doc = {
+        "plan_id": plan_id,
+        "session_id": session_id,
+        "user_id": user.get("id"),
+        "created_at": now.isoformat(),
+        "status": "pending_approval",
+        "original_request": request,
+        "actions": actions,
+        "completed_steps": 0,
+        "total_steps": len(actions),
+        "summary": None,
+    }
+
+    await db.agent_plans.insert_one(plan_doc)
+
+    description = (
+        f"Plan de {len(actions)} pasos para: {request}\n\n"
+        + "\n".join(desc_lines)
+    )
+
+    return {
+        "plan_id": plan_id,
+        "description": description,
+        "total_steps": len(actions),
+    }
+
+
+async def execute_chat_action_for_plan(tool_name: str, tool_input: dict, db, user: dict) -> dict:
+    """
+    Wrapper de execute_chat_action para uso dentro de execute_plan().
+    Retorna siempre {"success": bool, "alegra_id": str|None, "result": dict, "error": str|None}.
+
+    Regla: NUNCA llama Alegra directo — siempre via execute_chat_action() (que usa ACTION_MAP interno).
+    """
+    from ai_chat import execute_chat_action
+    try:
+        result = await execute_chat_action(tool_name, tool_input, db, user)
+        success = result.get("success", True)
+        alegra_id = (
+            result.get("alegra_id")
+            or result.get("journal_id")
+            or result.get("invoice_id")
+            or result.get("payment_id")
+        )
+        return {
+            "success": success,
+            "alegra_id": str(alegra_id) if alegra_id else None,
+            "result": result,
+            "error": result.get("error") if not success else None,
+        }
+    except Exception as exc:
+        logger.error(f"execute_chat_action_for_plan error [{tool_name}]: {exc}")
+        return {"success": False, "alegra_id": None, "result": {}, "error": str(exc)}
+
+
+async def execute_plan(plan_id: str, db, user: dict) -> dict:
+    """
+    Carga un plan de agent_plans y ejecuta sus acciones en orden.
+
+    Reglas:
+    - Cambia status a executing
+    - Por cada acción: ejecuta via execute_chat_action_for_plan()
+    - Si success: marca completed, guarda alegra_id, incrementa completed_steps
+    - Si failure: marca failed en la acción Y en el plan, PARA y retorna error descriptivo
+    - Cuando todos completan: status completed + genera summary
+
+    NUNCA llama Alegra directo — toda ejecución pasa por execute_chat_action_for_plan().
+
+    Returns:
+        {"status": "completed"|"failed", "completed_steps": int, "total_steps": int,
+         "summary": str|None, "error": str|None, "alegra_ids": list[str]}
+    """
+    plan = await db.agent_plans.find_one({"plan_id": plan_id})
+    if not plan:
+        return {
+            "status": "failed",
+            "error": f"Plan no encontrado: {plan_id}",
+            "completed_steps": 0,
+            "total_steps": 0,
+            "summary": None,
+            "alegra_ids": [],
+        }
+
+    total = plan.get("total_steps", len(plan.get("actions", [])))
+
+    # Marcar como executing
+    await db.agent_plans.update_one(
+        {"plan_id": plan_id},
+        {"$set": {"status": "executing"}},
+    )
+
+    alegra_ids = []
+    completed = 0
+
+    for action in plan.get("actions", []):
+        step = action["step"]
+        tool_name = action["tool_name"]
+        tool_input = action["tool_input"]
+
+        # Marcar acción como executing
+        await db.agent_plans.update_one(
+            {"plan_id": plan_id, "actions.step": step},
+            {"$set": {"actions.$.status": "executing"}},
+        )
+
+        result = await execute_chat_action_for_plan(tool_name, tool_input, db, user)
+
+        executed_at = datetime.now(timezone.utc).isoformat()
+
+        if result["success"]:
+            alegra_id = result.get("alegra_id")
+            if alegra_id:
+                alegra_ids.append(alegra_id)
+            completed += 1
+            await db.agent_plans.update_one(
+                {"plan_id": plan_id, "actions.step": step},
+                {"$set": {
+                    "actions.$.status": "completed",
+                    "actions.$.result": result.get("result", {}),
+                    "actions.$.alegra_id": alegra_id,
+                    "actions.$.executed_at": executed_at,
+                    "completed_steps": completed,
+                }},
+            )
+        else:
+            error_msg = f"Paso {step} ({tool_name}) falló: {result.get('error', 'error desconocido')}"
+            await db.agent_plans.update_one(
+                {"plan_id": plan_id, "actions.step": step},
+                {"$set": {
+                    "actions.$.status": "failed",
+                    "actions.$.error": result.get("error"),
+                    "actions.$.executed_at": executed_at,
+                    "status": "failed",
+                }},
+            )
+            return {
+                "status": "failed",
+                "completed_steps": completed,
+                "total_steps": total,
+                "summary": None,
+                "error": error_msg,
+                "alegra_ids": alegra_ids,
+            }
+
+    # Todos los pasos completados
+    summary = (
+        f"Plan completado: {completed}/{total} pasos. "
+        f"IDs Alegra: {', '.join(alegra_ids) if alegra_ids else 'ninguno (solo lecturas)'}."
+    )
+    await db.agent_plans.update_one(
+        {"plan_id": plan_id},
+        {"$set": {"status": "completed", "summary": summary, "completed_steps": completed}},
+    )
+
+    return {
+        "status": "completed",
+        "completed_steps": completed,
+        "total_steps": total,
+        "summary": summary,
+        "error": None,
+        "alegra_ids": alegra_ids,
+    }
+
+
+async def cancel_plan(plan_id: str, db) -> dict:
+    """Cancela un plan cambiando su status a cancelled."""
+    await db.agent_plans.update_one(
+        {"plan_id": plan_id},
+        {"$set": {"status": "cancelled"}},
+    )
+    return {"cancelled": True, "plan_id": plan_id, "message": "Plan cancelado por el usuario"}
