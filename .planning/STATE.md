@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
-status: Milestone complete
-stopped_at: Completed quick task 260401-fq4
-last_updated: "2026-04-01T16:28:00Z"
+status: In progress
+stopped_at: Completed 09-01 TDD RED phase — tool_definitions.py + test_phase9_tool_use.py
+last_updated: "2026-04-01T18:00:00Z"
 progress:
-  total_phases: 5
+  total_phases: 9
   completed_phases: 5
-  total_plans: 16
-  completed_plans: 16
+  total_plans: 17
+  completed_plans: 17
 ---
 
 # Project State
@@ -23,8 +23,8 @@ See: .planning/PROJECT.md (updated 2026-03-26)
 
 ## Current Position
 
-Phase: 5
-Plan: Not started
+Phase: 9
+Plan: 01 complete (02 pending — GREEN phase implementation)
 
 ## Performance Metrics
 
@@ -53,6 +53,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase 05-github-production-ready]: smoke_test bus health placed outside main DB try block — bus errors give 'degradado' not 'critico'
 - [Phase 05-02]: pytest-build24 job depends on backend-check to fail fast on syntax errors before running tests
 - [Phase 05-02]: smoke-post-deploy runs only on push to main to prevent hitting production on branch pushes
+- [Phase 09-01]: TOOL_DEFS standalone module (no ai_chat.py import) to avoid circular dependencies
+- [Phase 09-01]: requires_confirmation is metadata-only — stripped by get_tool_schemas_for_api() before Anthropic API call
+- [Phase 09-01]: T6 xfail asserts MongoDB persistence of pending_action to agent_sessions (production-safety, not just return dict)
 
 ### Pending Todos
 
@@ -74,5 +77,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-04-01
-Stopped at: Completed quick task 260401-fq4 — Admin seed endpoints
+Stopped at: Completed 09-01 — TDD RED phase for tool_use migration (tool_definitions.py + test_phase9_tool_use.py)
 Resume file: None
