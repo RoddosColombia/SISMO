@@ -147,7 +147,10 @@ Plans:
   3. Cada tool tiene input_schema JSON con tipos, required fields, y descriptions — el LLM no puede llamar una tool con payload invalido
   4. Rollback: una variable de entorno `TOOL_USE_ENABLED=false` activa el flujo antiguo sin deployar nuevo codigo
   5. Los tests del BUILD activo (permissions, event_bus, mongodb_init, phase4_agents) siguen pasando sin modificacion
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 09-01-PLAN.md -- TDD RED: Tool definitions + failing test suite for tool_use loop
+- [ ] 09-02-PLAN.md -- TDD GREEN: Implement tool_use branch in process_chat + tool_executor
 
 ## Progress
 
