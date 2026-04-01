@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: milestone
-status: In progress
-stopped_at: "Phase 7 complete — NOMINA-01/02/03 verified, T1-T7 GREEN, Phase 8 ready"
-last_updated: "2026-03-31T23:55:00Z"
+status: Milestone complete
+stopped_at: Completed quick task 260330-fs8
+last_updated: "2026-03-30T16:29:13.754Z"
 progress:
-  total_phases: 8
-  completed_phases: 7
-  total_plans: 22
-  completed_plans: 22
+  total_phases: 5
+  completed_phases: 5
+  total_plans: 16
+  completed_plans: 16
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-26)
 
 **Core value:** Contabilidad automatizada sin intervencion humana + visibilidad financiera en tiempo real + orquestacion confiable de agentes via bus de eventos
-**Current focus:** Phase 8 — Smoke Test Final (next)
+**Current focus:** Phase 5 — GitHub Production-Ready
 
 ## Current Position
 
-Phase: 7
-Plan: 2 of 2 (COMPLETE)
+Phase: 5
+Plan: Not started
 
 ## Performance Metrics
 
@@ -53,12 +53,6 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase 05-github-production-ready]: smoke_test bus health placed outside main DB try block — bus errors give 'degradado' not 'critico'
 - [Phase 05-02]: pytest-build24 job depends on backend-check to fail fast on syntax errors before running tests
 - [Phase 05-02]: smoke-post-deploy runs only on push to main to prevent hitting production on branch pushes
-- [Phase 06-02]: Anti-duplicate guard placed after cuota_numero resolution but before Alegra call — garantizes no double journals
-- [Phase 06-02]: monto_pago is primary field name in cartera_pagos; cfo_agent.py sum uses fallback chain monto_pago > valor_pagado > monto
-- [Phase 06-02]: T8 patches alegra_service.AlegraService (not services.cfo_agent.AlegraService) — AlegraService imported inside function body
-- [Phase 07-02]: registrar_nomina_mensual added without removing legacy registrar_nomina — backward compat via RegistrarNominaLegacyRequest rename
-- [Phase 07-02]: Anti-duplicate per empleado+mes+anio tuple (not hash) — finer granularity for per-employee journals
-- [Phase 07-02]: Fallback gastos_nomina 5493 (Gastos Generales) per CLAUDE.md; never 5495
 
 ### Pending Todos
 
@@ -73,9 +67,10 @@ None yet.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260330-fs8 | Hotfix ERROR-017: consolidar ALEGRA_BASE_URL, eliminar app.alegra.com/api/r1 (6 archivos) | 2026-03-30 | 26ceb5d | [260330-fs8-hotfix](./quick/260330-fs8-hotfix-cr-tico-error-017-la-url-base-de-/) |
+| 260401-d5z | Knowledge Base Service RAG: service + 22 reglas seed + admin API + process_chat() integration | 2026-04-01 | 78f2764 | [260401-d5z](./quick/260401-d5z-knowledge-base-service-rag-para-agentes-/) |
 
 ## Session Continuity
 
-Last session: 2026-03-31
-Stopped at: Completed 07-02-PLAN.md — F8 nomina mensual per-employee journals T1-T7 GREEN (NOMINA-01, NOMINA-02, NOMINA-03)
+Last session: 2026-04-01
+Stopped at: Completed quick task 260401-d5z — Knowledge Base Service RAG para agentes
 Resume file: None
