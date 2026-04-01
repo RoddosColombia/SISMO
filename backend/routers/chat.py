@@ -263,3 +263,32 @@ async def descartar_todos_pendientes(current_user=Depends(get_current_user)):
         {"$set": {"estado": "descartado", "descartado_en": datetime.now(timezone.utc).isoformat()}},
     )
     return {"ok": True, "descartados": result.modified_count}
+
+
+# ── ReAct Nivel 1: Aprobación / Cancelación de Planes Multi-Acción ────────────
+
+class ApprovePlanRequest(BaseModel):
+    plan_id: str
+    session_id: str
+    confirmed: bool
+
+
+@router.post("/approve-plan")
+async def approve_plan(
+    req: ApprovePlanRequest,
+    current_user=Depends(get_current_user),
+):
+    """
+    Aprueba o cancela un plan multi-acción.
+
+    - confirmed=True  → ejecuta el plan via execute_plan()
+    - confirmed=False → cancela el plan via cancel_plan()
+
+    Retorna el resultado con summary y alegra_ids como evidencia de ejecución.
+    """
+    from tool_executor import execute_plan, cancel_plan
+    if not req.confirmed:
+        result = await cancel_plan(req.plan_id, db)
+        return result
+    result = await execute_plan(req.plan_id, db, current_user)
+    return result
