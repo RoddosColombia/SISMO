@@ -2693,7 +2693,7 @@ async def process_document_chat(
     else:
         _file_block = {"type": "image", "source": {"type": "base64", "media_type": file_type, "data": file_content}}
     _doc_resp = await _doc_client.messages.create(
-        model="claude-sonnet-4-5-20250929",
+        model="claude-opus-4-6",
         max_tokens=4096,
         system=system_prompt,
         messages=[{"role": "user", "content": [_file_block, {"type": "text", "text": text}]}],
@@ -3583,7 +3583,7 @@ async def process_chat(
             _summary_msgs = [m for m in old_msgs[:60] if m.get("role") in ("user", "assistant")]
             _summary_msgs.append({"role": "user", "content": "Resume los puntos clave de esta conversación."})
             _summary_resp = await _summary_client.messages.create(
-                model="claude-sonnet-4-5-20250929",
+                model="claude-opus-4-6",
                 max_tokens=512,
                 system=(
                     "Eres un asistente que resume conversaciones de contabilidad. "
@@ -3779,7 +3779,7 @@ async def process_chat(
     _system_text = "\n\n".join(_system_parts) if _system_parts else system_prompt
 
     _chat_resp = await _chat_client.messages.create(
-        model="claude-sonnet-4-5-20250929",
+        model="claude-opus-4-6",
         max_tokens=4096,
         system=[
             {
