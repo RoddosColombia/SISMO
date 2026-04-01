@@ -3464,7 +3464,6 @@ async def process_chat(
         )
         if _session_errors == 0:
             # Also check by recent timestamp (last 30 min, same user)
-            from datetime import timedelta
             _cutoff = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
             _session_errors = await db.agent_errors.count_documents({
                 "timestamp": {"$gte": _cutoff},
@@ -3811,18 +3810,129 @@ async def process_chat(
 
     _system_text = "\n\n".join(_system_parts) if _system_parts else system_prompt
 
-    _chat_resp = await _chat_client.messages.create(
+    # ── Feature flag: TOOL_USE_ENABLED (D-02) ───────────────────────────────
+    tool_use_enabled = os.environ.get("TOOL_USE_ENABLED", "").lower() == "true"
+
+    if tool_use_enabled:
+        from tool_definitions import get_tool_schemas_for_api, TOOL_DEFS
+        tools_param = get_tool_schemas_for_api()
+    else:
+        tools_param = None  # No tools= kwarg → XML flow sin cambios
+
+    # ── LLM call — preserva cache_control ephemeral (D-05) ──────────────────
+    create_kwargs = dict(
         model="claude-opus-4-6",
         max_tokens=4096,
         system=[
             {
                 "type": "text",
                 "text": _system_text,
-                "cache_control": {"type": "ephemeral"}
+                "cache_control": {"type": "ephemeral"},
             }
         ],
         messages=_chat_msgs,
     )
+    if tools_param:
+        create_kwargs["tools"] = tools_param
+
+    _chat_resp = await _chat_client.messages.create(**create_kwargs)
+
+    # ── Tool use detection (D-01, D-04) ──────────────────────────────────────
+    if tool_use_enabled and _chat_resp.stop_reason == "tool_use":
+        text_parts = [b.text for b in _chat_resp.content if b.type == "text"]
+        tool_block = next(
+            (b for b in _chat_resp.content if b.type == "tool_use"), None
+        )
+
+        clean_response = "\n".join(text_parts).strip()
+        tool_name = tool_block.name
+        tool_input = tool_block.input
+        tool_id = tool_block.id
+
+        tool_def = TOOL_DEFS.get(tool_name)
+
+        if tool_def and tool_def["requires_confirmation"]:
+            # Write tool — persistir en MongoDB y retornar propuesta (D-01)
+            now = datetime.now(timezone.utc)
+            pending_mongo = {
+                "type": tool_name,
+                "payload": tool_input,
+                "tool_name": tool_name,
+                "tool_input": tool_input,
+                "created_at": now.isoformat(),
+                "expires_at": (now + timedelta(hours=72)).isoformat(),
+            }
+            await db.agent_sessions.update_one(
+                {"session_id": session_id},
+                {
+                    "$set": {
+                        "pending_action": pending_mongo,
+                        "updated_at": now.isoformat(),
+                    }
+                },
+                upsert=True,
+            )
+
+            pending_action = {
+                "type": tool_name,
+                "payload": tool_input,
+                "tool_use_id": tool_id,
+            }
+            await db.chat_messages.insert_one({
+                "id": str(uuid.uuid4()),
+                "session_id": session_id,
+                "role": "assistant",
+                "content": clean_response,
+                "timestamp": now.isoformat(),
+                "user_id": user.get("id"),
+            })
+            return {
+                "message": clean_response,
+                "pending_action": pending_action,
+                "session_id": session_id,
+            }
+
+        elif tool_def and not tool_def["requires_confirmation"]:
+            # Read tool — auto-ejecutar y hacer segundo LLM call (D-01)
+            from tool_executor import execute_tool
+            tool_result = await execute_tool(
+                tool_name, tool_input, db, user, session_id=session_id
+            )
+
+            # Agentic loop: enviar resultado al modelo para respuesta en lenguaje natural
+            _chat_msgs.append({"role": "assistant", "content": _chat_resp.content})
+            _chat_msgs.append({
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": tool_id,
+                        "content": json.dumps(tool_result, ensure_ascii=False, default=str),
+                    }
+                ],
+            })
+
+            _followup = await _chat_client.messages.create(
+                **{**create_kwargs, "messages": _chat_msgs}
+            )
+            followup_text = _followup.content[0].text
+
+            await db.chat_messages.insert_one({
+                "id": str(uuid.uuid4()),
+                "session_id": session_id,
+                "role": "assistant",
+                "content": followup_text,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "user_id": user.get("id"),
+            })
+            return {
+                "message": followup_text,
+                "pending_action": None,
+                "session_id": session_id,
+                "tool_result": tool_result,
+            }
+
+    # ── Fallback: XML flow (para end_turn o TOOL_USE_ENABLED=false) (D-04) ───
     response_text = _chat_resp.content[0].text
 
     # Parse action block
