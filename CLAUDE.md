@@ -474,3 +474,40 @@ Fix: Use `create_index()` with `background=True` — it's idempotent (unlike `cr
 ### Pydantic V2 model_dump vs dict
 Error: `AttributeError: 'RoddosEvent' object has no attribute 'dict'`
 Fix: Use `.model_dump()` instead of `.dict()` (Pydantic V2)
+
+## n8n Automation — Monitor Alegra
+
+Workflow: **Monitor Alegra caído**
+Schedule: cada 5 min, timezone `America/Bogota`
+
+**Node 1 — HTTP Request (Alegra health check):**
+- Method: GET
+- URL: `{{ $env.ALEGRA_BASE_URL }}/categories`
+- Authentication: Basic Auth (email + token desde credenciales Alegra)
+- Timeout: 10 segundos
+- Continue On Error: true
+
+**Node 2 — IF (evaluar status):**
+- Condition: `{{ $node["HTTP Request"].response.statusCode }}` != 200
+- TRUE branch → Node 3 (alerta)
+- FALSE branch → End (silencioso)
+
+**Node 3 — HTTP Request (Mercately alert):**
+- Method: POST
+- URL: `{{ $env.MERCATELY_API_URL }}/messages`
+- Body:
+  ```json
+  {
+    "contact_id": "{{ $env.MERCATELY_CEO_ID }}",
+    "message": "🚨 ALERTA SISMO: Alegra API no responde (status {{ $node[\"HTTP Request\"].response.statusCode }}). Revisar integracion contable inmediatamente."
+  }
+  ```
+- Duplicate con `contact_id: $env.MERCATELY_CGO_ID`
+
+**Variables de entorno requeridas en n8n:**
+- `ALEGRA_BASE_URL` = `https://api.alegra.com/api/v1`
+- `MERCATELY_API_URL` = URL de la API de Mercately
+- `MERCATELY_CEO_ID` = ID del contacto CEO en Mercately
+- `MERCATELY_CGO_ID` = ID del contacto CGO en Mercately
+
+**Regla:** NUNCA usar `app.alegra.com/api/r1` en el node de n8n — siempre `api.alegra.com/api/v1`.
