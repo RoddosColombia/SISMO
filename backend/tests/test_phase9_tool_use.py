@@ -126,23 +126,66 @@ class TestToolDefsStructure:
 # They will be promoted to GREEN in Plan 09-02 when implementation is added.
 # =============================================================================
 
+def _make_async_cursor(items=None):
+    """Return a mock Motor cursor with .to_list() and chaining support (.sort(), .limit())."""
+    items = items or []
+    cursor = MagicMock()
+    cursor.to_list = AsyncMock(return_value=items)
+    # Chaining: .sort() / .limit() / .skip() return another cursor
+    cursor.sort = MagicMock(return_value=cursor)
+    cursor.limit = MagicMock(return_value=cursor)
+    cursor.skip = MagicMock(return_value=cursor)
+    return cursor
+
+
+class _AsyncCollection:
+    """
+    Auto-mocking DB collection: any method returns an AsyncMock or cursor.
+    This avoids having to enumerate every collection method used in process_chat().
+    """
+
+    def __getattr__(self, name):
+        if name in ("find", "aggregate"):
+            return MagicMock(return_value=_make_async_cursor([]))
+        return AsyncMock(return_value=None)
+
+
+class _AsyncDb:
+    """
+    Auto-mocking DB: any attribute access returns an _AsyncCollection.
+    Specific collections that need custom behavior are set as class attributes.
+    """
+
+    def __init__(self):
+        # agent_sessions — T6 needs to track update_one calls
+        self.agent_sessions = _AsyncCollection()
+        self.agent_sessions.update_one = AsyncMock(return_value=MagicMock(modified_count=1))
+        self.agent_sessions.find_one = AsyncMock(return_value=None)
+
+        # chat_messages — needs insert_one
+        self.chat_messages = _AsyncCollection()
+        self.chat_messages.insert_one = AsyncMock(
+            return_value=MagicMock(inserted_id="test-id")
+        )
+        self.chat_messages.find = MagicMock(return_value=_make_async_cursor([]))
+
+        # loanbook — count_documents used directly in process_chat
+        self.loanbook = _AsyncCollection()
+        self.loanbook.count_documents = AsyncMock(return_value=5)
+        self.loanbook.find = MagicMock(return_value=_make_async_cursor([]))
+        self.loanbook.aggregate = MagicMock(return_value=_make_async_cursor([]))
+        self.loanbook.find_one = AsyncMock(return_value=None)
+
+    def __getattr__(self, name):
+        # Any other collection → auto _AsyncCollection
+        col = _AsyncCollection()
+        object.__setattr__(self, name, col)
+        return col
+
+
 def _make_mock_db():
     """Build a realistic mock DB with all collections used by process_chat()."""
-    db = MagicMock()
-    # chat_messages
-    db.chat_messages.find = MagicMock(return_value=AsyncMock(
-        to_list=AsyncMock(return_value=[])
-    ))
-    db.chat_messages.insert_one = AsyncMock(return_value=MagicMock(inserted_id="test-id"))
-    # agent_sessions (T6 asserts update_one is called here)
-    db.agent_sessions.update_one = AsyncMock(return_value=MagicMock(modified_count=1))
-    db.agent_sessions.find_one = AsyncMock(return_value=None)
-    # context collections
-    db.cuentas_bancarias.find_one = AsyncMock(return_value=None)
-    db.loanbooks.find = MagicMock(return_value=AsyncMock(to_list=AsyncMock(return_value=[])))
-    db.sismo_knowledge.find = MagicMock(return_value=AsyncMock(to_list=AsyncMock(return_value=[])))
-    db.user_settings.find_one = AsyncMock(return_value=None)
-    return db
+    return _AsyncDb()
 
 
 def _make_tool_use_response(tool_name: str, tool_input: dict, text: str = "Voy a procesar eso."):
@@ -177,10 +220,6 @@ def _make_end_turn_response(text: str):
     return response
 
 
-@pytest.mark.xfail(
-    reason="RED: process_chat() has no TOOL_USE_ENABLED branch yet. Implement in Plan 09-02.",
-    strict=True,
-)
 def test_t5_tool_use_enabled_write_tool_returns_pending_action():
     """
     T5: TOOL_USE_ENABLED=true + stop_reason=tool_use + requires_confirmation=true
@@ -205,25 +244,32 @@ def test_t5_tool_use_enabled_write_tool_returns_pending_action():
 
     mock_response = _make_tool_use_response("crear_causacion", tool_input)
 
+    # Patch gather_context and gather_accounts_context to avoid deep import chain
+    _ctx_data = {"loanbook_activos": [], "iva_status": None}
+    _acct_data = ("", "", "")
+
     with patch.dict(os.environ, {"TOOL_USE_ENABLED": "true"}):
-        with patch("anthropic.AsyncAnthropic") as mock_anthropic_cls:
-            mock_client = MagicMock()
-            mock_anthropic_cls.return_value = mock_client
-            mock_client.messages.create = AsyncMock(return_value=mock_response)
+        with patch("ai_chat.gather_context", AsyncMock(return_value=_ctx_data)):
+            with patch("ai_chat.gather_accounts_context", AsyncMock(return_value=_acct_data)):
+                with patch("ai_chat.get_pending_topics", AsyncMock(return_value=[])):
+                    with patch("anthropic.AsyncAnthropic") as mock_anthropic_cls:
+                        mock_client = MagicMock()
+                        mock_anthropic_cls.return_value = mock_client
+                        mock_client.messages.create = AsyncMock(return_value=mock_response)
 
-            with patch("alegra_service.AlegraService") as mock_alegra_cls:
-                mock_alegra = MagicMock()
-                mock_alegra_cls.return_value = mock_alegra
-                mock_alegra.request_with_verify = AsyncMock(return_value={})
+                        with patch("alegra_service.AlegraService") as mock_alegra_cls:
+                            mock_alegra = MagicMock()
+                            mock_alegra_cls.return_value = mock_alegra
+                            mock_alegra.request_with_verify = AsyncMock(return_value={})
 
-                result = asyncio.run(
-                    process_chat(
-                        session_id="test-session-001",
-                        user_message="Registra causación arrendamiento $150.000",
-                        db=mock_db,
-                        user=mock_user,
-                    )
-                )
+                            result = asyncio.run(
+                                process_chat(
+                                    session_id="test-session-001",
+                                    user_message="Registra causación arrendamiento $150.000",
+                                    db=mock_db,
+                                    user=mock_user,
+                                )
+                            )
 
     # T5 assertions
     assert result is not None
@@ -236,10 +282,6 @@ def test_t5_tool_use_enabled_write_tool_returns_pending_action():
     mock_alegra.request_with_verify.assert_not_called()
 
 
-@pytest.mark.xfail(
-    reason="RED: process_chat() has no TOOL_USE_ENABLED branch yet. Implement in Plan 09-02.",
-    strict=True,
-)
 def test_t6_write_tool_pending_action_persisted_to_mongodb():
     """
     T6: TOOL_USE_ENABLED=true + stop_reason=tool_use + requires_confirmation=true
@@ -265,20 +307,27 @@ def test_t6_write_tool_pending_action_persisted_to_mongodb():
 
     mock_response = _make_tool_use_response("crear_causacion", tool_input)
 
-    with patch.dict(os.environ, {"TOOL_USE_ENABLED": "true"}):
-        with patch("anthropic.AsyncAnthropic") as mock_anthropic_cls:
-            mock_client = MagicMock()
-            mock_anthropic_cls.return_value = mock_client
-            mock_client.messages.create = AsyncMock(return_value=mock_response)
+    # Patch gather_context and gather_accounts_context to avoid deep import chain
+    _ctx_data = {"loanbook_activos": [], "iva_status": None}
+    _acct_data = ("", "", "")
 
-            asyncio.run(
-                process_chat(
-                    session_id="test-session-t6",
-                    user_message="Crea causación nómina",
-                    db=mock_db,
-                    user=mock_user,
-                )
-            )
+    with patch.dict(os.environ, {"TOOL_USE_ENABLED": "true"}):
+        with patch("ai_chat.gather_context", AsyncMock(return_value=_ctx_data)):
+            with patch("ai_chat.gather_accounts_context", AsyncMock(return_value=_acct_data)):
+                with patch("ai_chat.get_pending_topics", AsyncMock(return_value=[])):
+                    with patch("anthropic.AsyncAnthropic") as mock_anthropic_cls:
+                        mock_client = MagicMock()
+                        mock_anthropic_cls.return_value = mock_client
+                        mock_client.messages.create = AsyncMock(return_value=mock_response)
+
+                        asyncio.run(
+                            process_chat(
+                                session_id="test-session-t6",
+                                user_message="Crea causación nómina",
+                                db=mock_db,
+                                user=mock_user,
+                            )
+                        )
 
     # T6 critical assertion: pending_action persisted to MongoDB
     mock_db.agent_sessions.update_one.assert_called()
@@ -298,10 +347,6 @@ def test_t6_write_tool_pending_action_persisted_to_mongodb():
     assert set_fields["pending_action"]["type"] == "crear_causacion"
 
 
-@pytest.mark.xfail(
-    reason="RED: process_chat() has no TOOL_USE_ENABLED branch yet. Implement in Plan 09-02.",
-    strict=True,
-)
 def test_t7_tool_use_enabled_end_turn_falls_back_to_xml():
     """
     T7: TOOL_USE_ENABLED=true + stop_reason=end_turn (model chose no tool)
@@ -319,20 +364,27 @@ def test_t7_tool_use_enabled_end_turn_falls_back_to_xml():
     response_text = f"Aquí está la cartera. <action>{xml_action}</action>"
     mock_response = _make_end_turn_response(response_text)
 
-    with patch.dict(os.environ, {"TOOL_USE_ENABLED": "true"}):
-        with patch("anthropic.AsyncAnthropic") as mock_anthropic_cls:
-            mock_client = MagicMock()
-            mock_anthropic_cls.return_value = mock_client
-            mock_client.messages.create = AsyncMock(return_value=mock_response)
+    # Patch gather_context and gather_accounts_context to avoid deep import chain
+    _ctx_data = {"loanbook_activos": [], "iva_status": None}
+    _acct_data = ("", "", "")
 
-            result = asyncio.run(
-                process_chat(
-                    session_id="test-session-t7",
-                    user_message="Consulta la cartera",
-                    db=mock_db,
-                    user=mock_user,
-                )
-            )
+    with patch.dict(os.environ, {"TOOL_USE_ENABLED": "true"}):
+        with patch("ai_chat.gather_context", AsyncMock(return_value=_ctx_data)):
+            with patch("ai_chat.gather_accounts_context", AsyncMock(return_value=_acct_data)):
+                with patch("ai_chat.get_pending_topics", AsyncMock(return_value=[])):
+                    with patch("anthropic.AsyncAnthropic") as mock_anthropic_cls:
+                        mock_client = MagicMock()
+                        mock_anthropic_cls.return_value = mock_client
+                        mock_client.messages.create = AsyncMock(return_value=mock_response)
+
+                        result = asyncio.run(
+                            process_chat(
+                                session_id="test-session-t7",
+                                user_message="Consulta la cartera",
+                                db=mock_db,
+                                user=mock_user,
+                            )
+                        )
 
     # T7 assertion: XML fallback parsed the action
     assert result is not None
@@ -342,10 +394,6 @@ def test_t7_tool_use_enabled_end_turn_falls_back_to_xml():
     assert result["pending_action"]["type"] == "consultar_cartera"
 
 
-@pytest.mark.xfail(
-    reason="RED: process_chat() has no TOOL_USE_ENABLED branch yet. Implement in Plan 09-02.",
-    strict=True,
-)
 def test_t8_tool_use_disabled_no_tools_passed_to_api():
     """
     T8: TOOL_USE_ENABLED=false → process_chat() uses XML flow only.
@@ -360,20 +408,27 @@ def test_t8_tool_use_disabled_no_tools_passed_to_api():
 
     mock_response = _make_end_turn_response("Aquí está la información solicitada.")
 
-    with patch.dict(os.environ, {"TOOL_USE_ENABLED": "false"}):
-        with patch("anthropic.AsyncAnthropic") as mock_anthropic_cls:
-            mock_client = MagicMock()
-            mock_anthropic_cls.return_value = mock_client
-            mock_client.messages.create = AsyncMock(return_value=mock_response)
+    # Patch gather_context and gather_accounts_context to avoid deep import chain
+    _ctx_data = {"loanbook_activos": [], "iva_status": None}
+    _acct_data = ("", "", "")
 
-            asyncio.run(
-                process_chat(
-                    session_id="test-session-t8",
-                    user_message="¿Cuánto hay en cartera?",
-                    db=mock_db,
-                    user=mock_user,
-                )
-            )
+    with patch.dict(os.environ, {"TOOL_USE_ENABLED": "false"}):
+        with patch("ai_chat.gather_context", AsyncMock(return_value=_ctx_data)):
+            with patch("ai_chat.gather_accounts_context", AsyncMock(return_value=_acct_data)):
+                with patch("ai_chat.get_pending_topics", AsyncMock(return_value=[])):
+                    with patch("anthropic.AsyncAnthropic") as mock_anthropic_cls:
+                        mock_client = MagicMock()
+                        mock_anthropic_cls.return_value = mock_client
+                        mock_client.messages.create = AsyncMock(return_value=mock_response)
+
+                        asyncio.run(
+                            process_chat(
+                                session_id="test-session-t8",
+                                user_message="¿Cuánto hay en cartera?",
+                                db=mock_db,
+                                user=mock_user,
+                            )
+                        )
 
     # T8 assertion: messages.create() was called WITHOUT tools= kwarg
     assert mock_client.messages.create.called, "messages.create() should have been called"
@@ -384,10 +439,6 @@ def test_t8_tool_use_disabled_no_tools_passed_to_api():
     )
 
 
-@pytest.mark.xfail(
-    reason="RED: process_chat() has no TOOL_USE_ENABLED branch yet. Implement in Plan 09-02.",
-    strict=True,
-)
 def test_t9_tool_use_enabled_cache_control_preserved_in_system():
     """
     T9: TOOL_USE_ENABLED=true → messages.create() called with:
@@ -404,20 +455,27 @@ def test_t9_tool_use_enabled_cache_control_preserved_in_system():
 
     mock_response = _make_end_turn_response("Respuesta normal sin tool call.")
 
-    with patch.dict(os.environ, {"TOOL_USE_ENABLED": "true"}):
-        with patch("anthropic.AsyncAnthropic") as mock_anthropic_cls:
-            mock_client = MagicMock()
-            mock_anthropic_cls.return_value = mock_client
-            mock_client.messages.create = AsyncMock(return_value=mock_response)
+    # Patch gather_context and gather_accounts_context to avoid deep import chain
+    _ctx_data = {"loanbook_activos": [], "iva_status": None}
+    _acct_data = ("", "", "")
 
-            asyncio.run(
-                process_chat(
-                    session_id="test-session-t9",
-                    user_message="Consulta de información",
-                    db=mock_db,
-                    user=mock_user,
-                )
-            )
+    with patch.dict(os.environ, {"TOOL_USE_ENABLED": "true"}):
+        with patch("ai_chat.gather_context", AsyncMock(return_value=_ctx_data)):
+            with patch("ai_chat.gather_accounts_context", AsyncMock(return_value=_acct_data)):
+                with patch("ai_chat.get_pending_topics", AsyncMock(return_value=[])):
+                    with patch("anthropic.AsyncAnthropic") as mock_anthropic_cls:
+                        mock_client = MagicMock()
+                        mock_anthropic_cls.return_value = mock_client
+                        mock_client.messages.create = AsyncMock(return_value=mock_response)
+
+                        asyncio.run(
+                            process_chat(
+                                session_id="test-session-t9",
+                                user_message="Consulta de información",
+                                db=mock_db,
+                                user=mock_user,
+                            )
+                        )
 
     assert mock_client.messages.create.called
     call_kwargs = mock_client.messages.create.call_args.kwargs
