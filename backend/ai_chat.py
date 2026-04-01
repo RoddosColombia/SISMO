@@ -2856,6 +2856,10 @@ async def process_chat(
             from tool_executor import confirm_pending_action
             if _msg_lower in _CONFIRM_WORDS:
                 _result = await confirm_pending_action(session_id, confirmed=True, db=db, user=user)
+                # ROG-1: si success=False, propagar el error — NUNCA reportar éxito falso
+                if _result.get("success") is False:
+                    _err = _result.get("error") or _result.get("message") or "❌ Error desconocido al ejecutar la acción."
+                    return {"message": _err, "pending_action": None, "session_id": session_id}
                 _msg = _result.get("message", "Acción ejecutada exitosamente.")
                 return {"message": _msg, "pending_action": None, "session_id": session_id}
             else:

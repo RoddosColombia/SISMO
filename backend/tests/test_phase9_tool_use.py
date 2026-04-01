@@ -83,20 +83,26 @@ class TestToolDefsStructure:
                 f"Read tool {tool_name!r} must have requires_confirmation=False"
             )
 
-    # T4: crear_causacion has exactly 5 required fields
+    # T4: crear_causacion has correct required fields for double-entry accounting
     def test_t4_crear_causacion_required_fields(self):
-        """T4: crear_causacion.input_schema.required must have exactly 5 fields."""
+        """T4: crear_causacion.input_schema.required must have entries/date/observations (ROG-1 fix)."""
         from tool_definitions import TOOL_DEFS
         schema = TOOL_DEFS["crear_causacion"]["input_schema"]
         required = schema.get("required", [])
-        expected_required = {"monto", "descripcion", "cuenta_id", "fecha", "banco_id"}
+        # entries/date/observations — matches execute_chat_action expectation (ROG-1 hotfix)
+        expected_required = {"entries", "date", "observations"}
         assert set(required) == expected_required, (
             f"crear_causacion required mismatch. "
             f"Expected: {expected_required}, got: {set(required)}"
         )
-        assert len(required) == 5, (
-            f"crear_causacion should have exactly 5 required fields, got {len(required)}: {required}"
+        assert len(required) == 3, (
+            f"crear_causacion should have exactly 3 required fields, got {len(required)}: {required}"
         )
+        # Verify entries items schema has id/debit/credit
+        entries_items = schema["properties"]["entries"]["items"]["properties"]
+        assert "id" in entries_items, "entries items must have 'id' (Alegra account ID)"
+        assert "debit" in entries_items, "entries items must have 'debit'"
+        assert "credit" in entries_items, "entries items must have 'credit'"
 
     def test_t4b_get_tool_schemas_strips_internal_fields(self):
         """T4b: get_tool_schemas_for_api() must not include requires_confirmation/endpoint/method."""
