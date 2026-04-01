@@ -60,6 +60,13 @@ try:
 except Exception as e:
     print(f"[ERROR] Failed to load admin_kb router: {e}")
     admin_kb_router = None
+
+try:
+    from routers import global66 as global66_router
+    print("[OK] global66 router loaded successfully")
+except Exception as e:
+    print(f"[ERROR] Failed to load global66 router: {e}")
+    global66_router = None
 from routers import proveedores_config as proveedores_router
 from routers import scheduler as scheduler_router
 from routers import learning as learning_router
@@ -206,6 +213,11 @@ if admin_kb_router:
     app.include_router(admin_kb_router.router, prefix=PREFIX)
 else:
     print("[WARN] admin_kb_router not loaded, skipping registration")
+
+if global66_router:
+    app.include_router(global66_router.router, prefix=PREFIX)
+else:
+    print("[WARN] global66_router not loaded, skipping registration")
 
 app.include_router(reports_router.router,                      prefix=PREFIX)
 app.include_router(contabilidad_pendientes_router.router,      prefix=PREFIX)
