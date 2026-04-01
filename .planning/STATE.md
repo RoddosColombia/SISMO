@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v23.0
 milestone_name: milestone
 status: Ready to plan
-stopped_at: Completed 05-05-PLAN.md — FACTURA-01 format fix GREEN, all 7 F6 tests pass
-last_updated: "2026-03-31T13:50:05.359Z"
+stopped_at: Completed 07-01-PLAN.md — TDD RED phase for nomina mensual per-employee journals
+last_updated: "2026-03-31T23:36:19.879Z"
 progress:
   total_phases: 8
   completed_phases: 7
@@ -73,6 +73,9 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase 04-agents-router-scheduler]: crear_causacion traduce payload espanol (entradas/fecha/descripcion) a Alegra API (entries/date/observations) en handler especial linea 3987 para garantizar request_with_verify
 - [Phase 05-github-production-ready]: SimpleNamespace used for T1/T2 payloads to bypass Pydantic; patch(routers.ventas.db) required for T2-T6; sys.modules stubs needed for full routers/__init__.py chain
 - [Phase 05-github-production-ready]: observations field uses FACTURA-01 format (Modelo Color - VIN:x / Motor:x) for full vehicle traceability in Alegra invoice PDF
+- [Phase 06-01]: patch('routers.cartera.db', mock_db) required in each test — global db object must be replaced to make mock_db fixture effective
+- [Phase 06-01]: Module stubs loop (qrcode, cryptography, pdfplumber) added to cartera test isolation block — CI environment doesn't have these optional deps
+- [Phase 07]: One journal per employee in nomina mensual — independent Alegra records for audit trail. RegistrarNominaRequest uses mes: int + anio: int with per-empleado anti-duplicate guard (409).
 
 ### Pending Todos
 
@@ -101,9 +104,10 @@ None.
 | Phase 04-agents-router-scheduler P06 | 25 | 2 tasks | 2 files |
 | Phase 05-github-production-ready P04 | 525597 | 1 tasks | 1 files |
 | Phase 05-github-production-ready P05 | 525525 | 1 tasks | 2 files |
+| Phase 06-ingresos-cuotas-cartera P01 | 12 | 1 tasks | 1 files |
 
 ## Session Continuity
 
-Last session: 2026-03-31T13:43:18.073Z
-Stopped at: Completed 05-05-PLAN.md — FACTURA-01 format fix GREEN, all 7 F6 tests pass
+Last session: 2026-03-31T23:36:07.504Z
+Stopped at: Completed 07-01-PLAN.md — TDD RED phase for nomina mensual per-employee journals
 Resume file: None
