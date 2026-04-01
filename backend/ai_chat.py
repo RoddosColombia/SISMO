@@ -1916,6 +1916,37 @@ async def save_action_pattern(db, user: dict, action_type: str, payload: dict) -
     )
 
 
+# ─── Memoria Persistente sin TTL (Phase 10B) ─────────────────────────────────
+
+async def _load_persistent_memory_section(db, user_id: str) -> str:
+    """
+    Carga los últimos 20 registros de agent_memory con campo 'source'
+    para el user_id dado, ordenados por usage_count DESC.
+
+    Retorna sección formateada para inyectar en el system prompt,
+    o cadena vacía si no hay registros.
+
+    Discriminador: campo 'source' in [correction, pattern, preference].
+    No toca documentos con campo 'tipo' (patrones de acción anteriores).
+    """
+    try:
+        memories = await db.agent_memory.find(
+            {"user_id": user_id, "source": {"$exists": True}},
+            {"_id": 0, "key": 1, "value": 1, "source": 1, "confidence": 1, "usage_count": 1},
+        ).sort("usage_count", -1).to_list(20)
+
+        if not memories:
+            return ""
+
+        lines = ["MEMORIA PERSISTENTE — Aprendizajes del usuario:"]
+        for m in memories:
+            lines.append(f"- [{m.get('source','pattern')}] {m.get('key','')}: {m.get('value','')}")
+
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
 # ── MODULE 4: Memoria Conversacional Persistente ─────────────────────────────
 # Pendientes conversacionales por usuario (TTL 72 horas)
 
@@ -3834,6 +3865,16 @@ async def process_chat(
             }
     # ── End pre-LLM bypass ───────────────────────────────────────────────────
 
+    # ── Memoria persistente — inyectar aprendizajes del usuario (Phase 10B) ────
+    _memory_user_id = user.get("id", "")
+    if _memory_user_id:
+        try:
+            _memory_section = await _load_persistent_memory_section(db, _memory_user_id)
+            if _memory_section:
+                system_prompt += "\n\n" + _memory_section
+        except Exception as _mem_err:
+            logger.warning(f"_load_persistent_memory_section error (non-blocking): {_mem_err}")
+
     # Call Claude with full history context
     # Prompt caching enabled via cache_control (reduces token consumption ~90% on subsequent calls)
     _chat_client = anthropic.AsyncAnthropic(api_key=api_key)
@@ -3878,98 +3919,133 @@ async def process_chat(
 
     # ── Tool use detection (D-01, D-04) ──────────────────────────────────────
     if tool_use_enabled and _chat_resp.stop_reason == "tool_use":
+        # Extraer TODAS las tool_calls del response (Phase 10B: multi-tool support)
+        tool_blocks = [b for b in _chat_resp.content if b.type == "tool_use"]
         text_parts = [b.text for b in _chat_resp.content if b.type == "text"]
-        tool_block = next(
-            (b for b in _chat_resp.content if b.type == "tool_use"), None
-        )
-
         clean_response = "\n".join(text_parts).strip()
-        tool_name = tool_block.name
-        tool_input = tool_block.input
-        tool_id = tool_block.id
 
-        tool_def = TOOL_DEFS.get(tool_name)
+        tool_calls_for_plan = [
+            {"tool_name": b.name, "tool_input": b.input}
+            for b in tool_blocks
+        ]
 
-        if tool_def and tool_def["requires_confirmation"]:
-            # Write tool — persistir en MongoDB y retornar propuesta (D-01)
-            now = datetime.now(timezone.utc)
-            pending_mongo = {
-                "type": tool_name,
-                "payload": tool_input,
-                "tool_name": tool_name,
-                "tool_input": tool_input,
-                "created_at": now.isoformat(),
-                "expires_at": (now + timedelta(hours=72)).isoformat(),
-            }
-            await db.agent_sessions.update_one(
-                {"session_id": session_id},
-                {
-                    "$set": {
-                        "pending_action": pending_mongo,
-                        "updated_at": now.isoformat(),
-                    }
-                },
-                upsert=True,
+        # Multi-tool or write tool → create plan + request approval (Phase 10B)
+        from tool_executor import should_create_plan, create_plan as _create_plan
+        if should_create_plan(tool_calls_for_plan):
+            plan_result = await _create_plan(
+                request=user_message,
+                tool_calls=tool_calls_for_plan,
+                session_id=session_id,
+                db=db,
+                user=user,
             )
-
-            pending_action = {
-                "type": tool_name,
-                "payload": tool_input,
-                "tool_use_id": tool_id,
-            }
+            plan_description = plan_result["description"]
+            now = datetime.now(timezone.utc)
             await db.chat_messages.insert_one({
                 "id": str(uuid.uuid4()),
                 "session_id": session_id,
                 "role": "assistant",
-                "content": clean_response,
+                "content": plan_description,
                 "timestamp": now.isoformat(),
                 "user_id": user.get("id"),
             })
             return {
-                "message": clean_response,
-                "pending_action": pending_action,
-                "session_id": session_id,
-            }
-
-        elif tool_def and not tool_def["requires_confirmation"]:
-            # Read tool — auto-ejecutar y hacer segundo LLM call (D-01)
-            from tool_executor import execute_tool
-            tool_result = await execute_tool(
-                tool_name, tool_input, db, user, session_id=session_id
-            )
-
-            # Agentic loop: enviar resultado al modelo para respuesta en lenguaje natural
-            _chat_msgs.append({"role": "assistant", "content": _chat_resp.content})
-            _chat_msgs.append({
-                "role": "user",
-                "content": [
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": tool_id,
-                        "content": json.dumps(tool_result, ensure_ascii=False, default=str),
-                    }
-                ],
-            })
-
-            _followup = await _chat_client.messages.create(
-                **{**create_kwargs, "messages": _chat_msgs}
-            )
-            followup_text = _followup.content[0].text
-
-            await db.chat_messages.insert_one({
-                "id": str(uuid.uuid4()),
-                "session_id": session_id,
-                "role": "assistant",
-                "content": followup_text,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "user_id": user.get("id"),
-            })
-            return {
-                "message": followup_text,
+                "message": plan_description,
+                "pending_plan": plan_result,
                 "pending_action": None,
                 "session_id": session_id,
-                "tool_result": tool_result,
             }
+
+        # Single read tool → comportamiento anterior (auto-execute)
+        tool_block = tool_blocks[0] if tool_blocks else None
+        if tool_block:
+            # Single-tool path: extract tool details and handle
+            tool_name = tool_block.name
+            tool_input = tool_block.input
+            tool_id = tool_block.id
+
+            tool_def = TOOL_DEFS.get(tool_name)
+
+            if tool_def and tool_def["requires_confirmation"]:
+                # Write tool — persistir en MongoDB y retornar propuesta (D-01)
+                now = datetime.now(timezone.utc)
+                pending_mongo = {
+                    "type": tool_name,
+                    "payload": tool_input,
+                    "tool_name": tool_name,
+                    "tool_input": tool_input,
+                    "created_at": now.isoformat(),
+                    "expires_at": (now + timedelta(hours=72)).isoformat(),
+                }
+                await db.agent_sessions.update_one(
+                    {"session_id": session_id},
+                    {
+                        "$set": {
+                            "pending_action": pending_mongo,
+                            "updated_at": now.isoformat(),
+                        }
+                    },
+                    upsert=True,
+                )
+
+                pending_action = {
+                    "type": tool_name,
+                    "payload": tool_input,
+                    "tool_use_id": tool_id,
+                }
+                await db.chat_messages.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "session_id": session_id,
+                    "role": "assistant",
+                    "content": clean_response,
+                    "timestamp": now.isoformat(),
+                    "user_id": user.get("id"),
+                })
+                return {
+                    "message": clean_response,
+                    "pending_action": pending_action,
+                    "session_id": session_id,
+                }
+
+            elif tool_def and not tool_def["requires_confirmation"]:
+                # Read tool — auto-ejecutar y hacer segundo LLM call (D-01)
+                from tool_executor import execute_tool
+                tool_result = await execute_tool(
+                    tool_name, tool_input, db, user, session_id=session_id
+                )
+
+                # Agentic loop: enviar resultado al modelo para respuesta en lenguaje natural
+                _chat_msgs.append({"role": "assistant", "content": _chat_resp.content})
+                _chat_msgs.append({
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": tool_id,
+                            "content": json.dumps(tool_result, ensure_ascii=False, default=str),
+                        }
+                    ],
+                })
+
+                _followup = await _chat_client.messages.create(
+                    **{**create_kwargs, "messages": _chat_msgs}
+                )
+                followup_text = _followup.content[0].text
+
+                await db.chat_messages.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "session_id": session_id,
+                    "role": "assistant",
+                    "content": followup_text,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "user_id": user.get("id"),
+                })
+                return {
+                    "message": followup_text,
+                    "pending_action": None,
+                    "session_id": session_id,
+                    "tool_result": tool_result,
+                }
 
     # ── Fallback: XML flow (para end_turn o TOOL_USE_ENABLED=false) (D-04) ───
     response_text = _chat_resp.content[0].text
