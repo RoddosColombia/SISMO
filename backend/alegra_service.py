@@ -273,7 +273,8 @@ class AlegraService:
                 raise HTTPException(status_code=503, detail=msg)
 
             result = resp.json()
-            logger.info(f"[Alegra REAL] ✅ {method} {endpoint} HTTP {resp.status_code} - Response ID: {result.get('id', 'N/A')}")
+            _log_id = result.get("id", "N/A") if isinstance(result, dict) else f"{len(result)} items"
+            logger.info(f"[Alegra REAL] ✅ {method} {endpoint} HTTP {resp.status_code} - Response: {_log_id}")
             return result
 
         except HTTPException:
