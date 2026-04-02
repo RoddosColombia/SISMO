@@ -3,11 +3,12 @@
 import base64
 import logging
 import os
+import uuid
 from typing import List, Optional
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from dependencies import get_current_user, require_admin
@@ -234,35 +235,21 @@ def _detectar_duplicados_auteco(compras_auteco: list) -> list:
 
 # ── Endpoints ──────────────────────────────────────────────────────────────
 
-@router.get("/alegra-completo")
-async def alegra_completo(
-    current_user=Depends(require_admin),
-):
-    """Pagina TODOS los registros de Alegra (invoices, bills, journals) y los clasifica.
-
-    Detecta bills duplicadas de Auteco (mismo numero + monto).
-    Retorna resumen, clasificacion completa y alertas.
-
-    REGLAS: paginacion real hasta agotar, NUNCA /journal-entries, NUNCA app.alegra.com/api/r1
-    """
+async def _run_auditoria_job(job_id: str) -> None:
+    """Ejecuta la auditoría completa en background y guarda resultado en auditoria_jobs."""
     try:
-        logger.info("[Auditoria] Iniciando descarga completa de Alegra...")
+        logger.info(f"[Auditoria] Job {job_id} — iniciando descarga completa de Alegra...")
 
         invoices = await _paginar_alegra("invoices")
         bills = await _paginar_alegra("bills")
         journals = await _paginar_alegra("journals")
 
-        logger.info(
-            f"[Auditoria] Descargados: {len(invoices)} invoices, "
-            f"{len(bills)} bills, {len(journals)} journals"
-        )
+        logger.info(f"[Auditoria] Total: invoices={len(invoices)} bills={len(bills)} journals={len(journals)}")
 
         clasificado = _clasificar_registros(invoices, bills, journals)
         alertas = _detectar_duplicados_auteco(clasificado["compras_auteco"])
 
-        logger.info(f"[Auditoria] Total: invoices={len(invoices)} bills={len(bills)} journals={len(journals)}")
-
-        return {
+        resultado = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "resumen": {
                 "total_invoices": len(invoices),
@@ -286,11 +273,68 @@ async def alegra_completo(
             "alertas": alertas,
         }
 
-    except HTTPException:
-        raise
+        await db.auditoria_jobs.update_one(
+            {"job_id": job_id},
+            {"$set": {
+                "status": "completed",
+                "resultado": resultado,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+        logger.info(f"[Auditoria] Job {job_id} — completado OK")
+
     except Exception as e:
-        logger.error(f"[Auditoria] Error en alegra-completo: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error descargando datos de Alegra: {str(e)}")
+        logger.error(f"[Auditoria] Job {job_id} — error: {e}", exc_info=True)
+        await db.auditoria_jobs.update_one(
+            {"job_id": job_id},
+            {"$set": {"status": "failed", "error": str(e)}},
+        )
+
+
+@router.post("/alegra-completo/iniciar")
+async def alegra_completo_iniciar(
+    background_tasks: BackgroundTasks,
+    current_user=Depends(require_admin),
+):
+    """Inicia la auditoría completa de Alegra como background job.
+
+    Retorna inmediatamente con job_id. Usar GET /alegra-completo/resultado/{job_id}
+    para obtener el resultado cuando esté listo.
+
+    TTL: los jobs se marcan con expires_at 24h — crear índice TTL en auditoria_jobs.expires_at.
+    """
+    job_id = f"audit-{uuid.uuid4().hex[:12]}"
+    now = datetime.now(timezone.utc)
+    await db.auditoria_jobs.insert_one({
+        "job_id": job_id,
+        "status": "processing",
+        "created_at": now.isoformat(),
+        "expires_at": now + timedelta(hours=24),
+        "started_by": current_user.get("id") if isinstance(current_user, dict) else str(current_user),
+    })
+    background_tasks.add_task(_run_auditoria_job, job_id)
+    return {"job_id": job_id, "status": "processing"}
+
+
+@router.get("/alegra-completo/resultado/{job_id}")
+async def alegra_completo_resultado(
+    job_id: str,
+    current_user=Depends(require_admin),
+):
+    """Retorna el resultado de un job de auditoría.
+
+    Mientras está en curso: {"status": "processing"}
+    Cuando falla:          {"status": "failed", "error": "..."}
+    Cuando completa:       {"status": "completed", "resultado": {...}}
+    """
+    job = await db.auditoria_jobs.find_one({"job_id": job_id}, {"_id": 0})
+    if not job:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} no encontrado")
+    if job["status"] == "processing":
+        return {"job_id": job_id, "status": "processing"}
+    if job["status"] == "failed":
+        return {"job_id": job_id, "status": "failed", "error": job.get("error")}
+    return {"job_id": job_id, "status": "completed", **job.get("resultado", {})}
 
 
 @router.post("/aprobar-limpieza")
