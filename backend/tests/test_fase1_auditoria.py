@@ -35,13 +35,19 @@ sys.modules["alegra_service"] = _alegra_svc_module
 
 # Import auditoria module directly to avoid routers/__init__.py chain
 import importlib.util
-_auditoria_spec = importlib.util.spec_from_file_location(
-    "routers.auditoria",
-    os.path.join(os.path.dirname(__file__), "..", "routers", "auditoria.py")
-)
-_auditoria_mod = importlib.util.module_from_spec(_auditoria_spec)
-sys.modules["routers.auditoria"] = _auditoria_mod
-_auditoria_spec.loader.exec_module(_auditoria_mod)
+
+def _load_auditoria_module():
+    """Loads (or reloads) routers.auditoria bypassing routers/__init__.py."""
+    spec = importlib.util.spec_from_file_location(
+        "routers.auditoria",
+        os.path.join(os.path.dirname(__file__), "..", "routers", "auditoria.py")
+    )
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["routers.auditoria"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+_auditoria_mod = _load_auditoria_module()
 
 
 # ── Mock data ─────────────────────────────────────────────────────────────────
@@ -222,19 +228,26 @@ async def test_t3_deteccion_duplicado_auteco():
 # ── Helpers for endpoint tests ────────────────────────────────────────────────
 
 def _make_app_with_mock_admin():
-    """Build FastAPI app with auditoria router and mocked require_admin."""
+    """Build FastAPI app with auditoria router and mocked require_admin.
+
+    Uses FastAPI dependency_overrides keyed by the original require_admin
+    function stored in the auditoria module at import time.
+    """
     from fastapi import FastAPI
     router = _auditoria_mod.router
 
     app = FastAPI()
     app.include_router(router, prefix="/api")
 
-    # The require_admin in auditoria module points to the stubbed dependencies module.
-    # We override it directly on the module to return a real coroutine.
+    # require_admin in the module is whatever was imported at load time
+    # (the MagicMock from the stubbed dependencies module).
+    # FastAPI resolves Depends(require_admin) against dependency_overrides.
+    original_require_admin = _auditoria_mod.require_admin
+
     async def _admin_user():
         return {"username": "admin", "role": "admin"}
 
-    _auditoria_mod.require_admin = _admin_user
+    app.dependency_overrides[original_require_admin] = _admin_user
     return app
 
 
@@ -254,7 +267,7 @@ async def test_t4_aprobar_limpieza_sin_confirmacion_no_escribe():
     with patch.object(_auditoria_mod, "db", mock_db):
         client = TestClient(app)
         response = client.post(
-            "/api/aprobar-limpieza",
+            "/api/auditoria/aprobar-limpieza",
             json={"confirmado": False, "excluir_ids": []}
         )
 
@@ -283,7 +296,7 @@ async def test_t5_aprobar_limpieza_con_confirmacion_inserta():
     with patch.object(_auditoria_mod, "db", mock_db):
         client = TestClient(app)
         response = client.post(
-            "/api/aprobar-limpieza",
+            "/api/auditoria/aprobar-limpieza",
             json={"confirmado": True, "excluir_ids": [123, 456]}
         )
 
@@ -324,11 +337,12 @@ async def test_t6_anular_bill_duplicada_no_encontrada():
 
     with patch.object(_auditoria_mod, "db", mock_db):
         with patch("httpx.AsyncClient", mock_httpx):
-            client = TestClient(app)
-            response = client.post(
-                "/api/anular-bill-duplicada",
-                json={"bill_id_a_anular": 9999, "bill_id_a_mantener": 9998}
-            )
+            with patch.dict(os.environ, {"ALEGRA_EMAIL": "test@test.com", "ALEGRA_TOKEN": "token123"}):
+                client = TestClient(app)
+                response = client.post(
+                    "/api/auditoria/anular-bill-duplicada",
+                    json={"bill_id_a_anular": 9999, "bill_id_a_mantener": 9998}
+                )
 
     assert response.status_code == 404
     assert "9999" in response.json()["detail"]
@@ -375,7 +389,7 @@ async def test_t7_anular_bill_duplicada_exitoso_registra_evento():
             with patch.dict(os.environ, {"ALEGRA_EMAIL": "test@test.com", "ALEGRA_TOKEN": "token123"}):
                 client = TestClient(app)
                 response = client.post(
-                    "/api/anular-bill-duplicada",
+                    "/api/auditoria/anular-bill-duplicada",
                     json={"bill_id_a_anular": 201, "bill_id_a_mantener": 202}
                 )
 

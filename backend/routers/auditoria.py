@@ -298,6 +298,132 @@ async def alegra_completo(
         raise HTTPException(status_code=500, detail=f"Error descargando datos de Alegra: {str(e)}")
 
 
+@router.post("/aprobar-limpieza")
+async def aprobar_limpieza(
+    request: AprobarLimpiezaRequest,
+    current_user=Depends(require_admin),
+):
+    """Registra aprobacion de limpieza de bills duplicadas.
+
+    - confirmado=False: retorna plan sin ejecutar, NO escribe en MongoDB
+    - confirmado=True: inserta en auditoria_aprobaciones con trazabilidad
+    """
+    if not request.confirmado:
+        return {
+            "status": "plan_sin_ejecutar",
+            "mensaje": "Aprobacion no confirmada. No se ejecuto ninguna accion.",
+            "excluir_ids": request.excluir_ids,
+        }
+
+    doc = {
+        "aprobado_por": current_user.get("username", "unknown"),
+        "timestamp": datetime.now(timezone.utc),
+        "excluir_ids": request.excluir_ids,
+        "status": "aprobado_pendiente_ejecucion",
+    }
+
+    result = await db.auditoria_aprobaciones.insert_one(doc)
+    logger.info(f"[Auditoria] Aprobacion registrada por {doc['aprobado_por']} — ID {result.inserted_id}")
+
+    return {
+        "status": "aprobado",
+        "doc_id": str(result.inserted_id),
+        "mensaje": "Aprobacion registrada. La ejecucion se realizara en Fase 2.",
+    }
+
+
+@router.post("/anular-bill-duplicada")
+async def anular_bill_duplicada(
+    request: AnularBillRequest,
+    current_user=Depends(require_admin),
+):
+    """Anula una bill duplicada de Auteco en Alegra con trazabilidad completa.
+
+    IMPORTANTE: Usa httpx directo (NO AlegraService) para bypasear validate_delete_protection().
+    Bills de Auteco SI se pueden anular desde auditoria con aprobacion explicita.
+
+    Pasos:
+    1. Verificar que bill_id_a_anular existe en Alegra (GET /bills/{id})
+    2. Verificar que bill_id_a_mantener existe en Alegra (GET /bills/{id})
+    3. Registrar evento en roddos_events
+    4. DELETE /bills/{bill_id_a_anular} via httpx directo
+    """
+    headers = await _get_alegra_auth_headers()
+
+    # Paso 1: Verificar bill a anular
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp_anular = await client.get(
+            f"{ALEGRA_BASE_URL}/bills/{request.bill_id_a_anular}",
+            headers=headers,
+        )
+
+    if resp_anular.status_code >= 400:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Bill {request.bill_id_a_anular} no encontrada en Alegra (HTTP {resp_anular.status_code})"
+        )
+
+    # Paso 2: Verificar bill a mantener
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp_mantener = await client.get(
+            f"{ALEGRA_BASE_URL}/bills/{request.bill_id_a_mantener}",
+            headers=headers,
+        )
+
+    if resp_mantener.status_code >= 400:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Bill {request.bill_id_a_mantener} no encontrada en Alegra (HTTP {resp_mantener.status_code})"
+        )
+
+    # Paso 3: Registrar evento en roddos_events ANTES del DELETE (trazabilidad)
+    evento = {
+        "event_type": "bill_duplicada_anulada",
+        "agent": "auditoria",
+        "payload": {
+            "bill_anulada": request.bill_id_a_anular,
+            "bill_mantenida": request.bill_id_a_mantener,
+        },
+        "timestamp": datetime.now(timezone.utc),
+        "source": "routers/auditoria.py",
+        "ejecutado_por": current_user.get("username", "unknown"),
+    }
+    await db.roddos_events.insert_one(evento)
+    logger.warning(
+        f"[Auditoria] Evento registrado: bill_duplicada_anulada "
+        f"bill_anulada={request.bill_id_a_anular} bill_mantenida={request.bill_id_a_mantener}"
+    )
+
+    # Paso 4: DELETE /bills/{id} via httpx directo — bypasea validate_delete_protection()
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp_delete = await client.delete(
+            f"{ALEGRA_BASE_URL}/bills/{request.bill_id_a_anular}",
+            headers=headers,
+        )
+
+    if resp_delete.status_code >= 400:
+        logger.error(
+            f"[Auditoria] DELETE bill {request.bill_id_a_anular} fallido "
+            f"HTTP {resp_delete.status_code}"
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error anulando bill {request.bill_id_a_anular} en Alegra (HTTP {resp_delete.status_code})"
+        )
+
+    logger.warning(
+        f"[Auditoria] Bill {request.bill_id_a_anular} ANULADA en Alegra. "
+        f"Bill mantenida: {request.bill_id_a_mantener}"
+    )
+
+    return {
+        "anulado": True,
+        "bill_id": request.bill_id_a_anular,
+        "bill_mantenida": request.bill_id_a_mantener,
+        "evento_registrado": True,
+    }
+
+
 @router.post("/buscar-journals-por-codigo")
 async def buscar_journals_por_codigo(
     request: BuscarJournalsRequest,
