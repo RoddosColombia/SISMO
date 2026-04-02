@@ -92,20 +92,27 @@ async def _get_alegra_auth_headers() -> dict:
     }
 
 
-async def _paginar_alegra(endpoint: str, db_instance, limit: int = 30) -> List[dict]:
+async def _paginar_alegra(endpoint: str, db_instance, limit: int = 30, params_extra: dict = None) -> List[dict]:
     """Pagina GET /{endpoint}?limit=N&offset=M hasta agotar todos los registros.
 
     Usa AlegraService.request() — misma autenticación que funciona en producción.
     NUNCA reinventa auth — NUNCA usa app.alegra.com/api/r1 — NUNCA /journal-entries.
+    Límite de seguridad: máximo 20 páginas (600 registros) para evitar loops infinitos.
     """
     alegra = AlegraService(db_instance)
     all_records = []
     offset = 0
+    page = 0
+    max_pages = 20
     while True:
-        batch = await alegra.request(
-            endpoint, "GET",
-            params={"limit": limit, "offset": offset},
-        )
+        page += 1
+        if page > max_pages:
+            logger.warning(f"[Auditoria] {endpoint}: límite de {max_pages} páginas alcanzado — deteniendo")
+            break
+        params = {"limit": limit, "offset": offset}
+        if params_extra:
+            params.update(params_extra)
+        batch = await alegra.request(endpoint, "GET", params=params)
         if not batch or not isinstance(batch, list):
             break
         all_records.extend(batch)
@@ -235,14 +242,15 @@ def _detectar_duplicados_auteco(compras_auteco: list) -> list:
 
 # ── Endpoints ──────────────────────────────────────────────────────────────
 
-async def _run_auditoria_job(job_id: str, db_instance) -> None:
+async def _run_auditoria_job(job_id: str, db_instance, fecha_inicio: str = "2026-01-01") -> None:
     """Ejecuta la auditoría completa en background y guarda resultado en auditoria_jobs."""
     try:
-        logger.info(f"[Auditoria] Job {job_id} — iniciando descarga completa de Alegra...")
+        logger.info(f"[Auditoria] Job {job_id} — iniciando descarga desde {fecha_inicio}...")
 
-        invoices = await _paginar_alegra("invoices", db_instance)
-        bills = await _paginar_alegra("bills", db_instance)
-        journals = await _paginar_alegra("journals", db_instance)
+        params_fecha = {"date_afterOrNow": fecha_inicio}
+        invoices = await _paginar_alegra("invoices", db_instance, params_extra=params_fecha)
+        bills    = await _paginar_alegra("bills",    db_instance, params_extra=params_fecha)
+        journals = await _paginar_alegra("journals", db_instance, params_extra=params_fecha)
 
         logger.info(f"[Auditoria] Total: invoices={len(invoices)} bills={len(bills)} journals={len(journals)}")
 
@@ -294,12 +302,16 @@ async def _run_auditoria_job(job_id: str, db_instance) -> None:
 @router.post("/alegra-completo/iniciar")
 async def alegra_completo_iniciar(
     background_tasks: BackgroundTasks,
+    fecha_inicio: str = "2026-01-01",
     current_user=Depends(require_admin),
 ):
     """Inicia la auditoría completa de Alegra como background job.
 
     Retorna inmediatamente con job_id. Usar GET /alegra-completo/resultado/{job_id}
     para obtener el resultado cuando esté listo.
+
+    Parámetros:
+    - fecha_inicio: filtrar registros desde esta fecha (default: 2026-01-01, formato yyyy-MM-dd)
 
     TTL: los jobs se marcan con expires_at 24h — crear índice TTL en auditoria_jobs.expires_at.
     """
@@ -311,9 +323,10 @@ async def alegra_completo_iniciar(
         "created_at": now.isoformat(),
         "expires_at": now + timedelta(hours=24),
         "started_by": current_user.get("id") if isinstance(current_user, dict) else str(current_user),
+        "fecha_inicio": fecha_inicio,
     })
-    background_tasks.add_task(_run_auditoria_job, job_id, db)
-    return {"job_id": job_id, "status": "processing"}
+    background_tasks.add_task(_run_auditoria_job, job_id, db, fecha_inicio)
+    return {"job_id": job_id, "status": "processing", "fecha_inicio": fecha_inicio}
 
 
 @router.get("/alegra-completo/resultado/{job_id}")
