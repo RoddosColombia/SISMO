@@ -92,13 +92,13 @@ async def _get_alegra_auth_headers() -> dict:
     }
 
 
-async def _paginar_alegra(endpoint: str, limit: int = 30) -> List[dict]:
+async def _paginar_alegra(endpoint: str, db_instance, limit: int = 30) -> List[dict]:
     """Pagina GET /{endpoint}?limit=N&offset=M hasta agotar todos los registros.
 
     Usa AlegraService.request() — misma autenticación que funciona en producción.
     NUNCA reinventa auth — NUNCA usa app.alegra.com/api/r1 — NUNCA /journal-entries.
     """
-    alegra = AlegraService(db)
+    alegra = AlegraService(db_instance)
     all_records = []
     offset = 0
     while True:
@@ -235,14 +235,14 @@ def _detectar_duplicados_auteco(compras_auteco: list) -> list:
 
 # ── Endpoints ──────────────────────────────────────────────────────────────
 
-async def _run_auditoria_job(job_id: str) -> None:
+async def _run_auditoria_job(job_id: str, db_instance) -> None:
     """Ejecuta la auditoría completa en background y guarda resultado en auditoria_jobs."""
     try:
         logger.info(f"[Auditoria] Job {job_id} — iniciando descarga completa de Alegra...")
 
-        invoices = await _paginar_alegra("invoices")
-        bills = await _paginar_alegra("bills")
-        journals = await _paginar_alegra("journals")
+        invoices = await _paginar_alegra("invoices", db_instance)
+        bills = await _paginar_alegra("bills", db_instance)
+        journals = await _paginar_alegra("journals", db_instance)
 
         logger.info(f"[Auditoria] Total: invoices={len(invoices)} bills={len(bills)} journals={len(journals)}")
 
@@ -273,7 +273,7 @@ async def _run_auditoria_job(job_id: str) -> None:
             "alertas": alertas,
         }
 
-        await db.auditoria_jobs.update_one(
+        await db_instance.auditoria_jobs.update_one(
             {"job_id": job_id},
             {"$set": {
                 "status": "completed",
@@ -285,7 +285,7 @@ async def _run_auditoria_job(job_id: str) -> None:
 
     except Exception as e:
         logger.error(f"[Auditoria] Job {job_id} — error: {e}", exc_info=True)
-        await db.auditoria_jobs.update_one(
+        await db_instance.auditoria_jobs.update_one(
             {"job_id": job_id},
             {"$set": {"status": "failed", "error": str(e)}},
         )
@@ -312,7 +312,7 @@ async def alegra_completo_iniciar(
         "expires_at": now + timedelta(hours=24),
         "started_by": current_user.get("id") if isinstance(current_user, dict) else str(current_user),
     })
-    background_tasks.add_task(_run_auditoria_job, job_id)
+    background_tasks.add_task(_run_auditoria_job, job_id, db)
     return {"job_id": job_id, "status": "processing"}
 
 
