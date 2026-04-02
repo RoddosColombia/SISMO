@@ -91,7 +91,7 @@ async def _get_alegra_auth_headers() -> dict:
     }
 
 
-async def _paginar_alegra(endpoint: str, limit: int = 100) -> List[dict]:
+async def _paginar_alegra(endpoint: str, limit: int = 30) -> List[dict]:
     """Pagina GET /{endpoint}?limit=N&offset=M hasta agotar todos los registros.
 
     Usa AlegraService.request() — misma autenticación que funciona en producción.
