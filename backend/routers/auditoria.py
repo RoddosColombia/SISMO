@@ -1,18 +1,35 @@
 """auditoria.py — Endpoints para auditoría, búsqueda y limpieza de datos en Alegra."""
 
+import base64
 import logging
+import os
 from typing import List, Optional
 from datetime import datetime, timezone
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from dependencies import get_current_user, require_admin
-from alegra_service import AlegraService
+from alegra_service import AlegraService, ALEGRA_BASE_URL
 from database import db
 
 router = APIRouter(prefix="/auditoria", tags=["auditoria"])
 logger = logging.getLogger(__name__)
+
+AUTECO_NIT = "860024781"
+
+
+# ── Pydantic Models — Fase 1 ──────────────────────────────────────────────────
+
+class AprobarLimpiezaRequest(BaseModel):
+    confirmado: bool
+    excluir_ids: List[int] = []
+
+
+class AnularBillRequest(BaseModel):
+    bill_id_a_anular: int
+    bill_id_a_mantener: int
 
 
 # ── Pydantic Models ────────────────────────────────────────────────────────
@@ -56,7 +73,230 @@ async def get_alegra_journals(limit: int = 100) -> List[dict]:
     return all_journals
 
 
+async def _get_alegra_auth_headers() -> dict:
+    """Retorna headers Basic Auth para httpx directo leyendo credenciales del entorno/DB."""
+    email = os.environ.get("ALEGRA_EMAIL", "").strip()
+    token = os.environ.get("ALEGRA_TOKEN", "").strip()
+    if not email or not token:
+        # Fallback: leer desde MongoDB
+        settings = await db.alegra_credentials.find_one({}, {"_id": 0})
+        if settings:
+            email = settings.get("email", "")
+            token = settings.get("token", "")
+    creds = base64.b64encode(f"{email}:{token}".encode()).decode()
+    return {
+        "Authorization": f"Basic {creds}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+
+async def _paginar_alegra(endpoint: str, limit: int = 100) -> List[dict]:
+    """Pagina GET /{endpoint}?limit=N&offset=M hasta agotar todos los registros.
+
+    REGLAS INAMOVIBLES:
+    - NUNCA usar app.alegra.com/api/r1 — siempre api.alegra.com/api/v1 (ALEGRA_BASE_URL)
+    - NUNCA /journal-entries — siempre /journals
+    - Pagina hasta len(batch) < limit (no asumir que 30 es el total)
+    """
+    headers = await _get_alegra_auth_headers()
+    all_records = []
+    offset = 0
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        while True:
+            url = f"{ALEGRA_BASE_URL}/{endpoint}"
+            resp = await client.get(url, headers=headers, params={"limit": limit, "offset": offset})
+            if resp.status_code >= 400:
+                logger.warning(f"[Auditoria] _paginar_alegra {endpoint} HTTP {resp.status_code} — stop")
+                break
+            batch = resp.json()
+            if not batch or not isinstance(batch, list):
+                break
+            all_records.extend(batch)
+            logger.info(f"[Auditoria] {endpoint}: +{len(batch)} registros (total {len(all_records)})")
+            if len(batch) < limit:
+                break
+            offset += limit
+
+    return all_records
+
+
+def _clasificar_registros(invoices: list, bills: list, journals: list) -> dict:
+    """Clasifica invoices, bills y journals segun reglas de negocio RODDOS.
+
+    Clasificacion:
+    - facturas_venta: invoices donde ALGUN item tiene "VIN:" en description
+    - facturas_venta_sin_vin: invoices sin "VIN:" en ningun item
+    - compras_auteco: bills donde contact.identification == AUTECO_NIT
+    - compras_otro_proveedor: bills de otro proveedor
+    - journals_gasto: journals con al menos un entry debit > 0 en cuenta 5xxx
+    - journals_ingreso: journals con al menos un entry credit > 0 en cuenta 4xxx
+    - journals_otro: journals que no son gasto ni ingreso
+    """
+    facturas_venta = []
+    facturas_venta_sin_vin = []
+
+    for inv in invoices:
+        items = inv.get("items") or []
+        tiene_vin = any("VIN:" in (item.get("description") or "") for item in items)
+        if tiene_vin:
+            facturas_venta.append(inv)
+        else:
+            facturas_venta_sin_vin.append(inv)
+
+    compras_auteco = []
+    compras_otro_proveedor = []
+
+    for bill in bills:
+        contact = bill.get("contact") or {}
+        nit = str(contact.get("identification") or "").strip()
+        if nit == AUTECO_NIT:
+            compras_auteco.append(bill)
+        else:
+            compras_otro_proveedor.append(bill)
+
+    journals_gasto = []
+    journals_ingreso = []
+    journals_otro = []
+
+    for journal in journals:
+        entries = journal.get("entries") or []
+        es_gasto = False
+        es_ingreso = False
+
+        for entry in entries:
+            account = entry.get("account") or {}
+            # Cuenta puede identificarse por code o id
+            code = str(account.get("code") or account.get("id") or "")
+            debit = float(entry.get("debit") or 0)
+            credit = float(entry.get("credit") or 0)
+
+            if debit > 0 and code.startswith("5"):
+                es_gasto = True
+            if credit > 0 and code.startswith("4"):
+                es_ingreso = True
+
+        if es_gasto:
+            journals_gasto.append(journal)
+        elif es_ingreso:
+            journals_ingreso.append(journal)
+        else:
+            journals_otro.append(journal)
+
+    return {
+        "facturas_venta": facturas_venta,
+        "facturas_venta_sin_vin": facturas_venta_sin_vin,
+        "compras_auteco": compras_auteco,
+        "compras_otro_proveedor": compras_otro_proveedor,
+        "journals_gasto": journals_gasto,
+        "journals_ingreso": journals_ingreso,
+        "journals_otro": journals_otro,
+    }
+
+
+def _detectar_duplicados_auteco(compras_auteco: list) -> list:
+    """Detecta bills duplicadas de Auteco por (numero_factura + monto).
+
+    Agrupa por (numero, total). Si hay 2+ bills con mismo numero Y monto → alerta.
+    Retorna lista de alertas tipo "bill_duplicada".
+    """
+    from collections import defaultdict
+
+    grupos: dict = defaultdict(list)
+
+    for bill in compras_auteco:
+        # Numero: puede estar en numberTemplate.number o en number
+        numero = None
+        number_template = bill.get("numberTemplate")
+        if number_template and isinstance(number_template, dict):
+            numero = number_template.get("number")
+        if not numero:
+            numero = bill.get("number") or bill.get("numberTemplate")
+        if numero is None:
+            numero = str(bill.get("id", ""))
+
+        monto = float(bill.get("total") or 0)
+        clave = (str(numero), monto)
+        grupos[clave].append(bill)
+
+    alertas = []
+    for (numero, monto), bills_grupo in grupos.items():
+        if len(bills_grupo) >= 2:
+            # Ordenar por id para consistencia (original = menor id)
+            ordenadas = sorted(bills_grupo, key=lambda b: b.get("id", 0))
+            original = ordenadas[0]
+            for duplicada in ordenadas[1:]:
+                alertas.append({
+                    "tipo": "bill_duplicada",
+                    "mensaje": f"Bill duplicada Auteco: {numero} por ${monto:,.0f}",
+                    "bill_original_id": original.get("id"),
+                    "bill_duplicada_id": duplicada.get("id"),
+                    "numero_factura": numero,
+                    "monto": monto,
+                })
+
+    return alertas
+
+
 # ── Endpoints ──────────────────────────────────────────────────────────────
+
+@router.get("/alegra-completo")
+async def alegra_completo(
+    current_user=Depends(require_admin),
+):
+    """Pagina TODOS los registros de Alegra (invoices, bills, journals) y los clasifica.
+
+    Detecta bills duplicadas de Auteco (mismo numero + monto).
+    Retorna resumen, clasificacion completa y alertas.
+
+    REGLAS: paginacion real hasta agotar, NUNCA /journal-entries, NUNCA app.alegra.com/api/r1
+    """
+    try:
+        logger.info("[Auditoria] Iniciando descarga completa de Alegra...")
+
+        invoices = await _paginar_alegra("invoices")
+        bills = await _paginar_alegra("bills")
+        journals = await _paginar_alegra("journals")
+
+        logger.info(
+            f"[Auditoria] Descargados: {len(invoices)} invoices, "
+            f"{len(bills)} bills, {len(journals)} journals"
+        )
+
+        clasificado = _clasificar_registros(invoices, bills, journals)
+        alertas = _detectar_duplicados_auteco(clasificado["compras_auteco"])
+
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "resumen": {
+                "total_invoices": len(invoices),
+                "total_bills": len(bills),
+                "total_journals": len(journals),
+                "facturas_venta": len(clasificado["facturas_venta"]),
+                "facturas_venta_sin_vin": len(clasificado["facturas_venta_sin_vin"]),
+                "compras_auteco": len(clasificado["compras_auteco"]),
+                "compras_otro_proveedor": len(clasificado["compras_otro_proveedor"]),
+                "journals_gasto": len(clasificado["journals_gasto"]),
+                "journals_ingreso": len(clasificado["journals_ingreso"]),
+                "journals_otro": len(clasificado["journals_otro"]),
+            },
+            "facturas_venta": clasificado["facturas_venta"],
+            "facturas_venta_sin_vin": clasificado["facturas_venta_sin_vin"],
+            "compras_auteco": clasificado["compras_auteco"],
+            "compras_otro_proveedor": clasificado["compras_otro_proveedor"],
+            "journals_gasto": clasificado["journals_gasto"],
+            "journals_ingreso": clasificado["journals_ingreso"],
+            "journals_otro": clasificado["journals_otro"],
+            "alertas": alertas,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[Auditoria] Error en alegra-completo: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error descargando datos de Alegra: {str(e)}")
+
 
 @router.post("/buscar-journals-por-codigo")
 async def buscar_journals_por_codigo(
