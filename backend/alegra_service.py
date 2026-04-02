@@ -211,6 +211,11 @@ class AlegraService:
             raise HTTPException(status_code=400, detail="Endpoint /journal-entries prohibido — usa /journals")
         if endpoint == "accounts" or (endpoint.startswith("accounts") and "bank" not in endpoint):
             raise HTTPException(status_code=400, detail="Endpoint /accounts prohibido — usa /categories")
+        from permissions import validate_delete_protection
+        try:
+            validate_delete_protection(method, endpoint)
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc))
         headers = await self.get_auth_header()
         url = f"{ALEGRA_BASE_URL}/{endpoint}"
         try:

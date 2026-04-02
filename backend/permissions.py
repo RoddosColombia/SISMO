@@ -22,7 +22,7 @@ WRITE_PERMISSIONS: dict[str, dict[str, list[str]]] = {
             "plan_cuentas_roddos",
         ],
         "alegra_endpoints": [
-            "journal-entries",
+            "journals",
             "invoices",
             "payments",
             "contacts",
@@ -39,13 +39,7 @@ WRITE_PERMISSIONS: dict[str, dict[str, list[str]]] = {
             "financial_reports",
             "sismo_knowledge",
         ],
-        "alegra_endpoints": [
-            "journal-entries",
-            "invoices",
-            "payments",
-            "bank-accounts",
-            "categories",
-        ],
+        "alegra_endpoints": [],  # CFO es read-only absoluto fuera de sus colecciones MongoDB
     },
     "radar": {
         "collections": [
@@ -72,6 +66,35 @@ WRITE_PERMISSIONS: dict[str, dict[str, list[str]]] = {
 }
 
 
+# ── delete protection ──
+# Endpoints donde DELETE está prohibido sin excepción — son registros legales.
+PROTECTED_DELETE_ENDPOINTS: list[str] = [
+    "invoices",  # facturas de venta RODDOS — registro legal, NUNCA eliminar
+    "bills",     # compras Auteco — NUNCA eliminar sin aprobación explícita
+]
+
+
+def validate_delete_protection(method: str, endpoint: str) -> None:
+    """Raise PermissionError si method es DELETE sobre un endpoint protegido.
+
+    Args:
+        method:   HTTP method (e.g., "DELETE", "GET", "POST")
+        endpoint: Alegra API endpoint path (e.g., "invoices", "invoices/123")
+
+    Raises:
+        PermissionError: Si method es DELETE y el base endpoint está en
+            PROTECTED_DELETE_ENDPOINTS.
+    """
+    if method.upper() != "DELETE":
+        return
+    base_endpoint = endpoint.split("/")[0].split("?")[0]
+    if base_endpoint in PROTECTED_DELETE_ENDPOINTS:
+        raise PermissionError(
+            f"DELETE en '{base_endpoint}' está prohibido — las facturas y compras "
+            f"son registros legales y no pueden eliminarse."
+        )
+
+
 # ── validation functions ──
 
 def validate_write_permission(agent: str, collection: str) -> None:
@@ -96,7 +119,7 @@ def validate_write_permission(agent: str, collection: str) -> None:
         )
 
 
-def validate_alegra_permission(agent: str, endpoint: str) -> None:
+def validate_alegra_permission(agent: str, endpoint: str, method: str = None) -> None:
     """Raise PermissionError if agent is not allowed to call Alegra endpoint.
 
     Strips nested paths and query parameters before checking so that callers
@@ -105,7 +128,7 @@ def validate_alegra_permission(agent: str, endpoint: str) -> None:
 
     Args:
         agent: Agent identifier (e.g., "contador", "cfo", "radar", "loanbook")
-        endpoint: Alegra API endpoint path (e.g., "invoices", "journal-entries",
+        endpoint: Alegra API endpoint path (e.g., "invoices", "journals",
             "invoices/123")
 
     Raises:
@@ -124,3 +147,5 @@ def validate_alegra_permission(agent: str, endpoint: str) -> None:
         raise PermissionError(
             f"Agente '{agent}' no tiene permiso para endpoint Alegra '{base_endpoint}'"
         )
+    if method is not None:
+        validate_delete_protection(method, endpoint)
