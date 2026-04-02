@@ -46,7 +46,7 @@ async def run_migration_v24(db) -> None:
     # ── 2. Actualizar campo canal_pago / registrado_por / dpd_al_pagar en cuotas ─
     loans = await db.loanbook.find(
         {"cuotas.0": {"$exists": True}},
-        {"_id": 0, "id": 1, "cuotas": 1},
+        {"id": 1, "cuotas": 1},
     ).to_list(10_000)
 
     cuotas_docs_updated = 0
@@ -64,8 +64,9 @@ async def run_migration_v24(db) -> None:
                     "dpd_al_pagar":   0,
                 }
             updated_cuotas.append(cuota)
+        filter_query = {"id": loan["id"]} if loan.get("id") else {"_id": loan["_id"]}
         await db.loanbook.update_one(
-            {"id": loan["id"]},
+            filter_query,
             {"$set": {"cuotas": updated_cuotas}},
         )
         cuotas_docs_updated += 1
