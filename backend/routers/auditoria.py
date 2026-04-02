@@ -94,31 +94,24 @@ async def _get_alegra_auth_headers() -> dict:
 async def _paginar_alegra(endpoint: str, limit: int = 100) -> List[dict]:
     """Pagina GET /{endpoint}?limit=N&offset=M hasta agotar todos los registros.
 
-    REGLAS INAMOVIBLES:
-    - NUNCA usar app.alegra.com/api/r1 — siempre api.alegra.com/api/v1 (ALEGRA_BASE_URL)
-    - NUNCA /journal-entries — siempre /journals
-    - Pagina hasta len(batch) < limit (no asumir que 30 es el total)
+    Usa AlegraService.request() — misma autenticación que funciona en producción.
+    NUNCA reinventa auth — NUNCA usa app.alegra.com/api/r1 — NUNCA /journal-entries.
     """
-    headers = await _get_alegra_auth_headers()
+    alegra = AlegraService(db)
     all_records = []
     offset = 0
-
-    async with httpx.AsyncClient(timeout=60) as client:
-        while True:
-            url = f"{ALEGRA_BASE_URL}/{endpoint}"
-            resp = await client.get(url, headers=headers, params={"limit": limit, "offset": offset})
-            if resp.status_code >= 400:
-                logger.warning(f"[Auditoria] _paginar_alegra {endpoint} HTTP {resp.status_code} — stop")
-                break
-            batch = resp.json()
-            if not batch or not isinstance(batch, list):
-                break
-            all_records.extend(batch)
-            logger.info(f"[Auditoria] {endpoint}: +{len(batch)} registros (total {len(all_records)})")
-            if len(batch) < limit:
-                break
-            offset += limit
-
+    while True:
+        batch = await alegra.request(
+            endpoint, "GET",
+            params={"limit": limit, "offset": offset},
+        )
+        if not batch or not isinstance(batch, list):
+            break
+        all_records.extend(batch)
+        logger.info(f"[Auditoria] {endpoint}: +{len(batch)} (total {len(all_records)})")
+        if len(batch) < limit:
+            break
+        offset += limit
     return all_records
 
 
@@ -266,6 +259,8 @@ async def alegra_completo(
 
         clasificado = _clasificar_registros(invoices, bills, journals)
         alertas = _detectar_duplicados_auteco(clasificado["compras_auteco"])
+
+        logger.info(f"[Auditoria] Total: invoices={len(invoices)} bills={len(bills)} journals={len(journals)}")
 
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
