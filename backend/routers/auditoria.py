@@ -95,31 +95,38 @@ async def _get_alegra_auth_headers() -> dict:
 async def _paginar_alegra(endpoint: str, db_instance, limit: int = 30, params_extra: dict = None) -> List[dict]:
     """Pagina GET /{endpoint}?limit=N&offset=M hasta agotar todos los registros.
 
-    Usa AlegraService.request() — misma autenticación que funciona en producción.
-    NUNCA reinventa auth — NUNCA usa app.alegra.com/api/r1 — NUNCA /journal-entries.
-    Límite de seguridad: máximo 20 páginas (600 registros) para evitar loops infinitos.
+    Usa httpx directo con timeout=120s — AlegraService tiene timeout=30s hardcodeado
+    que mata la paginación de journals largos.
+    NUNCA usa app.alegra.com/api/r1 — NUNCA /journal-entries.
+    Límite de seguridad: máximo 20 páginas (600 registros).
     """
-    alegra = AlegraService(db_instance)
+    headers = await _get_alegra_auth_headers()
     all_records = []
     offset = 0
     page = 0
     max_pages = 20
-    while True:
-        page += 1
-        if page > max_pages:
-            logger.warning(f"[Auditoria] {endpoint}: límite de {max_pages} páginas alcanzado — deteniendo")
-            break
-        params = {"limit": limit, "offset": offset}
-        if params_extra:
-            params.update(params_extra)
-        batch = await alegra.request(endpoint, "GET", params=params)
-        if not batch or not isinstance(batch, list):
-            break
-        all_records.extend(batch)
-        logger.info(f"[Auditoria] {endpoint}: +{len(batch)} (total {len(all_records)})")
-        if len(batch) < limit:
-            break
-        offset += limit
+    async with httpx.AsyncClient(timeout=120) as client:
+        while True:
+            page += 1
+            if page > max_pages:
+                logger.warning(f"[Auditoria] {endpoint}: límite {max_pages} páginas alcanzado — deteniendo")
+                break
+            params = {"limit": limit, "offset": offset}
+            if params_extra:
+                params.update(params_extra)
+            url = f"{ALEGRA_BASE_URL}/{endpoint}"
+            resp = await client.get(url, headers=headers, params=params)
+            if resp.status_code >= 400:
+                logger.warning(f"[Auditoria] {endpoint} HTTP {resp.status_code} — deteniendo")
+                break
+            batch = resp.json()
+            if not batch or not isinstance(batch, list):
+                break
+            all_records.extend(batch)
+            logger.info(f"[Auditoria] {endpoint}: +{len(batch)} (total {len(all_records)})")
+            if len(batch) < limit:
+                break
+            offset += limit
     return all_records
 
 
