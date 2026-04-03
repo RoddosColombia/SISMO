@@ -416,6 +416,44 @@ Do not make direct repo edits outside a GSD workflow unless the user explicitly 
 - Causa: process_chat() despachaba sin verificar confianza en el intent
 - Prevención: threshold mínimo 0.70 antes de despachar. Si confianza < 0.70 → preguntar clarificación. NUNCA despachar a agente incorrecto
 
+ERROR-016 — ACCIÓN consultar_facturas NO REGISTRADA EN ACTION_MAP
+  Síntoma:     "Error: Acción no reconocida: consultar_facturas" en el chat
+  Causa raíz:  El ACTION_MAP en ai_chat.py solo tiene acciones de escritura
+               (registrar_gasto, registrar_pago, etc.). Las acciones de
+               consulta/lectura a Alegra nunca fueron implementadas.
+  Regla fija:  El ACTION_MAP necesita acciones de lectura:
+               consultar_facturas, consultar_pagos, consultar_journals.
+               Sin estas, el agente solo puede proponer — nunca ejecutar
+               consultas reales a Alegra.
+
+ERROR-017 — ALEGRA RETORNA 0 FACTURAS CUANDO HAY 18 REALES
+  Síntoma:     GET /invoices con date_start/date_end retorna 0 resultados
+  Causa raíz:  Pendiente de diagnóstico. Puede ser:
+               A) El token en alegra_credentials de MongoDB está
+                  desactualizado o apunta a cuenta equivocada
+               B) Alegra usa formato de fecha diferente al enviado
+               C) Las facturas están en Alegra bajo un tipo diferente
+                  (proformas, borradores, etc.)
+  Verificación obligatoria:
+               1. Confirmar en app.alegra.com que las 18 facturas
+                  existen y están en estado "activas"
+               2. Verificar el token actual en MongoDB:
+                  db.alegra_credentials.findOne({})
+               3. Hacer GET directo a Alegra con curl para verificar
+                  que el token responde correctamente
+
+ERROR-018 — BUILD 23 NUNCA EJECUTADO — AGENTE CONTADOR SIGUE EN 4.8/10
+  Síntoma:     Chat transaccional no crea journals (F2 = 3/10),
+               No se pueden crear facturas de venta de motos (F6 = 1/10),
+               Nómina no existe en el codebase (F4 = 0/10)
+  Causa raíz:  El BUILD 24 priorizó arquitectura interna (MongoDB, bus,
+               GitHub) saltándose el BUILD 23 que era el bloqueante
+               operacional. Error de planificación.
+  Regla fija:  El próximo build debe ser BUILD 23 completo:
+               S1 F2 Chat transaccional → S2 F6 Facturación motos →
+               S3 F7 Ingresos cuotas → S4 F4 Nómina.
+               NADA más hasta que el Agente Contador esté en 8.5/10.
+
 ## Event Bus Protocol (BUILD 24)
 
 Use `bus.emit()` for ALL event publishing. The old patterns are DELETED:
@@ -511,3 +549,126 @@ Schedule: cada 5 min, timezone `America/Bogota`
 - `MERCATELY_CGO_ID` = ID del contacto CGO en Mercately
 
 **Regla:** NUNCA usar `app.alegra.com/api/r1` en el node de n8n — siempre `api.alegra.com/api/v1`.
+## ALEGRA API — REGLAS OPERATIVAS INAMOVIBLES
+
+### Límites de paginación
+- La API de Alegra acepta MÁXIMO limit=30 por página en todos los endpoints
+- NUNCA usar limit=100 — retorna HTTP 400 "El límite de facturas para retornar debe estar entre 0 y 30"
+- Patrón correcto de paginación:
+  offset = 0
+  while True:
+      batch = await alegra.request(endpoint, "GET", params={"limit": 30, "offset": offset})
+      if not batch or not isinstance(batch, list): break
+      all_records.extend(batch)
+      if len(batch) < 30: break
+      offset += 30
+
+### Endpoints
+- Comprobantes contables: /journals — NUNCA /journal-entries (da 403)
+- Plan de cuentas: /categories — NUNCA /accounts (da 403)
+- URL base SIEMPRE: https://api.alegra.com/api/v1/ — NUNCA app.alegra.com/api/r1/
+- Facturas de venta: /invoices
+- Facturas de compra (Auteco): /bills
+- Pagos: /payments
+
+### Formato de fechas
+- SIEMPRE yyyy-MM-dd (ej: 2026-04-02)
+- NUNCA ISO-8601 con timezone (ej: 2026-04-02T00:00:00Z da error)
+
+### Cuentas contables
+- Fallback cuenta gastos: ID 5493 (Gastos Generales) — NUNCA ID 5495
+- IDs son numéricos internos de Alegra — nunca usar código PUC directamente
+- Plan completo en MongoDB colección plan_cuentas_roddos
+
+### Autenticación
+- Basic Auth: Base64(email:token)
+- Token activo: 17a8a3b7016e1c15c514
+- Email: contabilidad@roddos.com
+- Prioridad de lectura: 1) Variables de entorno Render (ALEGRA_EMAIL, ALEGRA_TOKEN) 2) MongoDB alegra_credentials 3) Demo mode
+
+### Protecciones inamovibles (permissions.py)
+- DELETE en /invoices: BLOQUEADO — PermissionError siempre
+- DELETE en /bills: BLOQUEADO salvo endpoint explícito /api/auditoria/anular-bill-duplicada
+- /journal-entries: BLOQUEADO en todos los agentes
+- CFO: alegra_endpoints = [] — sin escritura en Alegra
+
+### Comportamiento HTTP en AlegraService.request()
+- HTTP 400: propaga como HTTPException(400) — detiene la operación
+- HTTP 401: mensaje en español sobre credenciales
+- HTTP 403 en GET: retorna [] silenciosamente — no es error
+- HTTP 403 en POST/PUT/DELETE: propaga como HTTPException(403)
+- HTTP 404: retorna []
+- HTTP 429: propaga como HTTPException(429) — aplicar retry con backoff
+- HTTP 503: propaga como HTTPException(503)
+
+### Reglas de negocio RODDOS en Alegra
+- Auteco NIT 860024781: autoretenedor — NUNCA aplicar ReteFuente en sus facturas
+- IVA: cuatrimestral ene-abr / may-ago / sep-dic — NUNCA bimestral
+- VIN y motor: obligatorios en description de items de facturas de venta de motos
+  Formato: "[Modelo] [Color] - VIN: [chasis] / Motor: [motor]"
+- ReteFuente tasas: Arrend. 3.5% / Servicios 4% / Hon.PN 10% / Hon.PJ 11% / Compras 2.5% (base >$1.344.573)
+- ReteICA Bogotá: 0.414% por operación
+
+### Bancos en Alegra
+- Bancolombia: ID 5314 (cuenta 2029) — recaudo cuotas
+- BBVA: ID 5318 (cuenta 0210) — pagos a proveedores
+- Davivienda: ID 5322 (cuenta 482)
+- Global66: ID 11100507
+- Nequi: ID 5310 (caja general)
+
+### Verificación post-escritura (ROG-1)
+- NUNCA reportar éxito sin verificar HTTP 200 en Alegra
+- request_with_verify(): POST + GET de verificación — innegociable
+- Si el GET de verificación falla: la operación NO se reporta como exitosa
+
+---
+
+## ERRORES DOCUMENTADOS — SESIÓN 3 ABR 2026
+### Reconstrucción contable desde extractos bancarios
+
+### ERROR-019: Motor matricial no coincide con descripciones reales de Bancolombia — doble espacio
+- Síntoma: 187 movimientos detectados, 0 causados automáticamente. Dry-run mostraba 155 causables pero producción daba 0.
+- Causa: Bancolombia genera descripciones con doble espacio: "COMPRA EN  RAPPI COLO" (dos espacios) en vez de "COMPRA EN RAPPI COLO". Las reglas del motor usan espacio simple y nunca coincidían.
+- Fix aplicado: Re-sub `r'\s+'` a espacio simple en `clasificar_movimiento()` antes de cualquier comparación. Commit 366561d.
+- Prevención: SIEMPRE normalizar espacios al inicio de `clasificar_movimiento()`: `desc_lower = re.sub(r'\s+', ' ', descripcion.lower().strip())`. Esta normalización debe aplicarse a TODOS los campos de texto antes de comparar con reglas.
+
+### ERROR-020: Scripts Python creados localmente sin push a GitHub — Render no los tiene
+- Síntoma: "No such file or directory" al ejecutar scripts en Render Shell aunque existan en el local.
+- Causa: Claude Code crea el archivo en el directorio local pero no ejecuta git add + commit + push automáticamente. El archivo solo existe en la máquina de desarrollo.
+- Prevención: DESPUÉS de crear cualquier script nuevo, SIEMPRE ejecutar inmediatamente: `git add <archivo>`, `git commit -m "feat: ..."`, `git push origin main`. Nunca asumir que un archivo local está en Render. Verificar con `git status` antes de intentar ejecutar en Render Shell.
+
+### ERROR-021: UI de Cargar Extracto muestra 0/0 — background task no completó cuando el frontend lee el estado
+- Síntoma: SISMO muestra "187 detectados, 0 causados automáticamente, 0 pendientes de revisión" aunque el backend procesó 83 journals correctamente.
+- Causa: El endpoint POST /api/conciliacion/cargar-extracto retorna inmediatamente con el estado inicial del job (causados=0, pendientes=0, status="processing") sin esperar a que el background task termine. El frontend captura ese estado inicial y lo muestra congelado.
+- Fix requerido: El componente CargarExtracto debe hacer polling a GET /api/conciliacion/job-status/{job_id} cada 3 segundos hasta que status === "completed" o "failed", luego mostrar los valores reales.
+- Prevención: Para CUALQUIER operación de background task en SISMO, el frontend DEBE implementar polling con el job_id. La fuente de verdad para resultados de background tasks es SIEMPRE Render Logs o MongoDB conciliacion_jobs — NUNCA la respuesta inmediata del endpoint.
+
+### ERROR-022: conciliacion_extractos_procesados guarda hash aunque causados=0 — bloquea reprocesamiento
+- Síntoma: "Este extracto ya fue procesado el [fecha]. Journals creados: 32" bloqueando un re-upload aunque el procesamiento anterior fue incompleto o con reglas incorrectas.
+- Causa: El código guardaba el hash del extracto en la colección aunque el procesamiento tuviera 0 causados o fallara a mitad. La condición `if causados > 0` estaba implementada pero había race conditions en deploys.
+- Prevención: El hash en conciliacion_extractos_procesados solo se guarda si `causados > 0` — ya implementado. Si el procesamiento falla o produce 0 causados, el hash NO se guarda para permitir reintento. Si el extracto está bloqueado incorrectamente, usar script `limpiar_hash_extracto.py` para remover el bloqueo.
+
+### ERROR-023: Script de limpieza con loop infinito en timeout de Alegra — nunca termina
+- Síntoma: Script `limpiar_journals_2026.py` ejecutando indefinidamente con "TIMEOUT en offset=0 — reintentando en 5s..." sin parar nunca.
+- Causa: El script tenía un loop `while True` con `continue` en timeout, lo que significa que si Alegra nunca responde, el loop no termina. Alegra estaba respondiendo lento (503 intermitentes).
+- Fix aplicado: Script `eliminar_journals_directo.py` — elimina por IDs hardcodeados sin hacer GET previo. Sin loops de paginación ni reintentos infinitos. Máximo 30 DELETEs con 0.3s entre cada uno.
+- Prevención: Scripts de limpieza de Alegra NUNCA deben tener loops de reintento sin límite. Siempre agregar `max_retries=3` y salir con error si se agota. Para limpiezas de emergencia, preferir scripts con IDs hardcodeados conocidos sobre paginación dinámica.
+
+### ERROR-024: Alegra rechaza journals con monto < $1 COP — HTTP 400
+- Síntoma: "Debes agregar al menos una cuenta contable en débito" para movimiento `AJUSTE INTERES AHORROS DB` con monto $0.04.
+- Causa: Alegra rechaza journals con monto fraccionario menor a $1. El motor clasificaba estos movimientos con confianza 0.90 y los enviaba a causables, pero Alegra los rechazaba.
+- Prevención: En `crear_journal_alegra()`, agregar validación antes del POST: `if int(movimiento.monto) < 1: return False, None, "Monto menor a $1 — Alegra no acepta centavos"`. El motor debe filtrar movimientos con monto < 1 antes de intentar causarlos en Alegra.
+
+### ERROR-025: conciliacion_movimientos_procesados NO se limpia al limpiar extractos — causa falsos duplicados
+- Síntoma: Al limpiar conciliacion_extractos_procesados y re-procesar el extracto, los movimientos individuales del intento anterior se saltaban con "DUPLICADO" porque sus hashes seguían en conciliacion_movimientos_procesados.
+- Causa: Los scripts de limpieza solo eliminaban documentos de conciliacion_extractos_procesados (hash del archivo completo) pero NO de conciliacion_movimientos_procesados (hashes individuales de cada movimiento).
+- Prevención: Cuando se limpia el hash de un extracto para reprocesarlo, SIEMPRE también limpiar los movimientos individuales del mismo banco y período. Script `limpiar_hash_extracto.py` debe eliminar ambas colecciones. Comando MongoDB: `db.conciliacion_movimientos_procesados.deleteMany({"banco": "bancolombia", "fecha": {"$regex": "^2026-01"}})`.
+
+### ERROR-026: Compensación diferida cofounders — framework contable RODDOS (decisión 3 abr 2026)
+- Contexto: Andrés Sanjuan (CC 80075452) e Iván Echeverri (CC 80086601) trabajan sin salario. La empresa cubre gastos personales.
+- Framework definido:
+  - Salario Base Diferido: $8.500.000 COP/mes por fundador
+  - Límite gastos personales: $3.500.000 COP/mes por fundador
+  - Accrual mensual: DÉB 5462 Sueldos y Salarios $17.000.000 / CRÉD 5413 Salarios por Pagar $17.000.000
+  - Gastos personales fundadores: DÉB 5413 Salarios por Pagar / CRÉD banco_origen (NO afecta P&L)
+- Prevención: Los gastos personales de los fundadores (Rappi, restaurantes, supermercado, combustible personal) van a DÉB 5413 (reduce el pasivo diferido), NO a gasto operativo ni a CXC socios. Esta es una decisión contable estratégica inamovible.
