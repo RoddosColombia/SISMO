@@ -1,15 +1,23 @@
 """seed_contabilidad_backlog.py — Crea colección contabilidad_backlog con items pendientes Fase 3.
 
-Idempotente: usa upsert por descripcion. Ejecutar una vez en Render o local.
+Idempotente: usa upsert por descripcion. Ejecutar una vez en Render Shell.
 
-Uso:
-    cd backend && python scripts/seed_contabilidad_backlog.py
+Uso desde Render Shell (ya en ~/project/src/backend):
+    python scripts/seed_contabilidad_backlog.py
 """
 
 import asyncio
+import os
 from datetime import datetime, timezone
+from pathlib import Path
+from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
-from database import MONGO_URL, DB_NAME
+
+# Cargar .env si existe (local), en Render las vars ya están en el entorno
+load_dotenv(Path(__file__).parent.parent / ".env")
+
+MONGO_URL = os.environ["MONGO_URL"]
+DB_NAME   = os.environ.get("DB_NAME", "roddos")
 
 FECHA_LIMITE = "2026-04-08"
 
@@ -107,12 +115,12 @@ async def seed():
         )
         if result.upserted_id:
             inserted += 1
-            print(f"  ✅ Insertado: {item['descripcion']}")
+            print(f"  OK Insertado: {item['descripcion']}")
         else:
             skipped += 1
-            print(f"  ⏭  Ya existe: {item['descripcion']}")
+            print(f"  -- Ya existe: {item['descripcion']}")
 
-    print(f"\nBacklog: {inserted} insertados, {skipped} ya existían.")
+    print(f"\nBacklog: {inserted} insertados, {skipped} ya existian.")
     client.close()
 
 
