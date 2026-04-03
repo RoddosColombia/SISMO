@@ -716,8 +716,8 @@ def clasificar_movimiento(
     Returns:
         ClasificacionResult con clasificación y confianza
     """
-    desc_lower = descripcion.lower()
-    prov_lower = (proveedor or "").lower()
+    desc_lower = re.sub(r'\s+', ' ', descripcion.lower().strip())
+    prov_lower = re.sub(r'\s+', ' ', (proveedor or "").lower().strip())
     texto_combinado = f"{desc_lower} {prov_lower}"
 
     # ─────────────────────────────────────────────────────────────────────────────
