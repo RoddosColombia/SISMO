@@ -398,7 +398,7 @@ REGLAS_CLASIFICACION = {
 
     # 11. ABONO POR INTERESES — Ingresos financieros (5456), confianza 85%
     "abono_intereses": {
-        "palabras_clave": ["abono por inter", "rendimientos financieros"],
+        "palabras_clave": ["abono por inter", "rendimientos financieros", "abono intereses ganados"],
         "cuenta_debito": None,  # Banco como débito
         "cuenta_credito": 5456,
         "confianza_min": 0.85,
@@ -410,6 +410,38 @@ REGLAS_CLASIFICACION = {
         "cuenta_debito": 5496,  # Fallback
         "cuenta_credito": None,
         "confianza_min": 0.25,  # MUY baja confianza
+    },
+
+    # 13. COMISIÓN BBVA (BBVAC) → Comisiones bancarias (5508), confianza 92%
+    "bbva_comision_bbvac": {
+        "palabras_clave": ["comision bbvac", "bbvac"],
+        "cuenta_debito": 5508,
+        "cuenta_credito": None,
+        "confianza_min": 0.92,
+    },
+
+    # 14. INTERESES RAUL / PRESTAMO RAUL → Intereses rentistas (5534), confianza 95%
+    "bbva_intereses_raul": {
+        "palabras_clave": ["intereses raul", "prestamo raul", "int raul"],
+        "cuenta_debito": 5534,
+        "cuenta_credito": None,
+        "confianza_min": 0.95,
+    },
+
+    # 15. LIQUIDACION LILIANA (nómina) → Sueldos y salarios (5462), confianza 92%
+    "bbva_liquidacion_liliana": {
+        "palabras_clave": ["liquidacion liliana", "liq liliana", "nomina liliana"],
+        "cuenta_debito": 5462,
+        "cuenta_credito": None,
+        "confianza_min": 0.92,
+    },
+
+    # 16. ASEO MONICA (servicio de aseo) → Aseo y vigilancia (5482), confianza 92%
+    "bbva_aseo_monica": {
+        "palabras_clave": ["aseo monica", "pago monica aseo", "servicio aseo monica"],
+        "cuenta_debito": 5482,
+        "cuenta_credito": None,
+        "confianza_min": 0.92,
     },
 
     # ─────────────────────────────────────────────────────────────────────────────
@@ -577,6 +609,8 @@ REGLAS_CLASIFICACION = {
             "compra en tisan", "compra en bold*cevic",
             "compra intl disney plus", "compra intl spotify", "compra en prime vide",
             "compra intl feenko", "compra en amazon pri",
+            # Bancolombia abrevia "GASTO" como "GAST" en extractos
+            "cxc gast socio andres", "cxc gast socio ivan",
         ],
         "cuenta_debito": 5413,   # Salarios por pagar — reduce saldo diferido
         "cuenta_credito": None,  # banco_origen como fallback
@@ -884,8 +918,9 @@ def clasificar_movimiento(
             categoria="NOMINA"
         )
 
-    # 9. SERVICIOS PÚBLICOS
-    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["servicios_publicos"]["palabras_clave"]):
+    # 9. SERVICIOS PÚBLICOS — excluir si es gasto socio (cxc/socio en descripción)
+    if (any(kw in desc_check for kw in REGLAS_CLASIFICACION["servicios_publicos"]["palabras_clave"])
+            and not ("cxc" in desc_check or "socio" in desc_check)):
         return ClasificacionResult(
             cuenta_debito=5485,
             cuenta_credito=5376,
@@ -1085,6 +1120,50 @@ def clasificar_movimiento(
             requiere_confirmacion=True,
             razon="Recarga NEQUI → Esperando contexto vía WhatsApp",
             categoria="RECARGA_NEQUI"
+        )
+
+    # 13. COMISIÓN BBVA (BBVAC) — confianza 92%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bbva_comision_bbvac"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5508,
+            cuenta_credito=banco_origen,
+            confianza=0.92,
+            requiere_confirmacion=False,
+            razon="Comisión BBVA → Comisiones Bancarias",
+            categoria="BBVA_COMISION"
+        )
+
+    # 14. INTERESES RAUL → Intereses rentistas (5534) — confianza 95%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bbva_intereses_raul"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5534,
+            cuenta_credito=banco_origen,
+            confianza=0.95,
+            requiere_confirmacion=False,
+            razon="Intereses Raúl → Intereses Rentistas",
+            categoria="BBVA_INTERES_RENTISTA"
+        )
+
+    # 15. LIQUIDACION LILIANA → Sueldos y salarios (5462) — confianza 92%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bbva_liquidacion_liliana"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5462,
+            cuenta_credito=banco_origen,
+            confianza=0.92,
+            requiere_confirmacion=False,
+            razon="Liquidación Liliana → Sueldos y Salarios",
+            categoria="BBVA_NOMINA"
+        )
+
+    # 16. ASEO MONICA → Aseo y vigilancia (5482) — confianza 92%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bbva_aseo_monica"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5482,
+            cuenta_credito=banco_origen,
+            confianza=0.92,
+            requiere_confirmacion=False,
+            razon="Aseo Mónica → Aseo y Vigilancia",
+            categoria="BBVA_ASEO"
         )
 
     # ─────────────────────────────────────────────────────────────────────────────
