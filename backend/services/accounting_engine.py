@@ -665,7 +665,7 @@ def clasificar_movimiento(
     if any(kw in texto_combinado for kw in REGLAS_CLASIFICACION["traslado_interno"]["palabras_clave"]):
         return ClasificacionResult(
             cuenta_debito=5535,
-            cuenta_credito=None,
+            cuenta_credito=banco_origen,
             confianza=0.95,
             requiere_confirmacion=False,
             razon="Traslado interno RODDOS → NO contabilizar",
@@ -917,7 +917,7 @@ def clasificar_movimiento(
     if any(kw in desc_check for kw in REGLAS_CLASIFICACION["traslado_interno"]["palabras_clave"]):
         return ClasificacionResult(
             cuenta_debito=5535,
-            cuenta_credito=None,
+            cuenta_credito=banco_origen,
             confianza=0.95,
             requiere_confirmacion=False,
             razon="Traslado interno RODDOS → NO contabilizar",
@@ -1153,7 +1153,7 @@ def clasificar_movimiento(
     if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_transferencia_cta_virtual"]["palabras_clave"]):
         return ClasificacionResult(
             cuenta_debito=5535,
-            cuenta_credito=None,
+            cuenta_credito=banco_origen,
             confianza=0.90,
             requiere_confirmacion=False,
             razon="Transferencia CTA Suc Virtual → NO contabilizar",

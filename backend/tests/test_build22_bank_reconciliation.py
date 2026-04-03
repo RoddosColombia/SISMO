@@ -259,5 +259,52 @@ class TestEndToEndFlow:
         print(f"  - Percentage reconciled: {expected_percentage}%")
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# FASE 3 HOTFIX — cuenta_credito / cuenta_debito nunca deben ser None
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestCuentasNoNone:
+    """Verifica que clasificar_movimiento() nunca retorna None en cuentas contables.
+
+    187 movimientos de Bancolombia enero fallaron en Alegra porque cuenta_credito=None
+    se pasaba al payload. El fallback a banco_origen corrige esto.
+    """
+
+    def test_clasificacion_gmf_no_cuenta_none(self):
+        """GMF 4x1000 debe retornar cuenta_debito y cuenta_credito no-None."""
+        from services.accounting_engine import clasificar_movimiento
+        result = clasificar_movimiento(
+            descripcion="GRAVAMEN AL MOVIMIENTO FINANCIERO 4X1000",
+            banco_origen=5314,
+        )
+        assert result.cuenta_debito is not None, "cuenta_debito no debe ser None en GMF"
+        assert result.cuenta_credito is not None, "cuenta_credito no debe ser None en GMF"
+        assert result.cuenta_debito == 5509
+        assert result.cuenta_credito == 5314  # banco_origen como contrapartida
+
+    def test_clasificacion_ingreso_no_cuenta_none(self):
+        """Abono intereses ahorros debe retornar cuenta_debito y cuenta_credito no-None."""
+        from services.accounting_engine import clasificar_movimiento
+        result = clasificar_movimiento(
+            descripcion="ABONO INTERESES AHORROS BANCOLOMBIA",
+            banco_origen=5314,
+        )
+        assert result.cuenta_debito is not None, "cuenta_debito no debe ser None en abono intereses"
+        assert result.cuenta_credito is not None, "cuenta_credito no debe ser None en abono intereses"
+        assert result.cuenta_credito == 5456  # Ingresos Financieros
+
+    def test_clasificacion_nomina_no_cuenta_none(self):
+        """Nómina RODDOS debe retornar cuenta_debito y cuenta_credito no-None."""
+        from services.accounting_engine import clasificar_movimiento
+        result = clasificar_movimiento(
+            descripcion="PAGO NOMINA RODDOS EMPLEADOS",
+            banco_origen=5314,
+        )
+        assert result.cuenta_debito is not None, "cuenta_debito no debe ser None en nómina"
+        assert result.cuenta_credito is not None, "cuenta_credito no debe ser None en nómina"
+        assert result.cuenta_debito == 5462  # Sueldos y salarios
+        assert result.cuenta_credito == 5314  # banco_origen como contrapartida
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])
