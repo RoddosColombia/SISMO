@@ -306,5 +306,113 @@ class TestCuentasNoNone:
         assert result.cuenta_credito == 5314  # banco_origen como contrapartida
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# FASE 3 — Framework Compensación Diferida + Motor Matricial
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestFase3CompensacionDiferida:
+    """Verifica las nuevas reglas del motor matricial Fase 3."""
+
+    def test_gasto_personal_fundador_rappi_va_a_5413(self):
+        """Compra en Rappi → 5413 Salarios por pagar (NO P&L)."""
+        from services.accounting_engine import clasificar_movimiento
+        result = clasificar_movimiento(
+            descripcion="COMPRA EN RAPPI",
+            banco_origen=5314,
+        )
+        assert result.cuenta_debito == 5413, f"Esperado 5413, obtenido {result.cuenta_debito}"
+        assert result.cuenta_credito == 5314, "cuenta_credito debe ser banco_origen"
+        assert result.confianza >= 0.85
+        assert result.categoria == "BC_COMPENSACION_DIFERIDA"
+
+    def test_gasto_personal_fundador_spotify_va_a_5413(self):
+        """Compra Spotify → 5413 (suscripción personal, NO tecnología operativa)."""
+        from services.accounting_engine import clasificar_movimiento
+        result = clasificar_movimiento(
+            descripcion="COMPRA INTL SPOTIFY",
+            banco_origen=5314,
+        )
+        assert result.cuenta_debito == 5413
+        assert result.categoria == "BC_COMPENSACION_DIFERIDA"
+
+    def test_cobro_cartera_nequi_va_a_5327(self):
+        """Transferencia desde Nequi → 5327 Créditos Directos (cobro cartera)."""
+        from services.accounting_engine import clasificar_movimiento
+        result = clasificar_movimiento(
+            descripcion="TRANSFERENCIA DESDE NEQUI",
+            banco_origen=5314,
+        )
+        assert result.cuenta_credito == 5327, f"Esperado 5327, obtenido {result.cuenta_credito}"
+        assert result.cuenta_debito == 5314
+        assert result.categoria == "BC_COBRO_CARTERA"
+
+    def test_cobro_cartera_pago_llave_va_a_5327(self):
+        """Pago Llave → 5327 Créditos Directos (cobro cartera)."""
+        from services.accounting_engine import clasificar_movimiento
+        result = clasificar_movimiento(
+            descripcion="PAGO LLAVE BANCOLOMBIA",
+            banco_origen=5314,
+        )
+        assert result.cuenta_credito == 5327
+        assert result.categoria == "BC_COBRO_CARTERA"
+
+    def test_transferencia_virtual_monto_bajo_es_cartera(self):
+        """Transferencia CTA Suc Virtual < $3M → cobro cartera (5327)."""
+        from services.accounting_engine import clasificar_movimiento
+        result = clasificar_movimiento(
+            descripcion="TRANSFERENCIA CTA SUC VIRTUAL",
+            banco_origen=5314,
+            monto=1_500_000,
+        )
+        assert result.cuenta_credito == 5327
+        assert result.categoria == "BC_COBRO_CARTERA"
+        assert result.requiere_confirmacion is False
+
+    def test_transferencia_virtual_monto_alto_es_prestamo_socio(self):
+        """Transferencia CTA Suc Virtual >= $5M → préstamo socio (5413)."""
+        from services.accounting_engine import clasificar_movimiento
+        result = clasificar_movimiento(
+            descripcion="TRANSFERENCIA CTA SUC VIRTUAL",
+            banco_origen=5314,
+            monto=8_000_000,
+        )
+        assert result.cuenta_credito == 5413
+        assert result.categoria == "BC_PRESTAMO_SOCIO"
+        assert result.requiere_confirmacion is True
+
+    def test_transferencia_virtual_zona_gris_requiere_confirmacion(self):
+        """Transferencia CTA Suc Virtual $3M-$5M → zona gris, requiere confirmación."""
+        from services.accounting_engine import clasificar_movimiento
+        result = clasificar_movimiento(
+            descripcion="TRANSFERENCIA CTA SUC VIRTUAL",
+            banco_origen=5314,
+            monto=4_000_000,
+        )
+        assert result.requiere_confirmacion is True
+        assert result.categoria == "BC_PENDIENTE"
+
+    def test_mercately_va_a_5484(self):
+        """Mercately → 5484 Tecnología."""
+        from services.accounting_engine import clasificar_movimiento
+        result = clasificar_movimiento(
+            descripcion="COMPRA INTL MERCATELY",
+            banco_origen=5314,
+        )
+        assert result.cuenta_debito == 5484
+        assert result.cuenta_credito == 5376
+        assert result.categoria == "BC_TECNOLOGIA"
+
+    def test_prestamo_mary_va_a_5332(self):
+        """Pago préstamo Mary Suárez → 5332 CXC empleados."""
+        from services.accounting_engine import clasificar_movimiento
+        result = clasificar_movimiento(
+            descripcion="PAGO A PROV MARY ALEXANDRA SUAREZ",
+            banco_origen=5314,
+        )
+        assert result.cuenta_debito == 5332
+        assert result.cuenta_credito == 5314
+        assert result.categoria == "BC_CXC_EMPLEADO"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

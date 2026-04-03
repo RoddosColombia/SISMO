@@ -560,6 +560,113 @@ REGLAS_CLASIFICACION = {
         "cuenta_credito": None,
         "confianza_min": 0.30,
     },
+
+    # ── FASE 3: FRAMEWORK COMPENSACIÓN DIFERIDA ───────────────────────────────
+    # Salario Base Diferido: $8.500.000/mes/fundador → accrual en 5413
+    # Límite gastos personales: $3.500.000/mes/fundador
+    # Fundadores: Andrés Sanjuan CC 80075452 / Iván Echeverri CC 80086601
+
+    # GASTOS PERSONALES FUNDADORES → 5413 Salarios por pagar (NO afectan P&L)
+    "bc_gasto_personal_fundador": {
+        "palabras_clave": [
+            "compra en rappi", "compra en mc donald", "compra en burger",
+            "compra en home burge", "compra en carulla", "compra en juan valde",
+            "compra en farmatodo", "compra en fontanar", "compra en optica ale",
+            "compra en casa d bta", "compra en arbol de v", "compra en sporty cit",
+            "compra en patrimo au", "compra en jeronimo m", "compra en sto 688",
+            "compra en tisan", "compra en bold*cevic",
+            "compra intl disney plus", "compra intl spotify", "compra en prime vide",
+            "compra intl feenko", "compra en amazon pri",
+        ],
+        "cuenta_debito": 5413,   # Salarios por pagar — reduce saldo diferido
+        "cuenta_credito": None,  # banco_origen como fallback
+        "confianza_min": 0.85,
+    },
+
+    # K TRONIX → Equipos tecnología empleados → 5484
+    "bc_ktronix_tech": {
+        "palabras_clave": ["compra en k tronix"],
+        "cuenta_debito": 5484,
+        "cuenta_credito": 5376,
+        "confianza_min": 0.90,
+    },
+
+    # COMBUSTIBLE → 5498
+    "bc_combustible": {
+        "palabras_clave": ["compra en eds norman", "compra en eds amborc", "compra en texaco eds"],
+        "cuenta_debito": 5498,
+        "cuenta_credito": None,  # banco_origen como fallback
+        "confianza_min": 0.85,
+    },
+
+    # PARQUEADERO → 5499
+    "bc_parqueadero": {
+        "palabras_clave": ["compra en parqueader"],
+        "cuenta_debito": 5499,
+        "cuenta_credito": None,  # banco_origen como fallback
+        "confianza_min": 0.85,
+    },
+
+    # MERCATELY → 5484 Tech
+    "bc_mercately": {
+        "palabras_clave": ["compra intl mercately"],
+        "cuenta_debito": 5484,
+        "cuenta_credito": 5376,
+        "confianza_min": 0.95,
+    },
+
+    # COBROS DE CARTERA via Nequi (reemplaza bc_transferencia_nequi pendiente)
+    "bc_cobro_cartera_nequi": {
+        "palabras_clave": ["transferencia desde nequi"],
+        "cuenta_debito": None,   # banco_origen como fallback
+        "cuenta_credito": 5327,  # Créditos Directos Roddos
+        "confianza_min": 0.80,
+    },
+
+    # COBROS DE CARTERA via Pago Llave
+    "bc_cobro_cartera_pago_llave": {
+        "palabras_clave": ["pago llave"],
+        "cuenta_debito": None,   # banco_origen como fallback
+        "cuenta_credito": 5327,
+        "confianza_min": 0.85,
+    },
+
+    # COBROS DE CARTERA via Corresponsal (reemplaza bc_consignacion_corresponsal pendiente)
+    "bc_cobro_cartera_corresponsal": {
+        "palabras_clave": ["consignacion corresponsal cb"],
+        "cuenta_debito": None,   # banco_origen como fallback
+        "cuenta_credito": 5327,
+        "confianza_min": 0.80,
+    },
+
+    # GASTOS BANCARIOS VARIOS → 5507
+    "bc_servicios_bancarios": {
+        "palabras_clave": [
+            "servicio pago a otros bancos", "servicio pago a proveedores",
+            "servicio e-mails enviados", "cobro iva pagos automaticos",
+            "transf de mary suarez", "ajuste compra intl confirmaf",
+        ],
+        "cuenta_debito": 5507,
+        "cuenta_credito": None,  # banco_origen como fallback
+        "confianza_min": 0.85,
+    },
+
+    # CAMARA DE COMERCIO → 5478 Industria y Comercio
+    "bc_camara_comercio": {
+        "palabras_clave": ["pago pse camara de comercio"],
+        "cuenta_debito": 5478,
+        "cuenta_credito": 5376,
+        "confianza_min": 0.90,
+    },
+
+    # PRÉSTAMO EMPLEADA MARY ALEXANDRA SUÁREZ → 5332 CXC empleados
+    # Préstamo original $17.000.000 (oct 2025), abono reduce saldo
+    "bc_prestamo_empleada_mary": {
+        "palabras_clave": ["pago a prov mary alexandra"],
+        "cuenta_debito": 5332,   # Avances y anticipos a empleados
+        "cuenta_credito": None,  # banco_origen como fallback
+        "confianza_min": 0.95,
+    },
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1083,7 +1190,18 @@ def clasificar_movimiento(
             categoria="BC_PENDIENTE"
         )
 
-    # BC-10. TRANSFERENCIA DESDE NEQUI → Pendiente, confianza 30%
+    # BC-F3-1. TRANSFERENCIA DESDE NEQUI → Cobro cartera (5327), confianza 80%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_cobro_cartera_nequi"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=banco_origen,
+            cuenta_credito=5327,
+            confianza=0.80,
+            requiere_confirmacion=False,
+            razon="Transferencia desde Nequi → Cobro cartera (Créditos Directos Roddos)",
+            categoria="BC_COBRO_CARTERA"
+        )
+
+    # BC-10. TRANSFERENCIA DESDE NEQUI → Pendiente, confianza 30% (dead code — interceptado por BC-F3-1)
     if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_transferencia_nequi"]["palabras_clave"]):
         return ClasificacionResult(
             cuenta_debito=5496,
@@ -1105,7 +1223,18 @@ def clasificar_movimiento(
             categoria="BC_PENDIENTE"
         )
 
-    # BC-12. CONSIGNACION CORRESPONSAL CB → Pendiente ingreso, confianza 30%
+    # BC-F3-2. CONSIGNACION CORRESPONSAL CB → Cobro cartera (5327), confianza 80%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_cobro_cartera_corresponsal"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=banco_origen,
+            cuenta_credito=5327,
+            confianza=0.80,
+            requiere_confirmacion=False,
+            razon="Consignación Corresponsal CB → Cobro cartera (Créditos Directos Roddos)",
+            categoria="BC_COBRO_CARTERA"
+        )
+
+    # BC-12. CONSIGNACION CORRESPONSAL CB → Pendiente ingreso, confianza 30% (dead code — interceptado por BC-F3-2)
     if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_consignacion_corresponsal"]["palabras_clave"]):
         return ClasificacionResult(
             cuenta_debito=banco_origen,
@@ -1114,6 +1243,107 @@ def clasificar_movimiento(
             requiere_confirmacion=True,
             razon="Consignación Corresponsal CB → Requiere identificación del origen",
             categoria="BC_PENDIENTE"
+        )
+
+    # ── FASE 3: NUEVAS REGLAS MATRICIALES ────────────────────────────────────────
+
+    # BC-F3-3. PAGO LLAVE → Cobro cartera (5327), confianza 85%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_cobro_cartera_pago_llave"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=banco_origen,
+            cuenta_credito=5327,
+            confianza=0.85,
+            requiere_confirmacion=False,
+            razon="Pago Llave → Cobro cartera (Créditos Directos Roddos)",
+            categoria="BC_COBRO_CARTERA"
+        )
+
+    # BC-F3-4. K TRONIX → Tecnología (5484), confianza 90%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_ktronix_tech"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5484,
+            cuenta_credito=5376,
+            confianza=0.90,
+            requiere_confirmacion=False,
+            razon="Compra K Tronix → Tecnología (equipo empleados)",
+            categoria="BC_TECNOLOGIA"
+        )
+
+    # BC-F3-5. COMBUSTIBLE EDS → 5498, confianza 85%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_combustible"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5498,
+            cuenta_credito=banco_origen,
+            confianza=0.85,
+            requiere_confirmacion=False,
+            razon="Combustible EDS → Combustibles y lubricantes",
+            categoria="BC_COMBUSTIBLE"
+        )
+
+    # BC-F3-6. PARQUEADERO → 5499, confianza 85%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_parqueadero"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5499,
+            cuenta_credito=banco_origen,
+            confianza=0.85,
+            requiere_confirmacion=False,
+            razon="Parqueadero → Transporte",
+            categoria="BC_TRANSPORTE"
+        )
+
+    # BC-F3-7. MERCATELY → Tecnología (5484), confianza 95%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_mercately"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5484,
+            cuenta_credito=5376,
+            confianza=0.95,
+            requiere_confirmacion=False,
+            razon="Mercately → Tecnología (plataforma WhatsApp)",
+            categoria="BC_TECNOLOGIA"
+        )
+
+    # BC-F3-8. SERVICIOS BANCARIOS VARIOS → 5507, confianza 85%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_servicios_bancarios"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5507,
+            cuenta_credito=banco_origen,
+            confianza=0.85,
+            requiere_confirmacion=False,
+            razon="Servicios bancarios varios → Gastos bancarios",
+            categoria="BC_GASTO_BANCARIO"
+        )
+
+    # BC-F3-9. CÁMARA DE COMERCIO → I&C (5478), confianza 90%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_camara_comercio"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5478,
+            cuenta_credito=5376,
+            confianza=0.90,
+            requiere_confirmacion=False,
+            razon="Pago PSE Cámara de Comercio → Industria y Comercio",
+            categoria="BC_ICA"
+        )
+
+    # BC-F3-10. PRÉSTAMO EMPLEADA MARY ALEXANDRA → CXC empleados (5332), confianza 95%
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_prestamo_empleada_mary"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5332,
+            cuenta_credito=banco_origen,
+            confianza=0.95,
+            requiere_confirmacion=False,
+            razon="Abono préstamo Mary Suárez → CXC empleados (reduce saldo $17M)",
+            categoria="BC_CXC_EMPLEADO"
+        )
+
+    # BC-F3-11. GASTOS PERSONALES FUNDADORES → 5413 Salarios por pagar (máxima prioridad vs BC-14/15)
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_gasto_personal_fundador"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5413,
+            cuenta_credito=banco_origen,
+            confianza=0.85,
+            requiere_confirmacion=False,
+            razon="Gasto personal fundador → 5413 Salarios por pagar (NO P&L)",
+            categoria="BC_COMPENSACION_DIFERIDA"
         )
 
     # BC-13. COMPRA EN TIENDA D1 → CXC socio si es gasto personal, confianza 45%
@@ -1149,17 +1379,38 @@ def clasificar_movimiento(
             categoria="BC_CXC_SOCIO"
         )
 
-    # BC-16. TRANSFERENCIA CTA SUC VIRTUAL → Transferencia interna (5535), NO contabilizar, confianza 90%
+    # BC-16. TRANSFERENCIA CTA SUC VIRTUAL — lógica condicional por monto
+    # Si monto < $3.000.000 → cobro cartera (5327)
+    # Si monto >= $5.000.000 → préstamo socio a RODDOS (5413)
+    # Zona gris $3M-$5M → requiere confirmación
     if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_transferencia_cta_virtual"]["palabras_clave"]):
-        return ClasificacionResult(
-            cuenta_debito=5535,
-            cuenta_credito=banco_origen,
-            confianza=0.90,
-            requiere_confirmacion=False,
-            razon="Transferencia CTA Suc Virtual → NO contabilizar",
-            categoria="BC_TRASLADO_INTERNO",
-            es_transferencia_interna=True
-        )
+        if monto < 3_000_000:
+            return ClasificacionResult(
+                cuenta_debito=banco_origen,
+                cuenta_credito=5327,
+                confianza=0.80,
+                requiere_confirmacion=False,
+                razon=f"Transferencia CTA Suc Virtual (${monto:,.0f} < $3M) → Cobro cartera",
+                categoria="BC_COBRO_CARTERA"
+            )
+        elif monto >= 5_000_000:
+            return ClasificacionResult(
+                cuenta_debito=banco_origen,
+                cuenta_credito=5413,
+                confianza=0.80,
+                requiere_confirmacion=True,
+                razon=f"Transferencia CTA Suc Virtual (${monto:,.0f} >= $5M) → Préstamo socio a RODDOS",
+                categoria="BC_PRESTAMO_SOCIO"
+            )
+        else:
+            return ClasificacionResult(
+                cuenta_debito=banco_origen,
+                cuenta_credito=5496,
+                confianza=0.40,
+                requiere_confirmacion=True,
+                razon=f"Transferencia CTA Suc Virtual (${monto:,.0f} zona gris $3M-$5M) → Requiere confirmación",
+                categoria="BC_PENDIENTE"
+            )
 
     # BC-17. PAGO PSE EMPRESA DE TELECOMUN → Telecomunicaciones (5487), confianza 85%
     if any(kw in desc_check for kw in REGLAS_CLASIFICACION["bc_pago_telecom"]["palabras_clave"]):
