@@ -1,11 +1,30 @@
+@import url('https://fonts.googleapis.com/css2?family=Public+Sans:wght@300;400;500;600;700;800;900&family=Inter:wght@400;500;600;700&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&family=Raleway:wght@400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ─── RODDOS Brand Tokens ──────────────────────────────────────────────────── */
+/* ─── Design System Tokens — Corporate Editorial ────────────────────────────── */
 :root {
+  /* Surface tiers */
+  --surface:                  #fcf9f8;
+  --surface-bright:           #fdf9f8;
+  --surface-container-lowest: #ffffff;
+  --surface-container-low:    #f6f3f2;
+  --surface-container:        #f0edec;
+  --surface-container-high:   #eae7e6;
+  --surface-container-highest:#e4e1e0;
+
+  /* Brand */
+  --primary-hex:              #006e2a;
+  --primary-container-hex:    #9df6a0;
+  --secondary-hex:            #006875;
+  --on-surface:               #1c1b1f;
+  --on-surface-variant:       #49454f;
+  --outline-variant:          rgba(28, 27, 31, 0.12);
+
+  /* Legacy tokens — kept for backward compat with pages not yet migrated */
   --roddos-black:   #121212;
   --roddos-surface: #1A1A1A;
   --roddos-card:    #1E1E1E;
@@ -21,34 +40,34 @@
   --roddos-danger:  #FF4444;
 }
 
-/* ─── shadcn/ui token override → light content with dark chrome ─────────────── */
+/* ─── shadcn/ui token override ──────────────────────────────────────────────── */
 @layer base {
   :root {
-    --background: 210 40% 98%;        /* #F8FAFC light */
-    --foreground: 222 47% 11%;        /* #0F172A dark text */
-    --card: 0 0% 100%;                /* #FFFFFF white cards */
-    --card-foreground: 222 47% 11%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    --primary: 189 100% 50%;          /* #00E5FF cyan — RODDOS accent */
-    --primary-foreground: 0 0% 7%;
-    --secondary: 145 100% 39%;        /* #00C853 green */
-    --secondary-foreground: 0 0% 7%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 210 40% 96%;
-    --accent-foreground: 222 47% 11%;
-    --destructive: 0 84% 60%;
+    --background:          30 33% 99%;       /* #fcf9f8 surface */
+    --foreground:          270 4% 11%;       /* #1c1b1f on-surface */
+    --card:                0 0% 100%;        /* #ffffff surface-container-lowest */
+    --card-foreground:     270 4% 11%;
+    --popover:             0 0% 100%;
+    --popover-foreground:  270 4% 11%;
+    --primary:             141 100% 22%;     /* #006e2a */
+    --primary-foreground:  0 0% 100%;
+    --secondary:           187 100% 23%;     /* #006875 */
+    --secondary-foreground:0 0% 100%;
+    --muted:               20 11% 96%;       /* surface-container-low */
+    --muted-foreground:    270 4% 40%;
+    --accent:              20 11% 94%;       /* surface-container */
+    --accent-foreground:   270 4% 11%;
+    --destructive:         0 84% 60%;
     --destructive-foreground: 0 0% 98%;
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 189 100% 50%;
-    --radius: 0.5rem;
-    --chart-1: 189 100% 50%;
-    --chart-2: 145 100% 39%;
-    --chart-3: 0 84% 60%;
-    --chart-4: 39 100% 55%;
-    --chart-5: 270 60% 65%;
+    --border:              20 5% 88%;        /* ghost border — very subtle */
+    --input:               20 11% 91%;       /* surface-container-highest */
+    --ring:                141 100% 22%;
+    --radius:              0.25rem;
+    --chart-1:             141 100% 22%;
+    --chart-2:             187 100% 23%;
+    --chart-3:             0 84% 60%;
+    --chart-4:             39 100% 55%;
+    --chart-5:             270 60% 65%;
   }
 }
 
@@ -57,42 +76,41 @@
   body { @apply bg-background text-foreground; }
 }
 
-/* ─── Typography ────────────────────────────────────────────────────────────── */
+/* ─── Typography — Editorial Voice ─────────────────────────────────────────── */
 body {
   margin: 0;
-  font-family: 'Raleway', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #F8FAFC;
-  color: #1E293B;
+  background-color: var(--surface);
+  color: var(--on-surface);
 }
 
 h1, h2, h3, h4, h5, h6 {
-  font-family: 'Montserrat', sans-serif;
-  font-weight: 800;
-  color: var(--roddos-white);
+  font-family: 'Public Sans', 'Inter', sans-serif;
+  font-weight: 700;
+  color: var(--on-surface);
 }
 
-.font-montserrat { font-family: 'Montserrat', sans-serif; }
-.font-raleway    { font-family: 'Raleway', sans-serif; }
-
-/* ─── Cards / Surfaces — only affect sidebar/header dark chrome ─────────────── */
-/* Module pages keep their original white/light Tailwind classes */
+.font-public-sans { font-family: 'Public Sans', sans-serif; }
+.font-inter        { font-family: 'Inter', sans-serif; }
+/* Legacy font classes kept for pages not yet migrated */
+.font-montserrat   { font-family: 'Public Sans', 'Montserrat', sans-serif; }
+.font-raleway      { font-family: 'Inter', 'Raleway', sans-serif; }
 
 /* ─── Alegra selector ───────────────────────────────────────────────────────── */
 .alegra-selector-container {
-  background: var(--roddos-surface);
-  border: 1px solid var(--roddos-border);
-  border-radius: 8px;
+  background: var(--surface-container-low);
+  border-radius: 0.75rem;
   padding: 12px;
 }
 
-/* ─── Status badges (light-mode) ────────────────────────────────────────────── */
-.status-open    { @apply bg-blue-100 text-blue-700 border border-blue-200; }
-.status-paid    { @apply bg-green-100 text-green-700 border border-green-200; }
-.status-overdue { @apply bg-red-100 text-red-700 border border-red-200; }
-.status-draft   { @apply bg-slate-100 text-slate-500 border border-slate-200; }
-.status-voided  { @apply bg-slate-100 text-slate-400 border border-slate-200 line-through; }
+/* ─── Status badges — tonal only, no borders ────────────────────────────────── */
+.status-open    { @apply bg-blue-50 text-blue-700; }
+.status-paid    { @apply bg-emerald-50 text-emerald-700; }
+.status-overdue { @apply bg-red-50 text-red-700; }
+.status-draft   { @apply bg-stone-100 text-stone-500; }
+.status-voided  { @apply bg-stone-100 text-stone-400 line-through; }
 
 /* ─── Animations ────────────────────────────────────────────────────────────── */
 @keyframes fadeInUp {
@@ -107,20 +125,26 @@ h1, h2, h3, h4, h5, h6 {
 }
 .animate-pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
 
-/* Cyan glow pulse */
+@keyframes green-glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(0,110,42,0.2); }
+  50%       { box-shadow: 0 0 20px rgba(0,110,42,0.4); }
+}
+.animate-green-glow { animation: green-glow 3s ease-in-out infinite; }
+
+/* Keep legacy cyan-glow for any pages still referencing it */
 @keyframes cyan-glow {
   0%, 100% { box-shadow: 0 0 8px rgba(0,229,255,0.3); }
   50%       { box-shadow: 0 0 20px rgba(0,229,255,0.6); }
 }
 .animate-cyan-glow { animation: cyan-glow 3s ease-in-out infinite; }
 
-/* ─── Scrollbar (dark) ──────────────────────────────────────────────────────── */
+/* ─── Scrollbar — light editorial ───────────────────────────────────────────── */
 ::-webkit-scrollbar        { width: 5px; height: 5px; }
-::-webkit-scrollbar-track  { background: #161616; }
-::-webkit-scrollbar-thumb  { background: #3A3A3A; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #00E5FF40; }
+::-webkit-scrollbar-track  { background: var(--surface-container-low); }
+::-webkit-scrollbar-thumb  { background: #c4c0be; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--primary-hex); }
 
-/* ─── Floating chat button (cyan/green RODDOS) ──────────────────────────────── */
+/* ─── Floating chat button — primary green to secondary teal ────────────────── */
 .chat-float-btn {
   position: fixed;
   bottom: 24px;
@@ -129,8 +153,8 @@ h1, h2, h3, h4, h5, h6 {
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #00E5FF 0%, #00C853 100%);
-  box-shadow: 0 4px 24px rgba(0, 229, 255, 0.35);
+  background: linear-gradient(135deg, #006e2a 0%, #006875 100%);
+  box-shadow: 0 4px 24px rgba(0, 110, 42, 0.3);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -138,8 +162,8 @@ h1, h2, h3, h4, h5, h6 {
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 .chat-float-btn:hover {
-  transform: scale(1.1);
-  box-shadow: 0 6px 32px rgba(0, 229, 255, 0.5);
+  transform: scale(1.08);
+  box-shadow: 0 6px 32px rgba(0, 110, 42, 0.45);
 }
 
 /* ─── Number alignment ──────────────────────────────────────────────────────── */
