@@ -77,6 +77,15 @@ BACKLOG_ITEMS = [
         "fecha_limite": FECHA_LIMITE,
         "estado": "pendiente",
     },
+    {
+        "descripcion": "RETIRO CAJERO",
+        "categoria": "clasificar_pendiente",
+        "banco": "bancolombia",
+        "monto_referencia": "$2.700.000 y $1.100.000",
+        "nota": "Puede ser caja chica operativa, gasto personal o pago proveedor informal. No clasificar como salario diferido sin contexto.",
+        "fecha_limite": FECHA_LIMITE,
+        "estado": "pendiente",
+    },
 ]
 
 
