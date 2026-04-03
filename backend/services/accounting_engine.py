@@ -701,6 +701,165 @@ REGLAS_CLASIFICACION = {
         "cuenta_credito": None,  # banco_origen como fallback
         "confianza_min": 0.95,
     },
+
+    # ─────────────────────────────────────────────────────────────────────────────
+    # POLÍTICA CONTABLE NEQUI (ANDRÉS SANJUAN) — 15 REGLAS + 1 INGRESO LIZBETH
+    # Nequi es cuenta personal de Andrés. banco_origen = 5310
+    # ─────────────────────────────────────────────────────────────────────────────
+
+    # 1. RODDOS SAS egreso → traslado interno (Andrés envía de Nequi a empresa)
+    "nequi_traslado_roddos_sas": {
+        "palabras_clave": ["roddos sas"],
+        "cuenta_debito": 5535,
+        "cuenta_credito": None,
+        "confianza_min": 0.95,
+        "es_transferencia_interna": True,
+    },
+
+    # 2. Envio a otros bancos a RODDOS → traslado interno
+    "nequi_envio_banco_roddos": {
+        "palabras_clave": ["envio a otros bancos a roddos"],
+        "cuenta_debito": 5535,
+        "cuenta_credito": None,
+        "confianza_min": 0.95,
+        "es_transferencia_interna": True,
+    },
+
+    # 3. Recargas propias → traslado interno (desde Bancolombia, PSE, Punto Red)
+    "nequi_recarga_propia": {
+        "palabras_clave": [
+            "recarga desde bancolombia",
+            "recarga nequi pse",
+            "recarga en punto red",
+        ],
+        "cuenta_debito": 5535,
+        "cuenta_credito": None,
+        "confianza_min": 0.95,
+        "es_transferencia_interna": True,
+    },
+
+    # 4. Cobros de cartera — clientes que pagan por Nequi (INGRESOS)
+    "nequi_cobro_cartera_cliente": {
+        "palabras_clave": [
+            "de chirly mariana mateus",
+            "de andres felipe aldana",
+            "de nicolas reyes gonzalez",
+            "de yenifer andreina medina",
+            "de leinys gonzalez",
+            "de nazareth dugarte",
+            "de jair domico",
+            "de trinidad gutierrez",
+            "de william arturo suarez",
+            "de sebastian ubaque silva",
+            "de rodrigo jose camacho",
+            "de jhon fredy hinestroza",
+        ],
+        "cuenta_debito": None,   # banco_origen como débito (ingreso)
+        "cuenta_credito": 5327,  # Créditos Directos Roddos
+        "confianza_min": 0.90,
+    },
+
+    # 4b. Ingreso de Lizbeth Rincón — origen sin confirmar → backlog
+    "nequi_ingreso_lizbeth": {
+        "palabras_clave": ["de lizbeth rincon rojas"],
+        "cuenta_debito": None,
+        "cuenta_credito": 5496,
+        "confianza_min": 0.35,
+    },
+
+    # 5. RECIBI POR BRE-B DE: DIANA → esposa Andrés → recuperación → reduce 5413
+    "nequi_recibo_diana": {
+        "palabras_clave": ["recibi por bre-b de: diana"],
+        "cuenta_debito": None,
+        "cuenta_credito": 5413,
+        "confianza_min": 0.90,
+    },
+
+    # 6. F2X SAS = Flypass peajes → Transporte (5499)
+    "nequi_flypass_peajes": {
+        "palabras_clave": ["compra pse en f2x sas", "f2x sas"],
+        "cuenta_debito": 5499,
+        "cuenta_credito": None,
+        "confianza_min": 0.92,
+    },
+
+    # 7. Pagos a personas (cafetería, restaurante, parqueadero) → 5413 Andrés
+    "nequi_pagos_personales_para": {
+        "palabras_clave": [
+            "para jenniffer alexandra",
+            "para kevin cano",
+            "para arnol perdomo",
+            "para mariana alexandra",
+            "para lina montes del valle",
+        ],
+        "cuenta_debito": 5413,
+        "cuenta_credito": None,
+        "confianza_min": 0.90,
+    },
+
+    # 8. COMPRA PSE EN Beneficencia → lotería/personal Andrés → 5413
+    "nequi_compra_beneficiencia": {
+        "palabras_clave": ["compra pse en beneficiencia de", "beneficiencia de"],
+        "cuenta_debito": 5413,
+        "cuenta_credito": None,
+        "confianza_min": 0.90,
+    },
+
+    # 9. ENVIO CON BRE-B A: ANDRES → gasto personal Andrés → 5413
+    "nequi_envio_andres": {
+        "palabras_clave": ["envio con bre-b a: andres"],
+        "cuenta_debito": 5413,
+        "cuenta_credito": None,
+        "confianza_min": 0.90,
+    },
+
+    # 10. ENVIO CON BRE-B A: Diana → esposa Andrés → a nombre Andrés → 5413
+    "nequi_envio_diana": {
+        "palabras_clave": ["envio con bre-b a: diana"],
+        "cuenta_debito": 5413,
+        "cuenta_credito": None,
+        "confianza_min": 0.90,
+    },
+
+    # 11. Para IVAN ECHEVERRI GOMEZ → compensación diferida socio → 5413
+    "nequi_para_ivan": {
+        "palabras_clave": ["para ivan echeverri gomez"],
+        "cuenta_debito": 5413,
+        "cuenta_credito": None,
+        "confianza_min": 0.95,
+    },
+
+    # 12. Para LIZBETH RINCON ROJAS → nómina/anticipo empleada → 5462
+    "nequi_pago_lizbeth": {
+        "palabras_clave": ["para lizbeth rincon rojas"],
+        "cuenta_debito": 5462,
+        "cuenta_credito": None,
+        "confianza_min": 0.92,
+    },
+
+    # 13. Pago de Intereses (Nequi) → Ingresos financieros → 5456
+    "nequi_intereses_propios": {
+        "palabras_clave": ["pago de intereses"],
+        "cuenta_debito": None,
+        "cuenta_credito": 5456,
+        "confianza_min": 0.85,
+    },
+
+    # 14. ENVIO CON BRE-B A: NELSON → backlog (pendiente identificar)
+    "nequi_envio_nelson": {
+        "palabras_clave": ["envio con bre-b a: nelson"],
+        "cuenta_debito": 5496,
+        "cuenta_credito": None,
+        "confianza_min": 0.30,
+    },
+
+    # 15. VITAL TREE, QR BRE-B no identificados → backlog
+    "nequi_no_identificado": {
+        "palabras_clave": ["vital tree", "pago en qr bre-b"],
+        "cuenta_debito": 5496,
+        "cuenta_credito": None,
+        "confianza_min": 0.25,
+    },
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -753,6 +912,156 @@ def clasificar_movimiento(
     desc_lower = re.sub(r'\s+', ' ', descripcion.lower().strip())
     prov_lower = re.sub(r'\s+', ' ', (proveedor or "").lower().strip())
     texto_combinado = f"{desc_lower} {prov_lower}"
+    desc_check = texto_combinado  # alias usado por todos los bloques de reglas
+
+    # ─────────────────────────────────────────────────────────────────────────────
+    # POLÍTICA CONTABLE NEQUI — 15 REGLAS + 1 INGRESO LIZBETH (PRIORIDAD MÁXIMA)
+    # banco_origen=5310 cuando viene de NequiParser
+    # ─────────────────────────────────────────────────────────────────────────────
+
+    # NQ-1. RODDOS SAS → traslado interno, NO contabilizar
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["nequi_traslado_roddos_sas"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5535, cuenta_credito=banco_origen,
+            confianza=0.95, requiere_confirmacion=False,
+            razon="RODDOS SAS en Nequi → Traslado interno Andrés→empresa, NO contabilizar",
+            categoria="NEQUI_TRASLADO", es_transferencia_interna=True
+        )
+
+    # NQ-2. Envio a otros bancos a RODDOS → traslado interno
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["nequi_envio_banco_roddos"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5535, cuenta_credito=banco_origen,
+            confianza=0.95, requiere_confirmacion=False,
+            razon="Envio a RODDOS → Traslado interno Nequi→empresa, NO contabilizar",
+            categoria="NEQUI_TRASLADO", es_transferencia_interna=True
+        )
+
+    # NQ-3. Recargas propias → traslado interno
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["nequi_recarga_propia"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5535, cuenta_credito=banco_origen,
+            confianza=0.95, requiere_confirmacion=False,
+            razon="Recarga Nequi (Bancolombia/PSE/Punto Red) → Traslado interno, NO contabilizar",
+            categoria="NEQUI_TRASLADO", es_transferencia_interna=True
+        )
+
+    # NQ-4a. Ingreso de Lizbeth Rincón — origen sin confirmar → backlog (ANTES del cobro cartera)
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["nequi_ingreso_lizbeth"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=banco_origen, cuenta_credito=5496,
+            confianza=0.35, requiere_confirmacion=True,
+            razon="Ingreso de Lizbeth Rincón (empleada) → origen sin confirmar, backlog",
+            categoria="NEQUI_PENDIENTE"
+        )
+
+    # NQ-4. Cobros de cartera (De NOMBRE cliente)
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["nequi_cobro_cartera_cliente"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=banco_origen, cuenta_credito=5327,
+            confianza=0.90, requiere_confirmacion=False,
+            razon="Cobro cartera cliente por Nequi → Créditos Directos Roddos",
+            categoria="NEQUI_COBRO_CARTERA"
+        )
+
+    # NQ-5. Recibo de Diana (esposa Andrés) → recuperación préstamo → reduce 5413
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["nequi_recibo_diana"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=banco_origen, cuenta_credito=5413,
+            confianza=0.90, requiere_confirmacion=False,
+            razon="Recibo de Diana (esposa Andrés) → Recuperación préstamo → reduce 5413",
+            categoria="NEQUI_DIANA"
+        )
+
+    # NQ-6. F2X SAS = Flypass peajes → 5499
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["nequi_flypass_peajes"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5499, cuenta_credito=banco_origen,
+            confianza=0.92, requiere_confirmacion=False,
+            razon="Flypass F2X SAS → Peajes (Transporte) → 5499",
+            categoria="NEQUI_TRANSPORTE"
+        )
+
+    # NQ-7. Pagos personales (cafetería, restaurante, parqueadero) → 5413
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["nequi_pagos_personales_para"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5413, cuenta_credito=banco_origen,
+            confianza=0.90, requiere_confirmacion=False,
+            razon="Gasto personal Andrés (cafetería/restaurante/parqueadero) → 5413",
+            categoria="NEQUI_GASTO_PERSONAL"
+        )
+
+    # NQ-8. Beneficencia → gasto personal Andrés → 5413
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["nequi_compra_beneficiencia"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5413, cuenta_credito=banco_origen,
+            confianza=0.90, requiere_confirmacion=False,
+            razon="Beneficencia (lotería/sorteo personal Andrés) → 5413",
+            categoria="NEQUI_GASTO_PERSONAL"
+        )
+
+    # NQ-9. Envio BRE-B a Andrés → gasto personal → 5413
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["nequi_envio_andres"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5413, cuenta_credito=banco_origen,
+            confianza=0.90, requiere_confirmacion=False,
+            razon="Envio BRE-B a Andrés → Gasto personal compensación diferida → 5413",
+            categoria="NEQUI_GASTO_PERSONAL"
+        )
+
+    # NQ-10. Envio a Diana (esposa) → a nombre Andrés → 5413
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["nequi_envio_diana"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5413, cuenta_credito=banco_origen,
+            confianza=0.90, requiere_confirmacion=False,
+            razon="Envio a Diana (esposa Andrés) → a nombre Andrés → 5413",
+            categoria="NEQUI_DIANA"
+        )
+
+    # NQ-11. Para IVAN ECHEVERRI GOMEZ → 5413 socio
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["nequi_para_ivan"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5413, cuenta_credito=banco_origen,
+            confianza=0.95, requiere_confirmacion=False,
+            razon="Pago a Iván Echeverri (socio) → compensación diferida → 5413",
+            categoria="NEQUI_SOCIO"
+        )
+
+    # NQ-12. Para LIZBETH RINCON ROJAS → nómina empleada → 5462
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["nequi_pago_lizbeth"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5462, cuenta_credito=banco_origen,
+            confianza=0.92, requiere_confirmacion=False,
+            razon="Pago Lizbeth Rincón (empleada) → Sueldos y salarios → 5462",
+            categoria="NEQUI_NOMINA"
+        )
+
+    # NQ-13. Pago de Intereses Nequi → ingresos financieros → 5456
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["nequi_intereses_propios"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=banco_origen, cuenta_credito=5456,
+            confianza=0.85, requiere_confirmacion=False,
+            razon="Intereses Nequi → Ingresos financieros → 5456",
+            categoria="NEQUI_INTERES"
+        )
+
+    # NQ-14. ENVIO A NELSON → backlog
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["nequi_envio_nelson"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5496, cuenta_credito=banco_origen,
+            confianza=0.30, requiere_confirmacion=True,
+            razon="Envio a Nelson (Nequi) → Sin identificar, backlog",
+            categoria="NEQUI_PENDIENTE"
+        )
+
+    # NQ-15. Vital Tree, QR BRE-B no identificado → backlog
+    if any(kw in desc_check for kw in REGLAS_CLASIFICACION["nequi_no_identificado"]["palabras_clave"]):
+        return ClasificacionResult(
+            cuenta_debito=5496, cuenta_credito=banco_origen,
+            confianza=0.25, requiere_confirmacion=True,
+            razon="Pago QR/Nequi no identificado → backlog",
+            categoria="NEQUI_PENDIENTE"
+        )
 
     # ─────────────────────────────────────────────────────────────────────────────
     # POLÍTICA CONTABLE OFICIAL BBVA 2026 — REGLAS ESPECÍFICAS (MÁXIMA PRIORIDAD)
@@ -850,7 +1159,6 @@ def clasificar_movimiento(
             )
 
     # 3. INTERESES A RENTISTAS — antes que gastos generales
-    desc_check = texto_combinado
     if any(kw in desc_check for kw in REGLAS_CLASIFICACION["intereses_rentistas"]["palabras_clave"]):
         if not any(exc in desc_check for exc in REGLAS_CLASIFICACION["intereses_rentistas"]["excluir_si"]):
             return ClasificacionResult(

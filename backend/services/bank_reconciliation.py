@@ -304,6 +304,7 @@ class NequiParser:
             df = pd.read_excel(
                 BytesIO(archivo_bytes),
                 skiprows=NequiParser.SKIP_ROWS,
+                sheet_name='Extracto Nequi',
             )
 
             movimientos = []

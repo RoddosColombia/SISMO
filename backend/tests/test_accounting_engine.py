@@ -75,3 +75,49 @@ def test_bbva_aseo_monica_va_a_5482():
     """'ASEO MONICA' → 5482 Aseo y Vigilancia."""
     result = clasificar_movimiento("ASEO MONICA", banco_origen=5314)
     assert result.cuenta_debito == 5482, f"Esperado 5482, obtenido {result.cuenta_debito}"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# NEQUI — 15 REGLAS NUEVAS (banco_origen=5310)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def test_nequi_roddos_sas_traslado_interno():
+    """'RODDOS SAS' desde Nequi → traslado interno, NO contabilizar."""
+    r = clasificar_movimiento("RODDOS SAS", banco_origen=5310)
+    assert r.es_transferencia_interna is True
+
+
+def test_nequi_envio_roddos_traslado():
+    """'Envio a otros bancos a RODDOS' → traslado interno."""
+    r = clasificar_movimiento("Envio a otros bancos a RODDOS", banco_origen=5310)
+    assert r.es_transferencia_interna is True
+
+
+def test_nequi_cobro_cartera_cliente():
+    """'De CHIRLY MARIANA MATEUS' → cobro cartera → 5327."""
+    r = clasificar_movimiento("De CHIRLY MARIANA MATEUS", banco_origen=5310)
+    assert r.cuenta_credito == 5327
+
+
+def test_nequi_flypass_va_a_5499():
+    """'COMPRA PSE EN F2X SAS' → Flypass/peajes → 5499."""
+    r = clasificar_movimiento("COMPRA PSE EN F2X SAS", banco_origen=5310)
+    assert r.cuenta_debito == 5499
+
+
+def test_nequi_gasto_personal_va_a_5413():
+    """'Para ARNOL PERDOMO' → gasto personal Andrés → 5413."""
+    r = clasificar_movimiento("Para ARNOL PERDOMO", banco_origen=5310)
+    assert r.cuenta_debito == 5413
+
+
+def test_nequi_lizbeth_pago_va_a_5462():
+    """'Para LIZBETH RINCON ROJAS' (egreso) → nómina empleada → 5462."""
+    r = clasificar_movimiento("Para LIZBETH RINCON ROJAS", banco_origen=5310)
+    assert r.cuenta_debito == 5462
+
+
+def test_nequi_diana_envio_va_a_5413():
+    """'ENVIO CON BRE-B A: Diana' → a nombre Andrés → 5413."""
+    r = clasificar_movimiento("ENVIO CON BRE-B A: Diana", banco_origen=5310)
+    assert r.cuenta_debito == 5413
