@@ -48,6 +48,7 @@ Al llegar al 60% del context window: hacer /compact automáticamente.
 - Formato fechas: `yyyy-MM-dd` estricto (ejemplo: `2026-03-30`)
 - **NUNCA enviar ISO-8601 con timezone** — retorna 0 resultados sin error visible
 - Autenticación: Basic Auth `base64(email:token)` — el token NO expira automáticamente
+- **NUNCA usar `date_afterOrNow` / `date_beforeOrNow` como params en GET /journals** — causan TIMEOUT en offset=0 de forma consistente (bug confirmado en producción, reproducido 3+ veces). Estrategia correcta: paginar SIN filtros de fecha (`limit` + `offset` solo), filtrar localmente por `j["date"]` en Python.
 
 ---
 
