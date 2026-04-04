@@ -271,16 +271,23 @@ export default function BacklogPage() {
 
       {/* Stats */}
       {stats && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+          {/* Totales fijos */}
           {[
             { label: "Pendientes", value: stats.total_pendientes, color: "#b45309" },
             { label: "Causados", value: stats.total_causados, color: "#166534" },
             { label: "Descartados", value: stats.total_descartados, color: "#64748b" },
-            { label: "BBVA", value: stats.por_banco?.bbva ?? 0, color: "#0f2a5c" },
           ].map(s => (
             <div key={s.label} className="bg-white rounded-xl p-4 shadow-sm border" style={{ borderColor: "rgba(28,27,31,0.06)" }}>
               <div className="text-xs font-medium mb-1" style={{ color: "#9e9a97" }}>{s.label}</div>
               <div className="text-2xl font-black" style={{ color: s.color }}>{s.value}</div>
+            </div>
+          ))}
+          {/* Tarjeta por banco — dinámica desde stats.por_banco */}
+          {Object.entries(stats.por_banco || {}).map(([banco, count]) => (
+            <div key={banco} className="bg-white rounded-xl p-4 shadow-sm border" style={{ borderColor: "rgba(28,27,31,0.06)" }}>
+              <div className="text-xs font-medium mb-1" style={{ color: "#9e9a97" }}>{banco.toUpperCase()}</div>
+              <div className="text-2xl font-black" style={{ color: "#0f2a5c" }}>{count as number}</div>
             </div>
           ))}
         </div>
