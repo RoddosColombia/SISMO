@@ -1,14 +1,22 @@
-"""global66.py — 260401-esw — Global66 Webhook Receiver
+"""global66.py — BUILD 25 — Global66 Webhook Receiver (refactorizado)
 
 Endpoints:
-  POST /api/global66/webhook   — Receive Global66 payment platform webhooks
-  GET  /api/global66/sync      — Daily reconciliation counts
+  POST /api/global66/webhook   — Recibe notificaciones Global66 en tiempo real
+  GET  /api/global66/sync      — Resumen de transacciones del día
+
+DOCUMENTACIÓN REAL GLOBAL66 B2B (confirmada 4 abr 2026):
+  - Autenticación: header x-api-key (NO HMAC-SHA256)
+  - La x-api-key la genera Global66 al crear el webhook
+  - Dos eventos soportados:
+    1. "WALLET - Founding status"  → dinero RECIBIDO en cuenta (INGRESO)
+    2. "RMT - Transaction"         → remesa ENVIADA a terceros (EGRESO)
+  - Global66 NO reintenta si hay error → GUARDAR PRIMERO en MongoDB
 
 CRITICAL RULES (from CLAUDE.md / SISMO error catalog):
-  - NEVER /journal-entries — always /journals (ERROR-008)
-  - Fallback cuenta ALWAYS 5493, NEVER 5495 (ERROR-009)
-  - Date format yyyy-MM-dd STRICT, NEVER ISO-8601 with timezone (ALEGRA API rule)
-  - Anti-dup via MD5(transaction_id) in hash_tx field (ERROR-011 pattern)
+  - NEVER /journal-entries — always /journals
+  - Fallback cuenta ALWAYS 5493, NEVER 5495
+  - Date format yyyy-MM-dd STRICT, NEVER ISO-8601 with timezone
+  - Anti-dup via MD5(transaction_id) in global66_transacciones_procesadas
 """
 import os
 import hmac
@@ -24,9 +32,9 @@ from alegra_service import AlegraService
 router = APIRouter(prefix="/global66", tags=["global66"])
 logger = logging.getLogger(__name__)
 
-# ── Global66 bank account in Alegra (hardcoded per plan spec)
+# ── Cuenta Global66 en Alegra
 GLOBAL66_BANK_ACCOUNT_ID = 11100507
-# ── Fallback contra-account: Gastos Generales per CLAUDE.md (NEVER 5495)
+# ── Fallback contable: Gastos Generales — NUNCA 5495
 FALLBACK_CUENTA_ID = 5493
 
 
@@ -34,40 +42,11 @@ FALLBACK_CUENTA_ID = 5493
 # HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _calcular_confianza(monto: float, descripcion: str, tipo: str) -> float:
-    """
-    Compute confidence score for a Global66 movement.
-
-    Scoring logic:
-      Base: 0.5
-      +0.15 if monto > 0
-      +0.10 if descripcion contains payment keywords
-      +0.10 if tipo in (credit, ingreso, deposito)
-      Capped at 1.0
-    """
-    score = 0.5
-    if monto > 0:
-        score += 0.15
-
-    keywords = {"transferencia", "pago", "cuota", "abono"}
-    desc_lower = (descripcion or "").lower()
-    if any(kw in desc_lower for kw in keywords):
-        score += 0.10
-
-    if (tipo or "").lower() in {"credit", "ingreso", "deposito"}:
-        score += 0.10
-
-    return min(score, 1.0)
-
-
-def _verificar_hmac(raw_body: bytes, received_signature: str, secret: str) -> bool:
-    """Verify HMAC-SHA256 signature from Global66 webhook header."""
-    expected = hmac.new(
-        secret.encode("utf-8"),
-        raw_body,
-        hashlib.sha256
-    ).hexdigest()
-    return hmac.compare_digest(expected, received_signature)
+def _verificar_api_key(received_key: str, secret: str) -> bool:
+    """Verifica x-api-key de Global66 (timing-safe para evitar timing attacks)."""
+    if not secret:
+        return True  # Sin secret configurado: modo desarrollo / prueba de Global66
+    return hmac.compare_digest(received_key, secret)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -77,72 +56,163 @@ def _verificar_hmac(raw_body: bytes, received_signature: str, secret: str) -> bo
 @router.post("/webhook")
 async def procesar_webhook_global66(request: Request):
     """
-    Receive Global66 payment platform webhook.
+    Recibe notificaciones de Global66 en tiempo real.
 
-    Flow:
-    1. Validate HMAC-SHA256 signature (X-Global66-Signature header)
-    2. Anti-dup: MD5(transaction_id) → reject 409 if already processed
-    3. Determine confianza: from payload field or _calcular_confianza()
-    4. confianza >= 0.70 → POST to Alegra /journals via request_with_verify
-    5. confianza < 0.70 → insert conciliacion_partidas + event, return 200
+    Autenticación: header x-api-key generado por Global66 al crear el webhook.
+
+    Soporta dos eventos reales (documentación Global66 B2B):
+      - WALLET - Founding status: dinero recibido en cuenta (INGRESO para RODDOS)
+      - RMT - Transaction: cambio de estado de remesa enviada (EGRESO)
+
+    Patrón GUARDAR PRIMERO: Global66 no reintenta ante errores.
+    El evento se persiste en MongoDB antes de intentar cualquier operación Alegra.
+    El job _recuperar_global66_pendientes() (scheduler cada 10 min) reintenta los fallidos.
     """
-    # ── 1. READ RAW BODY FOR HMAC ──────────────────────────────────────────
+    # ── 1. LEER BODY ───────────────────────────────────────────────────────
     raw_body = await request.body()
 
-    # ── 2. VALIDATE HMAC SIGNATURE ─────────────────────────────────────────
+    # ── 2. VALIDAR x-api-key ───────────────────────────────────────────────
     webhook_secret = os.environ.get("GLOBAL66_WEBHOOK_SECRET", "")
-    received_sig = request.headers.get("X-Global66-Signature", "")
+    received_key = request.headers.get("x-api-key", "")
 
-    if not received_sig:
-        logger.warning("[Global66] Webhook received without X-Global66-Signature header")
-        raise HTTPException(status_code=401, detail="Firma HMAC requerida")
+    if not _verificar_api_key(received_key, webhook_secret):
+        logger.warning("[Global66] x-api-key inválida recibida — posible request no autorizado")
+        raise HTTPException(status_code=401, detail="x-api-key inválida")
 
-    if not _verificar_hmac(raw_body, received_sig, webhook_secret):
-        logger.warning("[Global66] Invalid HMAC signature — possible spoofed request")
-        raise HTTPException(status_code=401, detail="Firma HMAC invalida")
+    # ── 3. BODY VACÍO = REQUEST DE PRUEBA DE GLOBAL66 ──────────────────────
+    # Cuando Global66 valida el endpoint al crear el webhook, envía body vacío
+    if not raw_body or raw_body.strip() in (b"", b"{}"):
+        logger.info("[Global66] Request de prueba recibido — respondiendo 200 OK")
+        return {"success": True, "procesado": False, "motivo": "prueba_conexion"}
 
-    # ── 3. PARSE JSON ──────────────────────────────────────────────────────
+    # ── 4. PARSE JSON ──────────────────────────────────────────────────────
     try:
         import json
         payload = json.loads(raw_body)
     except Exception:
-        raise HTTPException(status_code=400, detail="Body no es JSON valido")
+        raise HTTPException(status_code=400, detail="Body no es JSON válido")
 
-    transaction_id = payload.get("transaction_id", "")
-    tipo = payload.get("tipo", "")
-    monto = float(payload.get("monto", 0.0))
-    descripcion = payload.get("descripcion", "")
-    fecha = payload.get("fecha", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+    # ── 5. DETECTAR TIPO DE EVENTO ─────────────────────────────────────────
+    event_type = payload.get("event", "")
+    is_wallet = event_type == "WALLET - Founding status"
+    is_remittance = event_type == "RMT - Transaction"
+
+    if is_wallet:
+        # Dinero RECIBIDO en cuenta Global66
+        data = payload.get("data", {})
+        transaction_id = str(data.get("transactionId", ""))
+        monto = float(data.get("originAmount", 0.0))
+        descripcion = (
+            f"Global66 recibido de {data.get('thirdPartyClientName', 'Desconocido')} "
+            f"via {data.get('remitterBankName', '')}"
+        )
+        tipo = "INGRESO"
+        fecha = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        estado_g66 = data.get("status", "")
+
+    elif is_remittance:
+        # Remesa ENVIADA desde RODDOS a terceros
+        data = payload.get("payload", {})
+        transaction_id = str(data.get("transactionId", ""))
+        monto = float(data.get("originAmount", 0.0))
+        descripcion = (
+            f"Global66 remesa: {data.get('purpose', '')} "
+            f"-> {data.get('destinyCurrencyCode', '')}"
+        )
+        tipo = "EGRESO"
+        raw_fecha = data.get("createdAt") or datetime.now(timezone.utc).isoformat()
+        fecha = raw_fecha[:10]  # Solo YYYY-MM-DD
+        estado_g66 = data.get("status", "")
+
+    else:
+        # Evento desconocido — guardar para auditoría y responder 200
+        logger.warning("[Global66] Evento desconocido: %s", event_type)
+        await db.global66_eventos_desconocidos.insert_one({
+            "event_type": event_type,
+            "payload": payload,
+            "recibido_at": datetime.now(timezone.utc).isoformat(),
+        })
+        return {"success": True, "procesado": False, "motivo": "evento_desconocido"}
 
     if not transaction_id:
-        raise HTTPException(status_code=400, detail="transaction_id es obligatorio")
+        logger.warning("[Global66] Evento %s sin transactionId", event_type)
+        return {"success": True, "procesado": False, "motivo": "sin_transaction_id"}
 
-    # ── 4. ANTI-DUP: MD5(transaction_id) ───────────────────────────────────
+    # ── 6. GUARDAR PRIMERO (Global66 no reintenta ante errores) ───────────
+    # Usar $setOnInsert para no sobreescribir si ya existe (idempotencia)
+    await db.global66_eventos_recibidos.update_one(
+        {"transaction_id": transaction_id},
+        {"$setOnInsert": {
+            "transaction_id": transaction_id,
+            "event_type": event_type,
+            "tipo": tipo,
+            "monto": monto,
+            "descripcion": descripcion,
+            "fecha": fecha,
+            "estado_global66": estado_g66,
+            "payload_completo": payload,
+            "recibido_at": datetime.now(timezone.utc).isoformat(),
+            "procesado": False,
+            "intentos_alegra": 0,
+        }},
+        upsert=True,
+    )
+
+    # ── 7. SOLO PROCESAR ESTADOS EXITOSOS ──────────────────────────────────
+    if estado_g66.upper() not in ("SUCCESSFUL", "COMPLETED", ""):
+        logger.info(
+            "[Global66] Evento %s con estado '%s' guardado — no causado en Alegra",
+            transaction_id, estado_g66
+        )
+        return {"success": True, "procesado": False, "motivo": f"estado_{estado_g66}"}
+
+    # ── 8. ANTI-DUP ────────────────────────────────────────────────────────
     hash_tx = hashlib.md5(transaction_id.encode()).hexdigest()
     existing = await db.global66_transacciones_procesadas.find_one({"hash_tx": hash_tx})
     if existing:
-        logger.warning(f"[Global66] Duplicado detectado: transaction_id={transaction_id}")
-        raise HTTPException(
-            status_code=409,
-            detail=f"Duplicado detectado: transaction_id {transaction_id} ya fue procesado"
-        )
+        logger.warning("[Global66] Duplicado: transaction_id=%s ya procesado", transaction_id)
+        return {
+            "success": True,
+            "procesado": False,
+            "motivo": "duplicado",
+            "transaction_id": transaction_id,
+        }
 
-    # ── 5. DETERMINE CONFIANZA ─────────────────────────────────────────────
-    if "confianza" in payload:
-        confianza = float(payload["confianza"])
-    else:
-        confianza = _calcular_confianza(monto, descripcion, tipo)
-
-    logger.info(
-        f"[Global66] Procesando {transaction_id}: monto={monto}, confianza={confianza:.2f}"
+    # ── 9. CLASIFICAR CON MOTOR MATRICIAL ──────────────────────────────────
+    from services.accounting_engine import clasificar_movimiento
+    clasificacion = clasificar_movimiento(
+        descripcion=descripcion,
+        proveedor="",
+        monto=monto,
+        banco_origen=GLOBAL66_BANK_ACCOUNT_ID,
     )
 
-    # ── 6a. HIGH CONFIDENCE: → Alegra /journals ────────────────────────────
+    if clasificacion.es_transferencia_interna:
+        await db.global66_eventos_recibidos.update_one(
+            {"transaction_id": transaction_id},
+            {"$set": {"procesado": True, "motivo": "traslado_interno"}}
+        )
+        return {"success": True, "procesado": False, "motivo": "traslado_interno"}
+
+    # Determinar cuentas según tipo de movimiento
+    if tipo == "INGRESO":
+        cuenta_debito = GLOBAL66_BANK_ACCOUNT_ID
+        cuenta_credito = clasificacion.cuenta_credito or FALLBACK_CUENTA_ID
+    else:
+        cuenta_debito = clasificacion.cuenta_debito or FALLBACK_CUENTA_ID
+        cuenta_credito = GLOBAL66_BANK_ACCOUNT_ID
+
+    confianza = clasificacion.confianza
+
+    logger.info(
+        "[Global66] %s %s: monto=%.0f confianza=%.0f%% debito=%s credito=%s",
+        tipo, transaction_id, monto, confianza * 100, cuenta_debito, cuenta_credito
+    )
+
+    # ── 10a. ALTA CONFIANZA → Alegra /journals ─────────────────────────────
     if confianza >= 0.70:
         service = AlegraService(db)
 
-        # Date must be yyyy-MM-dd STRICT (ALEGRA API rule — NEVER ISO with timezone)
-        # If fecha from webhook already in correct format, use directly
         try:
             datetime.strptime(fecha, "%Y-%m-%d")
             fecha_journal = fecha
@@ -151,22 +221,10 @@ async def procesar_webhook_global66(request: Request):
 
         journal_payload = {
             "date": fecha_journal,
-            "observations": (
-                f"Global66 - {tipo}: {descripcion}. "
-                f"Tx ID: {transaction_id}. "
-                f"Monto: {monto}"
-            ),
+            "observations": f"{descripcion} | Tx: {transaction_id}",
             "entries": [
-                {
-                    "id": GLOBAL66_BANK_ACCOUNT_ID,
-                    "debit": monto,
-                    "credit": 0,
-                },
-                {
-                    "id": FALLBACK_CUENTA_ID,  # 5493 Gastos Generales — NEVER 5495
-                    "debit": 0,
-                    "credit": monto,
-                },
+                {"id": cuenta_debito, "debit": int(monto), "credit": 0},
+                {"id": cuenta_credito, "debit": 0, "credit": int(monto)},
             ],
         }
 
@@ -175,7 +233,12 @@ async def procesar_webhook_global66(request: Request):
                 "journals", "POST", journal_payload
             )
         except Exception as e:
-            logger.error(f"[Global66] POST /journals falló: {e}")
+            logger.error("[Global66] POST /journals falló para %s: %s", transaction_id, e)
+            await db.global66_eventos_recibidos.update_one(
+                {"transaction_id": transaction_id},
+                {"$inc": {"intentos_alegra": 1}, "$set": {"ultimo_error": str(e)}}
+            )
+            # Guardar en transacciones_procesadas como error para tracking
             await db.global66_transacciones_procesadas.insert_one({
                 "hash_tx": hash_tx,
                 "transaction_id": transaction_id,
@@ -184,11 +247,17 @@ async def procesar_webhook_global66(request: Request):
                 "descripcion": descripcion,
                 "fecha": fecha_journal,
                 "confianza": confianza,
-                "estado": "error_verificacion",
+                "estado": "error_alegra",
                 "error": str(e),
                 "fecha_registro": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
             })
-            raise HTTPException(status_code=500, detail=f"Error creando journal: {e}")
+            # Responder 200 de todas formas (Global66 no debe reintentar)
+            return {
+                "success": True,
+                "procesado": False,
+                "transaction_id": transaction_id,
+                "motivo": "error_alegra_guardado_para_reintento",
+            }
 
         verificado = journal_response.get("_verificado", False)
         alegra_journal_id = journal_response.get("id")
@@ -207,8 +276,14 @@ async def procesar_webhook_global66(request: Request):
             "fecha_registro": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         })
 
+        await db.global66_eventos_recibidos.update_one(
+            {"transaction_id": transaction_id},
+            {"$set": {"procesado": True, "alegra_journal_id": str(alegra_journal_id)}}
+        )
+
         logger.info(
-            f"[Global66] Journal {alegra_journal_id} — verificado={verificado}, estado={estado}"
+            "[Global66] Journal %s creado — verificado=%s estado=%s",
+            alegra_journal_id, verificado, estado
         )
 
         return {
@@ -221,28 +296,41 @@ async def procesar_webhook_global66(request: Request):
             "estado": estado,
         }
 
-    # ── 6b. LOW CONFIDENCE: → conciliacion_partidas + event ───────────────
+    # ── 10b. BAJA CONFIANZA → Backlog para revisión manual ─────────────────
     else:
         now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        backlog_hash = hashlib.md5(
+            f"global66{fecha}{descripcion}{str(monto)}".encode()
+        ).hexdigest()
 
-        await db.conciliacion_partidas.insert_one({
-            "origen": "global66",
-            "transaction_id": transaction_id,
-            "tipo": tipo,
-            "monto": monto,
-            "descripcion": descripcion,
-            "fecha": fecha,
-            "confianza": confianza,
-            "estado": "pendiente",
-            "fecha_registro": now_str,
-        })
+        await db.contabilidad_pendientes.update_one(
+            {"backlog_hash": backlog_hash},
+            {"$setOnInsert": {
+                "backlog_hash": backlog_hash,
+                "banco": "global66",
+                "extracto": f"global66_{fecha[:7].replace('-', '_')}",
+                "fecha": fecha,
+                "descripcion": descripcion,
+                "monto": monto,
+                "tipo": tipo,
+                "confianza_motor": confianza,
+                "cuenta_debito_sugerida": cuenta_debito,
+                "cuenta_credito_sugerida": cuenta_credito,
+                "razon_baja_confianza": clasificacion.razon,
+                "estado": "pendiente",
+                "journal_alegra_id": None,
+                "resuelto_por": None,
+                "resuelto_at": None,
+                "creado_at": datetime.now(timezone.utc).isoformat(),
+            }},
+            upsert=True,
+        )
 
         await db.roddos_events.insert_one({
-            "event_type": "global66.movimiento.pendiente",
+            "event_type": "global66.movimiento.backlog",
             "transaction_id": transaction_id,
             "monto": monto,
             "confianza": confianza,
-            "alerta_whatsapp": True,
             "fecha_registro": now_str,
         })
 
@@ -259,7 +347,8 @@ async def procesar_webhook_global66(request: Request):
         })
 
         logger.info(
-            f"[Global66] Baja confianza ({confianza:.2f}) — {transaction_id} → conciliacion_partidas"
+            "[Global66] Baja confianza (%.0f%%) — %s → backlog",
+            confianza * 100, transaction_id
         )
 
         return {
@@ -274,37 +363,26 @@ async def procesar_webhook_global66(request: Request):
 
 @router.get("/sync")
 async def obtener_sync_global66(current_user=Depends(get_current_user)):
-    """
-    Daily reconciliation summary for Global66 transactions.
-
-    Returns counts by estado for today:
-      sincronizados = procesado
-      pendientes    = pendiente_conciliacion
-      errores       = error_verificacion
-    """
+    """Resumen de transacciones Global66 del día actual."""
     hoy = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     sincronizados = await db.global66_transacciones_procesadas.count_documents({
-        "estado": "procesado",
-        "fecha_registro": hoy,
+        "estado": "procesado", "fecha_registro": hoy,
     })
     pendientes = await db.global66_transacciones_procesadas.count_documents({
-        "estado": "pendiente_conciliacion",
-        "fecha_registro": hoy,
+        "estado": "pendiente_conciliacion", "fecha_registro": hoy,
     })
     errores = await db.global66_transacciones_procesadas.count_documents({
-        "estado": "error_verificacion",
-        "fecha_registro": hoy,
+        "estado": {"$in": ["error_alegra", "error_verificacion"]}, "fecha_registro": hoy,
     })
-
-    logger.info(
-        f"[Global66] Sync {hoy}: sincronizados={sincronizados}, "
-        f"pendientes={pendientes}, errores={errores}"
-    )
+    eventos_recibidos = await db.global66_eventos_recibidos.count_documents({
+        "recibido_at": {"$gte": f"{hoy}T00:00:00"},
+    })
 
     return {
         "sincronizados": sincronizados,
         "pendientes": pendientes,
         "errores": errores,
+        "eventos_recibidos_hoy": eventos_recibidos,
         "fecha": hoy,
     }
