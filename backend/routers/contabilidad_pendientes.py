@@ -374,16 +374,26 @@ async def backlog_descartar(
 @router.get("/backlog/stats")
 async def backlog_stats(current_user=Depends(get_current_user)):
     """Retorna totales por estado y por banco."""
-    base_query = {"backlog_hash": {"$exists": True}}
+    # Incluye tanto documentos nuevos (backlog_hash) como schema viejo (pendiente_whatsapp)
+    base_query = {"$or": [
+        {"backlog_hash": {"$exists": True}},
+        {"estado": "pendiente_whatsapp"},
+    ]}
 
-    total_pendientes = await db.contabilidad_pendientes.count_documents({**base_query, "estado": "pendiente"})
-    total_causados = await db.contabilidad_pendientes.count_documents({**base_query, "estado": "causado"})
-    total_descartados = await db.contabilidad_pendientes.count_documents({**base_query, "estado": "descartado"})
+    total_pendientes = await db.contabilidad_pendientes.count_documents(
+        {**{"$or": base_query["$or"]}, "estado": {"$in": ["pendiente", "pendiente_whatsapp"]}}
+    )
+    total_causados = await db.contabilidad_pendientes.count_documents(
+        {**{"$or": base_query["$or"]}, "estado": "causado"}
+    )
+    total_descartados = await db.contabilidad_pendientes.count_documents(
+        {**{"$or": base_query["$or"]}, "estado": "descartado"}
+    )
 
     por_banco: dict = {}
     for banco in ["bbva", "bancolombia", "nequi", "davivienda"]:
         por_banco[banco] = await db.contabilidad_pendientes.count_documents(
-            {**base_query, "banco": banco, "estado": "pendiente"}
+            {"banco": banco, "estado": {"$in": ["pendiente", "pendiente_whatsapp"]}}
         )
 
     return {

@@ -1,5 +1,5 @@
-import React, { useState, useRef } from "react";
-import { Upload, Loader2, CheckCircle, AlertCircle } from "lucide-react";
+import React, { useState, useRef, useEffect } from "react";
+import { Upload, Loader2, CheckCircle, AlertCircle, RefreshCw } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
@@ -7,13 +7,15 @@ import { toast } from "sonner";
 export default function CargarExtraacto() {
   const { api } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // REGLA 1: Estado — SOLO primitivos, nunca objetos
   const [error, setError] = useState("");
   const [jobId, setJobId] = useState("");
+  const [jobStatus, setJobStatus] = useState("");
   const [totalMovimientos, setTotalMovimientos] = useState(0);
   const [causados, setCausados] = useState(0);
   const [pendientes, setPendientes] = useState(0);
+  const [errores, setErrores] = useState(0);
   const [procesando, setProcesando] = useState(false);
   const [archivoNombre, setArchivoNombre] = useState("");
   const [archivo, setArchivo] = useState<File | null>(null);
@@ -27,6 +29,35 @@ export default function CargarExtraacto() {
     { id: "davivienda", nombre: "Davivienda" },
     { id: "nequi", nombre: "Nequi" },
   ];
+
+  // Polling: cada 3s mientras el job esté en processing
+  const iniciarPolling = (jid: string) => {
+    if (pollingRef.current) clearInterval(pollingRef.current);
+    pollingRef.current = setInterval(async () => {
+      try {
+        const r = await api.get(`/conciliacion/job-status/${jid}`);
+        const d = r.data;
+        const status = d.status || "";
+        setJobStatus(status);
+        setTotalMovimientos(Number(d.total_movimientos) || 0);
+        setCausados(Number(d.causados) || 0);
+        setPendientes(Number(d.pendientes) || 0);
+        setErrores(Number(d.errores) || 0);
+        if (status === "completed" || status === "failed") {
+          clearInterval(pollingRef.current!);
+          pollingRef.current = null;
+          setProcesando(false);
+          if (status === "completed") toast.success("Extracto procesado completamente");
+          if (status === "failed") toast.error("El job falló: " + (d.ultimo_error || "ver logs"));
+        }
+      } catch {
+        // silencioso — reintenta en el siguiente tick
+      }
+    }, 3000);
+  };
+
+  // Limpiar polling al desmontar
+  useEffect(() => () => { if (pollingRef.current) clearInterval(pollingRef.current); }, []);
 
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -107,16 +138,24 @@ export default function CargarExtraacto() {
 
       console.log("✅ Respuesta recibida:", response.data);
 
-      // REGLA 3: Extraer campo por campo como primitivos (NUNCA objetos)
       const data = response.data;
-      setJobId(String(data.job_id || ""));
+      const jid = String(data.job_id || "");
+      setJobId(jid);
       setTotalMovimientos(Number(data.total_movimientos) || 0);
       setCausados(Number(data.causados) || 0);
       setPendientes(Number(data.pendientes) || 0);
       setError("");
-      setProcesando(false);
 
-      toast.success("Extracto procesado correctamente");
+      if (jid && data.status === "processing") {
+        // Job en background — iniciar polling para actualizar tarjetas
+        setJobStatus("processing");
+        iniciarPolling(jid);
+        toast.success("Extracto enviado. Procesando " + (Number(data.total_movimientos) || 0) + " movimientos...");
+      } else {
+        // Lote pequeño procesado síncrono
+        setProcesando(false);
+        toast.success("Extracto procesado correctamente");
+      }
     } catch (err: any) {
       console.error("❌ Error al procesar extracto:", err);
 
@@ -307,29 +346,37 @@ export default function CargarExtraacto() {
             </div>
           </div>
 
-          {/* Estadísticas */}
+      {/* Estadísticas */}
           <div className="grid grid-cols-3 gap-4">
             <div className="bg-white rounded-lg p-4">
-              <p className="text-2xl font-bold text-slate-900">
-                {totalMovimientos}
-              </p>
-              <p className="text-xs text-slate-600 uppercase tracking-wide">
-                Movimientos detectados
-              </p>
+              <p className="text-2xl font-bold text-slate-900">{totalMovimientos}</p>
+              <p className="text-xs text-slate-600 uppercase tracking-wide">Movimientos detectados</p>
             </div>
             <div className="bg-white rounded-lg p-4">
-              <p className="text-2xl font-bold text-green-600">{causados}</p>
-              <p className="text-xs text-slate-600 uppercase tracking-wide">
-                Causados automáticamente
-              </p>
+              <div className="flex items-center gap-1">
+                <p className="text-2xl font-bold text-green-600">{causados}</p>
+                {jobStatus === "processing" && <RefreshCw size={14} className="text-green-400 animate-spin" />}
+              </div>
+              <p className="text-xs text-slate-600 uppercase tracking-wide">Causados automáticamente</p>
             </div>
             <div className="bg-white rounded-lg p-4">
-              <p className="text-2xl font-bold text-amber-600">{pendientes}</p>
-              <p className="text-xs text-slate-600 uppercase tracking-wide">
-                Pendientes de revisión
-              </p>
+              <div className="flex items-center gap-1">
+                <p className="text-2xl font-bold text-amber-600">{pendientes}</p>
+                {jobStatus === "processing" && <RefreshCw size={14} className="text-amber-400 animate-spin" />}
+              </div>
+              <p className="text-xs text-slate-600 uppercase tracking-wide">Pendientes de revisión</p>
             </div>
           </div>
+          {errores > 0 && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+              <p className="text-sm text-red-700 font-medium">{errores} movimientos con error — revisar logs de Render</p>
+            </div>
+          )}
+          {jobStatus === "processing" && (
+            <p className="text-xs text-center text-slate-500 flex items-center justify-center gap-1">
+              <RefreshCw size={11} className="animate-spin" /> Actualizando cada 3 segundos...
+            </p>
+          )}
         </div>
       )}
     </div>

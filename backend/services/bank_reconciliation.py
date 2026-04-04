@@ -562,34 +562,42 @@ class BankReconciliationEngine:
 
         Estructura completa para que el Agente Contador pueda clasificar con contexto.
         """
+        import hashlib as _hashlib
+        backlog_hash = _hashlib.md5(
+            f"{movimiento.banco.value}{movimiento.fecha}{movimiento.descripcion}{str(movimiento.monto)}".encode()
+        ).hexdigest()
+
         doc = {
             "id": f"mov_{movimiento.banco.value}_{datetime.now(timezone.utc).timestamp()}",
+            # Campo requerido por /backlog/stats y BacklogPage
+            "backlog_hash": backlog_hash,
+            "extracto": f"{movimiento.banco.value}_{movimiento.fecha[:7].replace('-', '_')}",
             "fecha": movimiento.fecha,
             "descripcion": movimiento.descripcion,
             "monto": movimiento.monto,
-            "tipo": movimiento.tipo.value,
+            "tipo": movimiento.tipo.value.upper(),
             "banco": movimiento.banco.value,
             "cuenta_banco_id": movimiento.cuenta_banco_id,
             "referencia_original": movimiento.referencia_original,
 
-            # Información del proveedor extraído (para WhatsApp)
+            # Información del proveedor extraído
             "proveedor_extraido": movimiento.proveedor,
 
-            # Sugerencia del motor matricial (aunque baja confianza)
+            # Sugerencia del motor matricial
             "cuenta_debito_sugerida": movimiento.cuenta_debito_sugerida,
             "cuenta_credito_sugerida": movimiento.cuenta_credito_sugerida,
-            "confianza_sugerida": movimiento.confianza,
+            "confianza_motor": movimiento.confianza,
             "razon_baja_confianza": movimiento.razon_clasificacion,
 
             # Campos de control
             "requiere_confirmacion": movimiento.requiere_confirmacion,
             "es_transferencia_interna": getattr(movimiento, 'es_transferencia_interna', False),
-            "estado": "pendiente_whatsapp",  # Cola para Agente Contador vía WhatsApp
-            "creado_at": datetime.now(timezone.utc).isoformat(),
-            "actualizado_at": datetime.now(timezone.utc).isoformat(),
+            # estado="pendiente" para que /backlog/stats lo cuente correctamente
+            "estado": "pendiente",
+            "journal_alegra_id": None,
             "resuelto_por": None,
-            "resolucion_fecha": None,
-            "cuenta_final": None,
+            "resuelto_at": None,
+            "creado_at": datetime.now(timezone.utc).isoformat(),
         }
 
         result = await self.db.contabilidad_pendientes.insert_one(doc)
