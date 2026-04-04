@@ -416,13 +416,23 @@ class BankReconciliationEngine:
             mov.es_transferencia_interna = clasificacion.es_transferencia_interna
 
             # Separar por confianza
-            # Si es transferencia interna → no contabilizar, solo registrar
+            # REGLA: si alguna cuenta es None → backlog siempre (evita error Alegra 400)
+            cuentas_validas = (
+                mov.cuenta_debito_sugerida is not None and
+                mov.cuenta_credito_sugerida is not None
+            )
+
             if mov.es_transferencia_interna:
                 pendientes.append(mov)  # Registrar como traslado sin contabilizar
-            elif mov.confianza >= 0.70 and not mov.requiere_confirmacion:
+            elif cuentas_validas and mov.confianza >= 0.70 and not mov.requiere_confirmacion:
                 causables.append(mov)  # Causable automático
             else:
-                pendientes.append(mov)  # Requiere confirmación manual vía WhatsApp
+                if not cuentas_validas:
+                    mov.razon_clasificacion = (
+                        f"Cuenta {'débito' if mov.cuenta_debito_sugerida is None else 'crédito'} "
+                        f"sin clasificar — {mov.razon_clasificacion}"
+                    )
+                pendientes.append(mov)  # Requiere confirmación manual vía backlog
 
             self.logger.info(
                 f"[Clasificar] {mov.banco.value} {mov.descripcion[:30]} "
