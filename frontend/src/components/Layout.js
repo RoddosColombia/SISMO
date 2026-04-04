@@ -3,7 +3,7 @@ import { Outlet, NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Settings, LogOut, ChevronLeft, Menu, Bell, User,
   CreditCard, Receipt, BarChart2, Bike, X,
-  BookOpen, Wallet, Bot, BriefcaseBusiness, Brain, TrendingUp, Target, Upload,
+  BookOpen, Wallet, Bot, BriefcaseBusiness, Brain, TrendingUp, Target, Upload, Inbox,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useAlegra } from "../contexts/AlegraContext";
@@ -11,6 +11,7 @@ import { useAlegra } from "../contexts/AlegraContext";
 const MODULES = [
   { path: "/agente-contable",  label: "Agente Contador",    icon: Bot,              group: null,  badge: "active" },
   { path: "/cargar-extracto",  label: "Cargar Extracto",    icon: Upload,           group: null  },
+  { path: "/backlog",          label: "Backlog",             icon: Inbox,            group: null, badgeKey: "backlog" },
   { path: "/cfo-estrategico",  label: "CFO Estratégico",    icon: Brain,            group: null  },
   { path: "/dashboard",        label: "Dashboard",           icon: LayoutDashboard,  group: null  },
   { path: "/cfo",              label: "Panel CFO",           icon: TrendingUp,       group: null  },
@@ -74,6 +75,8 @@ export default function Layout() {
   const [showNotifs, setShowNotifs]   = useState(false);
   // BUILD 9 — Badge alertas CFO en sidebar
   const [cfoAlertCount, setCfoAlertCount] = useState(0);
+  // BUILD 23 — Badge backlog pendientes
+  const [backlogCount, setBacklogCount] = useState(0);
   const location  = useLocation();
   const navigate  = useNavigate();
 
@@ -117,6 +120,23 @@ export default function Layout() {
     const cfoPoll = setInterval(fetchCfoAlerts, 60000);
     return () => clearInterval(cfoPoll);
   }, [fetchCfoAlerts]);
+
+  // Poll backlog stats every 60s
+  const fetchBacklogStats = useCallback(async () => {
+    if (!navigator.onLine) return;
+    try {
+      const res = await api.get("/contabilidad_pendientes/backlog/stats");
+      setBacklogCount(res.data?.total_pendientes ?? 0);
+    } catch {
+      // silent
+    }
+  }, [api]);
+
+  useEffect(() => {
+    fetchBacklogStats();
+    const poll = setInterval(fetchBacklogStats, 60000);
+    return () => clearInterval(poll);
+  }, [fetchBacklogStats]);
 
   const markAllRead = async () => {
     try { await api.put("/notifications/read-all"); setNotifications([]); } catch {}
@@ -213,6 +233,16 @@ export default function Layout() {
                         data-testid="cfo-alert-badge"
                       >
                         {cfoAlertCount > 9 ? "9+" : cfoAlertCount}
+                      </span>
+                    )}
+                    {/* BUILD 23: Badge ámbar para backlog pendientes */}
+                    {mod.path === "/backlog" && backlogCount > 0 && (
+                      <span
+                        className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 rounded-full text-[8px] font-bold flex items-center justify-center"
+                        style={{ background: "#d97706", color: "#fff" }}
+                        data-testid="backlog-badge"
+                      >
+                        {backlogCount > 9 ? "9+" : backlogCount}
                       </span>
                     )}
                   </div>

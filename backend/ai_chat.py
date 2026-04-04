@@ -757,6 +757,7 @@ TIPOS DE ACCIÓN DISPONIBLES:
 • crear_contacto           → POST /contacts
 • registrar_entrega        → ACCIÓN INTERNA (activa plan de cuotas)
 • calcular_retencion       → cálculo local (sin ejecutar en Alegra)
+• consultar_journals       → lista comprobantes de diario existentes en Alegra. Úsala para verificar asientos después de crearlos o para auditar el estado contable del período.
 • consultar_facturas       → información de facturas existentes
 • crear_nota_credito       → POST /credit-notes  (nota crédito sobre factura de venta)
 • crear_nota_debito        → POST /debit-notes   (cargo adicional sobre factura)
@@ -4176,6 +4177,7 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
         "crear_contacto": ("contacts", "POST"),
         "crear_nota_credito": ("credit-notes", "POST"),
         "crear_nota_debito": ("debit-notes", "POST"),
+        "consultar_journals": ("journals", "GET"),
     }
 
     # ── Special case: diagnosticar_contabilidad (MODULE 1 — BUILD 21) ────────
@@ -5597,21 +5599,26 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
             "message": f"Se encontraron {len(pagos)} pago(s).",
         }
 
-    # ACTION-03: consultar_journals — GET /journals with date filter
+    # ACTION-03: consultar_journals — GET /journals SIN filtros de fecha (TIMEOUT bug Alegra)
+    # Filtrar localmente en Python para evitar el timeout de date_afterOrNow/date_beforeOrNow
     if action_type == "consultar_journals":
         logger.info(f"[Phase3] consultar_journals: {payload}")
-        params = {}
-        if payload.get("fecha_desde"):
-            params["date_afterOrNow"] = payload["fecha_desde"]
-        if payload.get("fecha_hasta"):
-            params["date_beforeOrNow"] = payload["fecha_hasta"]
         try:
-            journals = await service.request("journals", "GET", params=params)
+            journals = await service.request("journals", "GET", params={"limit": 50, "offset": 0})
         except Exception as e:
             logger.error(f"[Phase3] GET /journals fallo: {e}")
-            return {"success": False, "error": f"Error consultando journals: {e}"}
+            return {"success": False, "error": f"Error consultando comprobantes en Alegra: {e}"}
         if not isinstance(journals, list):
             journals = []
+        # Filtrado local por fecha (evita timeout de parámetros Alegra)
+        fecha_desde = payload.get("fecha_desde")
+        fecha_hasta = payload.get("fecha_hasta")
+        if fecha_desde:
+            journals = [j for j in journals if j.get("date", "") >= fecha_desde]
+        if fecha_hasta:
+            journals = [j for j in journals if j.get("date", "") <= fecha_hasta]
+        # Limitar a 30 para no saturar contexto del LLM
+        journals = journals[:30]
         return {
             "success": True,
             "journals": journals,

@@ -9,6 +9,7 @@ Endpoints:
   GET  /api/contabilidad_pendientes/estadisticas     — Resumen de pendientes
 """
 
+import hashlib
 import logging
 from datetime import datetime, timezone
 from typing import Optional
@@ -198,6 +199,199 @@ async def obtener_estadisticas(current_user=Depends(get_current_user)):
     }
 
     return estadisticas
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# BACKLOG DE MOVIMIENTOS — Nuevos endpoints (prefijo /backlog/)
+# Para movimientos de baja confianza del motor matricial
+# ══════════════════════════════════════════════════════════════════════════════
+
+class BacklogMovimientoRequest(BaseModel):
+    banco: str                              # "bbva" | "bancolombia" | "nequi" | "davivienda"
+    extracto: str                           # "bbva_enero_2026"
+    fecha: str                              # "2026-01-15"
+    descripcion: str
+    monto: float                            # negativo=egreso, positivo=ingreso
+    tipo: str                               # "EGRESO" | "INGRESO"
+    confianza_motor: float = 0.0
+    cuenta_sugerida: Optional[int] = None
+    razon_baja_confianza: str = ""
+
+
+class CausarMovimientoRequest(BaseModel):
+    cuenta_debito: int
+    cuenta_credito: int
+    observaciones: str = ""
+
+
+class DescartarMovimientoRequest(BaseModel):
+    razon: str
+
+
+@router.post("/backlog/crear")
+async def backlog_crear(
+    payload: BacklogMovimientoRequest,
+    current_user=Depends(get_current_user),
+):
+    """Crea movimiento en backlog con anti-dup por hash(banco+fecha+descripcion+monto)."""
+    dup_key = f"{payload.banco}|{payload.fecha}|{payload.descripcion}|{payload.monto}"
+    dup_hash = hashlib.md5(dup_key.encode()).hexdigest()
+
+    existing = await db.contabilidad_pendientes.find_one({"backlog_hash": dup_hash})
+    if existing:
+        raise HTTPException(status_code=409, detail="Movimiento ya existe en backlog (anti-dup)")
+
+    doc = {
+        "backlog_hash": dup_hash,
+        "banco": payload.banco,
+        "extracto": payload.extracto,
+        "fecha": payload.fecha,
+        "descripcion": payload.descripcion,
+        "monto": payload.monto,
+        "tipo": payload.tipo,
+        "confianza_motor": payload.confianza_motor,
+        "cuenta_sugerida": payload.cuenta_sugerida,
+        "razon_baja_confianza": payload.razon_baja_confianza,
+        "estado": "pendiente",
+        "journal_alegra_id": None,
+        "resuelto_por": None,
+        "creado_at": datetime.now(timezone.utc).isoformat(),
+        "resuelto_at": None,
+    }
+    result = await db.contabilidad_pendientes.insert_one(doc)
+    return {"success": True, "id": str(result.inserted_id)}
+
+
+@router.get("/backlog/listado")
+async def backlog_listado(
+    banco: Optional[str] = Query(None),
+    mes: Optional[str] = Query(None),   # YYYY-MM
+    estado: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    current_user=Depends(get_current_user),
+):
+    """Lista movimientos de backlog con filtros: banco, mes, estado. Paginación 20/página."""
+    query: dict = {"backlog_hash": {"$exists": True}}
+    if banco:
+        query["banco"] = banco.lower()
+    if estado:
+        query["estado"] = estado
+    if mes:
+        query["fecha"] = {"$regex": f"^{mes}"}
+
+    skip = (page - 1) * 20
+    docs = await db.contabilidad_pendientes.find(
+        query, {"_id": 0}
+    ).skip(skip).limit(20).to_list(20)
+
+    total = await db.contabilidad_pendientes.count_documents(query)
+    return {"total": total, "page": page, "items": docs}
+
+
+@router.patch("/backlog/{id}/causar")
+async def backlog_causar(
+    id: str,
+    payload: CausarMovimientoRequest,
+    current_user=Depends(get_current_user),
+):
+    """Crea journal en Alegra y marca movimiento como causado."""
+    from bson import ObjectId
+    from services.alegra_service import AlegraService
+
+    try:
+        oid = ObjectId(id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="ID inválido")
+
+    mov = await db.contabilidad_pendientes.find_one({"_id": oid})
+    if not mov:
+        raise HTTPException(status_code=404, detail="Movimiento no encontrado")
+    if mov.get("estado") != "pendiente":
+        raise HTTPException(status_code=400, detail=f"Movimiento en estado '{mov.get('estado')}', no se puede causar")
+
+    service = AlegraService(db)
+    monto = abs(mov.get("monto", 0))
+    journal_payload = {
+        "date": mov.get("fecha", datetime.now(timezone.utc).isoformat()[:10]),
+        "observations": payload.observaciones or mov.get("descripcion", ""),
+        "entries": [
+            {"id": payload.cuenta_debito, "debit": monto, "credit": 0},
+            {"id": payload.cuenta_credito, "debit": 0, "credit": monto},
+        ],
+    }
+
+    try:
+        result = await service.request_with_verify("journals", "POST", journal_payload)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creando journal en Alegra: {str(e)}")
+
+    if not result.get("_verificado"):
+        raise HTTPException(status_code=500, detail="Journal creado pero no verificado en Alegra")
+
+    journal_id = result.get("id")
+    await db.contabilidad_pendientes.update_one(
+        {"_id": oid},
+        {"$set": {
+            "estado": "causado",
+            "journal_alegra_id": str(journal_id),
+            "resuelto_por": current_user.get("email", ""),
+            "resuelto_at": datetime.now(timezone.utc).isoformat(),
+        }}
+    )
+    return {"success": True, "journal_alegra_id": str(journal_id), "estado": "causado"}
+
+
+@router.patch("/backlog/{id}/descartar")
+async def backlog_descartar(
+    id: str,
+    payload: DescartarMovimientoRequest,
+    current_user=Depends(get_current_user),
+):
+    """Marca movimiento como descartado."""
+    from bson import ObjectId
+
+    try:
+        oid = ObjectId(id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="ID inválido")
+
+    mov = await db.contabilidad_pendientes.find_one({"_id": oid})
+    if not mov:
+        raise HTTPException(status_code=404, detail="Movimiento no encontrado")
+
+    await db.contabilidad_pendientes.update_one(
+        {"_id": oid},
+        {"$set": {
+            "estado": "descartado",
+            "razon_descarte": payload.razon,
+            "resuelto_por": current_user.get("email", ""),
+            "resuelto_at": datetime.now(timezone.utc).isoformat(),
+        }}
+    )
+    return {"success": True, "estado": "descartado"}
+
+
+@router.get("/backlog/stats")
+async def backlog_stats(current_user=Depends(get_current_user)):
+    """Retorna totales por estado y por banco."""
+    base_query = {"backlog_hash": {"$exists": True}}
+
+    total_pendientes = await db.contabilidad_pendientes.count_documents({**base_query, "estado": "pendiente"})
+    total_causados = await db.contabilidad_pendientes.count_documents({**base_query, "estado": "causado"})
+    total_descartados = await db.contabilidad_pendientes.count_documents({**base_query, "estado": "descartado"})
+
+    por_banco: dict = {}
+    for banco in ["bbva", "bancolombia", "nequi", "davivienda"]:
+        por_banco[banco] = await db.contabilidad_pendientes.count_documents(
+            {**base_query, "banco": banco, "estado": "pendiente"}
+        )
+
+    return {
+        "total_pendientes": total_pendientes,
+        "total_causados": total_causados,
+        "total_descartados": total_descartados,
+        "por_banco": por_banco,
+    }
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────

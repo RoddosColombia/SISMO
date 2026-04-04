@@ -20,6 +20,7 @@ import Proveedores from "./pages/Proveedores";
 import Perfil from "./pages/Perfil";
 import Radar from "./pages/Radar";
 import CargarExtraacto from "./pages/CargarExtraacto";
+import BacklogPage from "./pages/BacklogPage";
 import "./App.css";
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -60,6 +61,7 @@ function AppRoutes() {
           <Route path="perfil" element={<Perfil />} />
           <Route path="configuracion" element={<Settings />} />
           <Route path="proveedores" element={<Proveedores />} />
+          <Route path="backlog" element={<BacklogPage />} />
           {/* Módulos eliminados del menú — redirigen al chat con contexto */}
           <Route path="facturacion-venta" element={<Navigate to="/agente-contable?hint=factura-venta" replace />} />
           <Route path="facturacion-compra" element={<Navigate to="/agente-contable?hint=factura-compra" replace />} />
