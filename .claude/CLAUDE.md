@@ -51,7 +51,7 @@ Al llegar al 60% del context window: hacer /compact automáticamente.
 - **GET /journals da TIMEOUT consistente** — con o sin filtros de fecha, con cualquier offset. El endpoint es inutilizable para listas grandes. NUNCA usar GET /journals en scripts de operación masiva.
 - **NUNCA usar `date_afterOrNow` / `date_beforeOrNow`** — causan TIMEOUT adicional (confirmado en producción 3+ veces).
 - **Para eliminar journals en bulk: DELETE /journals/{id} con IDs conocidos** — único método confiable. Los 404 son inofensivos (ID no existe). AC-XX en Alegra = numeric ID XX (AC-69 = DELETE /journals/69).
-- **Journals a CONSERVAR siempre en RODDOS:** AC-12, AC-13 (ingresos no operacionales) + AC-14 a AC-60 (CXC socios Andrés/Iván). NUNCA eliminar estos.
+- **Journals a CONSERVAR en RODDOS:** solo facturas de venta (/invoices) y bills de Auteco (/bills). Todo lo demás en /journals se puede eliminar si es necesario.
 - **consultar_journals NO está en el ACTION_MAP** (ERROR-016 pendiente BUILD 23). El agente no puede verificar journals vía chat.
 
 ---
@@ -126,5 +126,5 @@ Antes de cada commit verificar:
 - ✅ MongoDB conciliacion_* limpio (303 hashes + 3 extractos eliminados)
 - ✅ FASE 0 Plan Maestro completada (permissions.py bloqueo DELETE /invoices)
 - ✅ FASE 1 Plan Maestro completada (auditoría Alegra)
-- ⏳ FASE 2 casi completa — pendiente eliminar 13 journals restantes (IDs: 2,3,62,63,65,66,69,70,71,72,73,74,75)
+- ✅ FASE 2 completa — Alegra limpio de enero y febrero 2026 (0 journals restantes)
 - 🔜 FASE 3 siguiente — cargar extractos bancarios uno a uno con dry-run + aprobación
