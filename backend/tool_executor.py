@@ -99,6 +99,24 @@ async def execute_tool(
         }
 
     # ── Tools de lectura — auto-ejecutar sin confirmación ────────────────────
+    if tool_name == "consultar_journals":
+        from alegra_service import AlegraService
+        service = AlegraService(db)
+        # REGLA: NUNCA usar date_afterOrNow ni date_beforeOrNow — causan TIMEOUT.
+        # Paginar sin filtros de fecha y filtrar localmente.
+        fecha_desde = tool_input.get("fecha_desde", "")
+        fecha_hasta = tool_input.get("fecha_hasta", "")
+        try:
+            result = await service.request("journals", "GET", {"limit": 50, "offset": 0})
+        except Exception as e:
+            return {"success": False, "error": f"Error consultando journals en Alegra: {str(e)}"}
+        journals = result if isinstance(result, list) else []
+        if fecha_desde:
+            journals = [j for j in journals if j.get("date", "") >= fecha_desde]
+        if fecha_hasta:
+            journals = [j for j in journals if j.get("date", "") <= fecha_hasta]
+        return {"journals": journals[:30], "total": len(journals)}
+
     if tool_name == "consultar_facturas":
         from alegra_service import AlegraService
         service = AlegraService(db)
@@ -409,36 +427,40 @@ def should_create_plan(tool_calls: list, request: str = "") -> bool:
     """
     import re as _re
 
-    READ_TOOLS = {"consultar_facturas", "consultar_cartera"}
+    READ_TOOLS = {
+        "consultar_facturas",
+        "consultar_cartera",
+        "consultar_journals",   # agregado BUILD 23 — lectura pura, nunca necesita plan
+    }
 
     if len(tool_calls) > 1:
         return True
 
-    # Detectar múltiples operaciones en el texto del request incluso cuando Anthropic
-    # solo retorna 1 tool_call por turno.
-    # Patrón: "Registra X e Y", "Registra X y Y", "registra X, Y", etc.
-    if request:
-        _req_lower = request.lower()
-        _MULTI_OP_PATTERNS = [
-            r"\be\s+\w",          # "e internet", "e arrendamiento"
-            r"\by\s+\w",          # "y también", "y el pago"
-            r"\btambién\b",
-            r"\bademás\b",
-            r"\bmás\b.*\bregistra\b|\bregistra\b.*\bmás\b",
-        ]
-        for pattern in _MULTI_OP_PATTERNS:
-            if _re.search(pattern, _req_lower):
-                return True
-
     if len(tool_calls) == 1:
         tool_name = tool_calls[0].get("tool_name") or tool_calls[0].get("name", "")
-        # Solo lectura pura → ejecutar directo
+        # Lectura pura → ejecutar directo SIN importar el texto del request.
+        # Los patrones multi-op no aplican a herramientas de solo lectura —
+        # frases como "y cual fue" o "e indícame" son parte de una sola consulta.
         if tool_name in READ_TOOLS:
             return False
-        # Escritura → crear plan
+        # Herramienta de escritura — detectar múltiples operaciones en el texto.
+        # Patrón: "Registra X e Y", "Registra X y Y", "registra X, Y", etc.
+        if request:
+            _req_lower = request.lower()
+            _MULTI_OP_PATTERNS = [
+                r"\be\s+\w",          # "e internet", "e arrendamiento"
+                r"\by\s+\w",          # "y también", "y el pago"
+                r"\btambién\b",
+                r"\bademás\b",
+                r"\bmás\b.*\bregistra\b|\bregistra\b.*\bmás\b",
+            ]
+            for pattern in _MULTI_OP_PATTERNS:
+                if _re.search(pattern, _req_lower):
+                    return True
+        # Escritura única sin indicios multi-op → crear plan
         return True
 
-    return False  # lista vacía y sin indicios multi-op — no crear plan
+    return False  # lista vacía — no crear plan
 
 
 import anthropic as _anthropic  # noqa: E402 — needed for mock patching in tests
