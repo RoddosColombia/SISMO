@@ -111,15 +111,17 @@ Antes de cada commit verificar:
 - **BUILD:** 24 completo (`v24.0.0`)
 - **Score:** 9.3/10
 - **Tests:** 67 en verde
-- **Próximo:** BUILD 23 "Contador Operativo" — Agente Contador 4.8/10 → 8.5/10
-- **Prompt BUILD 23:** `backend/scripts/prompt_build23_contador_operativo.txt`
-- **Sprints BUILD 23:**
-  - S0: ERROR-016 `consultar_journals` en ACTION_MAP (BLOQUEANTE)
-  - S1: Chat transaccional F2 3/10 → 7/10 (fix ROG-1: request_with_verify)
-  - S2: Facturación motos F6 1/10 → 8/10 (VIN obligatorio + inventario + loanbook)
-  - S3: Ingresos cuotas cartera F7 5/10 → 8/10 (journal ingreso en Alegra)
-  - S4: Nómina F4 0/10 → 7/10 (anti-dup por mes + BackgroundTasks)
-  - S5: Módulo Backlog movimientos — pantalla separada menú (nuevo)
+- **Próximo:** BUILD 23 ✅ COMPLETO — commit 884a248 — 37/37 tests GREEN
+- **Score estimado:** 8.5/10
+- **BUILD 23 entregado:**
+  - S0 ✅ consultar_journals en ACTION_MAP, filtro local fechas (sin date_afterOrNow)
+  - S1 ✅ crear_causacion usa request_with_verify — ROG-1 cumplida
+  - S2 ✅ ventas.py: VIN/motor validados, estado Vendida post-verify, loanbook
+  - S3 ✅ cartera.py: cuota pagada post-verify, evento pago.cuota.registrado
+  - S4 ✅ nomina.py: journal sueldos, anti-dup mes, evento nomina.registrada
+  - S5 ✅ 5 endpoints /backlog/* + BacklogPage.tsx + badge sidebar
+- **Próximo paso:** FASE 3 — subir extractos bancarios (BBVA + Bancolombia + Nequi)
+- **Pendiente:** Smoke tests ST1-ST20 en producción (requieren app corriendo)
 - **Hotfix aplicado:** ERROR-017 URL base Alegra — tag `v24-hotfix-alegra`
 
 ## LIMPIEZA CONTABLE ENERO-FEBRERO 2026 — ESTADO
