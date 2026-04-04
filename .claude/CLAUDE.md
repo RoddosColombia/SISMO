@@ -130,5 +130,17 @@ Antes de cada commit verificar:
 - ✅ MongoDB conciliacion_* limpio (303 hashes + 3 extractos eliminados)
 - ✅ FASE 0 Plan Maestro completada (permissions.py bloqueo DELETE /invoices)
 - ✅ FASE 1 Plan Maestro completada (auditoría Alegra)
-- ✅ FASE 2 completa — Alegra limpio de enero y febrero 2026 (0 journals restantes)
-- 🔜 FASE 3 siguiente — cargar extractos bancarios uno a uno con dry-run + aprobación
+- ✅ FASE 2 completa — Alegra limpio de enero y febrero 2026
+- ✅ FASE 3 completa enero 2026 — BBVA (109 journals + 27 backlog) + Bancolombia (132 + 46) + Nequi (completo + 25)
+- ✅ Backlog operativo — 98 movimientos pendientes con modal de sugerencias inteligentes
+- 🔜 FASE 3 siguiente — febrero y marzo 2026 (mismos 3 bancos)
+- 🔜 Auditoría calidad enero — verificar clasificaciones en Alegra máñana
+- 🔜 Backlog 98 movimientos por resolver con modal sugerencias
+
+## LECCIONES FASE 3 (inamovibles)
+- contabilidad_pendientes usa schema NUEVO con backlog_hash — NUNCA borrar documentos con backlog_hash
+- Antes de limpiar contabilidad_pendientes: verificar que solo se borran los sin backlog_hash
+- Si job termina con causados=0 y la UI muestra 0: job puede estar en STATUS=processing, NO es bug
+- Anti-dup en conciliacion_movimientos_procesados (hashes por movimiento) es independiente de conciliacion_extractos_procesados (hash del archivo)
+- Cuentas None en clasificación van a backlog, no a Alegra — fix aplicado en clasificar_movimientos
+- 9 errores Bancolombia: AJUSTE INTERES AHORROS DB — cuenta_debito=None → ahora va a backlog
