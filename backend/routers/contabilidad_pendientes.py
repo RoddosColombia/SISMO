@@ -371,6 +371,215 @@ async def backlog_descartar(
     return {"success": True, "estado": "descartado"}
 
 
+# Mapa de cuentas RODDOS — nombres legibles por ID de Alegra
+CUENTAS_RODDOS: dict[int, str] = {
+    5462: "Sueldos y salarios",
+    5470: "Honorarios",
+    5471: "Seguridad social",
+    5472: "Dotaciones",
+    5480: "Arrendamientos",
+    5484: "Servicios públicos / Tech",
+    5487: "Teléfono / Internet",
+    5490: "Mantenimiento",
+    5491: "Transporte",
+    5493: "Gastos generales",
+    5497: "Papelería y útiles",
+    5500: "Publicidad",
+    5501: "Eventos",
+    5505: "ICA",
+    5507: "IVA comisión bancaria",
+    5508: "Comisiones bancarias",
+    5509: "GMF 4×1000",
+    5510: "Seguros",
+    5533: "Intereses financieros",
+    5534: "Intereses rentistas",
+    # Bancos
+    5314: "Bancolombia 2029",
+    5318: "BBVA 0210",
+    5322: "Davivienda 482",
+    5310: "Caja / Nequi",
+    # Ingresos y CXC
+    5327: "Créditos Directos RODDOS (cartera)",
+    5329: "CXC Socios",
+    # Retenciones
+    236505: "ReteFuente por pagar",
+    236560: "ReteICA por pagar",
+}
+
+BANCO_CUENTA: dict[str, int] = {
+    "bbva": 5318,
+    "bancolombia": 5314,
+    "davivienda": 5322,
+    "nequi": 5310,
+}
+
+
+def _nombre_cuenta(cuenta_id: Optional[int]) -> str:
+    if not cuenta_id:
+        return "Cuenta desconocida"
+    return CUENTAS_RODDOS.get(int(cuenta_id), f"Cuenta {cuenta_id}")
+
+
+def _generar_sugerencias(mov: dict) -> list[dict]:
+    """
+    Genera 3 sugerencias de asiento para un movimiento del backlog.
+    Usa los campos del motor matricial + reglas de negocio RODDOS.
+    """
+    banco = mov.get("banco", "bbva")
+    tipo = (mov.get("tipo") or "EGRESO").upper()
+    descripcion = (mov.get("descripcion") or "").upper()
+    monto = abs(mov.get("monto", 0))
+    cuenta_banco = BANCO_CUENTA.get(banco, 5318)
+    cuenta_debito_motor = mov.get("cuenta_debito_sugerida")
+    cuenta_credito_motor = mov.get("cuenta_credito_sugerida")
+    es_traslado = mov.get("es_transferencia_interna", False)
+
+    obs_base = f"{descripcion[:60]} ({banco.upper()})"
+
+    sugerencias = []
+
+    # ── Traslado interno ───────────────────────────────────────────────
+    if es_traslado:
+        return [{
+            "id": 1,
+            "titulo": "Traslado interno — no contabilizar",
+            "cuenta_debito": cuenta_banco,
+            "cuenta_debito_nombre": _nombre_cuenta(cuenta_banco),
+            "cuenta_credito": cuenta_banco,
+            "cuenta_credito_nombre": _nombre_cuenta(cuenta_banco),
+            "observaciones": f"Traslado interno RODDOS — {obs_base}",
+            "razon": "Movimiento entre cuentas propias — usar Descartar en su lugar",
+            "es_traslado": True,
+        }]
+
+    # ── Sugerencia 1: La del motor matricial ──────────────────────────
+    if tipo == "EGRESO":
+        d1 = int(cuenta_debito_motor) if cuenta_debito_motor else 5493
+        c1 = cuenta_banco
+        r1 = mov.get("razon_baja_confianza") or f"Clasificación del motor — {_nombre_cuenta(d1)}"
+    else:
+        d1 = cuenta_banco
+        c1 = int(cuenta_credito_motor) if cuenta_credito_motor else 5327
+        r1 = mov.get("razon_baja_confianza") or f"Clasificación del motor — {_nombre_cuenta(c1)}"
+
+    sugerencias.append({
+        "id": 1,
+        "titulo": "Sugerencia del motor" if (cuenta_debito_motor or cuenta_credito_motor) else "Gastos generales",
+        "cuenta_debito": d1,
+        "cuenta_debito_nombre": _nombre_cuenta(d1),
+        "cuenta_credito": c1,
+        "cuenta_credito_nombre": _nombre_cuenta(c1),
+        "observaciones": obs_base,
+        "razon": r1,
+        "es_traslado": False,
+    })
+
+    # ── Sugerencia 2: Alternativa por palabras clave ──────────────────
+    d2, c2, titulo2, razon2 = None, None, "", ""
+
+    if tipo == "EGRESO":
+        if any(k in descripcion for k in ["NOMINA", "SALARY", "SUELDO"]):
+            d2, c2 = 5462, cuenta_banco
+            titulo2, razon2 = "Nómina y salarios", "Detectado: pago de nómina"
+        elif any(k in descripcion for k in ["HONORARIO", "ABOGADO", "ASESOR", "CONSUL"]):
+            d2, c2 = 5470, cuenta_banco
+            titulo2, razon2 = "Honorarios", "Detectado: pago de honorarios"
+        elif any(k in descripcion for k in ["ARRIENDO", "ARRENDAMIENTO", "CANON"]):
+            d2, c2 = 5480, cuenta_banco
+            titulo2, razon2 = "Arrendamiento", "Detectado: pago de arriendo"
+        elif any(k in descripcion for k in ["ALEGRA", "SOFIA", "SOFTWARE", "INTERNET", "TIGO", "CLARO", "ETB"]):
+            d2, c2 = 5484, cuenta_banco
+            titulo2, razon2 = "Servicios / Tech", "Detectado: servicio tecnológico o internet"
+        elif any(k in descripcion for k in ["COMISION", "COMISIÓN"]):
+            d2, c2 = 5508, cuenta_banco
+            titulo2, razon2 = "Comisión bancaria", "Detectado: comisión bancaria"
+        elif any(k in descripcion for k in ["IMPUESTO", "4X1000", "GMF"]):
+            d2, c2 = 5509, cuenta_banco
+            titulo2, razon2 = "GMF 4×1000", "Detectado: gravamen al movimiento financiero"
+        elif any(k in descripcion for k in ["CXC", "SOCIO", "ANDRES", "IVAN"]):
+            d2, c2 = 5329, cuenta_banco
+            titulo2, razon2 = "CXC Socios", "Detectado: gasto de socio"
+        elif any(k in descripcion for k in ["INTERESES", "CANO", "MARTINEZ", "CREDITO"]):
+            d2, c2 = 5534, cuenta_banco
+            titulo2, razon2 = "Intereses rentistas", "Detectado: pago de intereses"
+        else:
+            d2, c2 = 5493, cuenta_banco
+            titulo2, razon2 = "Gastos generales", "Sin clasificación específica — cuenta comodín"
+    else:  # INGRESO
+        if any(k in descripcion for k in ["RDX", "LOANBOOK", "CUOTA", "ABONO"]):
+            d2, c2 = cuenta_banco, 5327
+            titulo2, razon2 = "Ingreso cartera RDX", "Detectado: pago de cuota de crédito"
+        elif any(k in descripcion for k in ["MOTOS DEL TROPICO", "RECUPERADA", "TROPICO"]):
+            d2, c2 = cuenta_banco, 5327
+            titulo2, razon2 = "Ingreso no operacional", "Detectado: venta de moto recuperada"
+        elif any(k in descripcion for k in ["INTERESES", "GANADOS"]):
+            d2, c2 = cuenta_banco, 5533
+            titulo2, razon2 = "Intereses bancarios ganados", "Detectado: rendimientos bancarios"
+        else:
+            d2, c2 = cuenta_banco, 5327
+            titulo2, razon2 = "Ingreso cartera", "Ingreso en cuenta bancaria"
+
+    if d2 and c2 and (d2, c2) != (d1, c1):  # Solo agregar si es diferente a la primera
+        sugerencias.append({
+            "id": 2,
+            "titulo": titulo2,
+            "cuenta_debito": d2,
+            "cuenta_debito_nombre": _nombre_cuenta(d2),
+            "cuenta_credito": c2,
+            "cuenta_credito_nombre": _nombre_cuenta(c2),
+            "observaciones": obs_base,
+            "razon": razon2,
+            "es_traslado": False,
+        })
+
+    # ── Sugerencia 3: Fallback / comodín ──────────────────────────────
+    d3 = 5493 if tipo == "EGRESO" else cuenta_banco
+    c3 = cuenta_banco if tipo == "EGRESO" else 5327
+    fallback = (d3, c3)
+    if fallback != (d1, c1) and fallback != (d2, c2 if d2 else None):
+        sugerencias.append({
+            "id": 3,
+            "titulo": "Gastos generales" if tipo == "EGRESO" else "Ingreso genérico",
+            "cuenta_debito": d3,
+            "cuenta_debito_nombre": _nombre_cuenta(d3),
+            "cuenta_credito": c3,
+            "cuenta_credito_nombre": _nombre_cuenta(c3),
+            "observaciones": obs_base,
+            "razon": "Cuenta comodín para clasificar y revisar después",
+            "es_traslado": False,
+        })
+
+    return sugerencias[:3]
+
+
+@router.get("/backlog/sugerencias/{id}")
+async def backlog_sugerencias(
+    id: str,
+    current_user=Depends(get_current_user),
+):
+    """Retorna 3 sugerencias de asiento para un movimiento de backlog."""
+    from bson import ObjectId
+
+    try:
+        oid = ObjectId(id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="ID inválido")
+
+    mov = await db.contabilidad_pendientes.find_one({"_id": oid})
+    if not mov:
+        raise HTTPException(status_code=404, detail="Movimiento no encontrado")
+
+    sugerencias = _generar_sugerencias(mov)
+    return {
+        "movimiento_id": id,
+        "descripcion": mov.get("descripcion", ""),
+        "monto": mov.get("monto", 0),
+        "tipo": mov.get("tipo", "EGRESO"),
+        "es_transferencia_interna": mov.get("es_transferencia_interna", False),
+        "sugerencias": sugerencias,
+    }
+
+
 @router.get("/backlog/stats")
 async def backlog_stats(current_user=Depends(get_current_user)):
     """Retorna totales por estado y por banco."""
