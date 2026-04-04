@@ -48,7 +48,22 @@ Al llegar al 60% del context window: hacer /compact automáticamente.
 - Formato fechas: `yyyy-MM-dd` estricto (ejemplo: `2026-03-30`)
 - **NUNCA enviar ISO-8601 con timezone** — retorna 0 resultados sin error visible
 - Autenticación: Basic Auth `base64(email:token)` — el token NO expira automáticamente
-- **NUNCA usar `date_afterOrNow` / `date_beforeOrNow` como params en GET /journals** — causan TIMEOUT en offset=0 de forma consistente (bug confirmado en producción, reproducido 3+ veces). Estrategia correcta: paginar SIN filtros de fecha (`limit` + `offset` solo), filtrar localmente por `j["date"]` en Python.
+- **GET /journals da TIMEOUT consistente** — con o sin filtros de fecha, con cualquier offset. El endpoint es inutilizable para listas grandes. NUNCA usar GET /journals en scripts de operación masiva.
+- **NUNCA usar `date_afterOrNow` / `date_beforeOrNow`** — causan TIMEOUT adicional (confirmado en producción 3+ veces).
+- **Para eliminar journals en bulk: DELETE /journals/{id} con IDs conocidos** — único método confiable. Los 404 son inofensivos (ID no existe). AC-XX en Alegra = numeric ID XX (AC-69 = DELETE /journals/69).
+- **Journals a CONSERVAR siempre en RODDOS:** AC-12, AC-13 (ingresos no operacionales) + AC-14 a AC-60 (CXC socios Andrés/Iván). NUNCA eliminar estos.
+- **consultar_journals NO está en el ACTION_MAP** (ERROR-016 pendiente BUILD 23). El agente no puede verificar journals vía chat.
+
+---
+
+## SKILL: RENDER SHELL — REGLAS INAMOVIBLES
+
+- **Scripts > 60 segundos:** SIEMPRE usar `nohup python -u script.py > /tmp/nombre.log 2>&1 &` — sin `nohup` la sesión SSH muere y el proceso se cancela.
+- **Flag `-u` OBLIGATORIO con nohup** — sin `-u`, Python bufferiza el output y `tail -f` no muestra nada hasta que el buffer se llena. Con `-u` el output es inmediato.
+- **Monitoreo:** `tail -f /tmp/nombre.log` para ver progreso. `Ctrl+C` sale del tail sin matar el proceso.
+- **Verificar proceso vivo:** `ps aux | grep script_name`
+- **Scripts en Render Shell:** siempre correr desde `~/project/src/backend/` — el `.env` vive ahí.
+- **Comandos de una línea en python -c:** funcionan para operaciones < 30 segundos. Para operaciones largas, crear script + push + nohup.
 
 ---
 
@@ -96,10 +111,20 @@ Antes de cada commit verificar:
 - **BUILD:** 24 completo (`v24.0.0`)
 - **Score:** 9.3/10
 - **Tests:** 67 en verde
-- **Próximo:** BUILD 25 — Agente Contador 8.5/10
+- **Próximo:** BUILD 23 — Agente Contador 8.5/10
 - **Pendiente crítico:**
+  - ERROR-016: `consultar_journals` falta en ACTION_MAP — agente no puede auditar Alegra
   - S1 chat transaccional F2 (3/10)
   - S2 facturación motos F6 (1/10)
   - S3 ingresos cuotas F7 (5/10)
   - S4 nómina F4 (0/10)
 - **Hotfix aplicado:** ERROR-017 URL base Alegra — tag `v24-hotfix-alegra`
+
+## LIMPIEZA CONTABLE ENERO-FEBRERO 2026 — ESTADO
+
+- ✅ Journals extracto conciliación (IDs 146-241 y 898-957) eliminados de Alegra
+- ✅ MongoDB conciliacion_* limpio (303 hashes + 3 extractos eliminados)
+- ✅ FASE 0 Plan Maestro completada (permissions.py bloqueo DELETE /invoices)
+- ✅ FASE 1 Plan Maestro completada (auditoría Alegra)
+- ⏳ FASE 2 casi completa — pendiente eliminar 13 journals restantes (IDs: 2,3,62,63,65,66,69,70,71,72,73,74,75)
+- 🔜 FASE 3 siguiente — cargar extractos bancarios uno a uno con dry-run + aprobación
