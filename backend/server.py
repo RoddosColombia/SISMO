@@ -231,6 +231,18 @@ if global66_router:
 else:
     print("[WARN] global66_router not loaded, skipping registration")
 
+try:
+    from routers import n8n_hooks as n8n_hooks_router
+    print("[OK] n8n_hooks router loaded successfully")
+except Exception as e:
+    print(f"[ERROR] Failed to load n8n_hooks router: {e}")
+    n8n_hooks_router = None
+
+if n8n_hooks_router:
+    app.include_router(n8n_hooks_router.router, prefix=PREFIX)
+else:
+    print("[WARN] n8n_hooks_router not loaded, skipping registration")
+
 app.include_router(reports_router.router,                      prefix=PREFIX)
 app.include_router(contabilidad_pendientes_router.router,      prefix=PREFIX)
 app.include_router(conciliacion_router.router,                 prefix=PREFIX)

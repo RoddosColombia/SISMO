@@ -514,7 +514,8 @@ def start_scheduler() -> None:
         "WA: T1@lun08 T2@mié08 T3@jue09 T5@sab09 | "
         "inventario@lun07 | sync_pagos@5min | sync_facturas@5min | reintentos_alegra@5min | dian@23:00 | "
         "BUILD24: portfolio_summary@23:30 | financial_report@día1 06:00 | "
-        "BUILD21: resumen_semanal_cfo@lun08 | anomalias_diarias@23:30 (COT)"
+        "BUILD21: resumen_semanal_cfo@lun08 | anomalias_diarias@23:30 | "
+        "BUILD25: global66_recuperacion@10min (COT)"
     )
 
     # ── BUILD 21: Resumen semanal CFO (lunes 8:05am) ──────────────────────────
@@ -537,6 +538,89 @@ def start_scheduler() -> None:
         id="anomalias_contables_diarias",
         replace_existing=True, max_instances=1, misfire_grace_time=3600,
     )
+
+    # ── BUILD 25: Recuperación eventos Global66 no procesados (cada 10 min) ──
+    _scheduler.add_job(
+        _recuperar_global66_pendientes,
+        trigger="interval",
+        minutes=10,
+        id="recuperar_global66_pendientes",
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=120,
+    )
+
+
+async def _recuperar_global66_pendientes() -> None:
+    """Cada 10 min — Reintenta en Alegra los eventos Global66 no procesados."""
+    from database import db
+    from alegra_service import AlegraService
+    from services.accounting_engine import clasificar_movimiento
+    GLOBAL66_BANK_ACCOUNT_ID = 11100507
+    FALLBACK = 5493
+    MAX_INTENTOS = 5
+
+    try:
+        pendientes = await db.global66_eventos_recibidos.find({
+            "procesado": False,
+            "intentos_alegra": {"$lt": MAX_INTENTOS},
+            "motivo": {"$exists": False},
+        }).to_list(20)
+
+        if not pendientes:
+            return
+
+        service = AlegraService(db)
+        recuperados = 0
+
+        for evento in pendientes:
+            try:
+                clasificacion = clasificar_movimiento(
+                    descripcion=evento.get("descripcion", ""),
+                    proveedor="",
+                    monto=float(evento.get("monto", 0)),
+                    banco_origen=GLOBAL66_BANK_ACCOUNT_ID,
+                )
+                monto = abs(float(evento.get("monto", 0)))
+                tipo = evento.get("tipo", "INGRESO")
+
+                if tipo == "INGRESO":
+                    d = GLOBAL66_BANK_ACCOUNT_ID
+                    c = clasificacion.cuenta_credito or FALLBACK
+                else:
+                    d = clasificacion.cuenta_debito or FALLBACK
+                    c = GLOBAL66_BANK_ACCOUNT_ID
+
+                result = await service.request_with_verify("journals", "POST", {
+                    "date": evento.get("fecha", datetime.now(timezone.utc).strftime("%Y-%m-%d")),
+                    "observations": evento.get("descripcion", "Global66 recuperado"),
+                    "entries": [
+                        {"id": d, "debit": int(monto), "credit": 0},
+                        {"id": c, "debit": 0, "credit": int(monto)},
+                    ],
+                })
+                journal_id = result.get("id")
+
+                await db.global66_eventos_recibidos.update_one(
+                    {"_id": evento["_id"]},
+                    {
+                        "$set": {"procesado": True, "alegra_journal_id": str(journal_id)},
+                        "$inc": {"intentos_alegra": 1},
+                    }
+                )
+                recuperados += 1
+
+            except Exception as e:
+                await db.global66_eventos_recibidos.update_one(
+                    {"_id": evento["_id"]},
+                    {"$inc": {"intentos_alegra": 1}, "$set": {"ultimo_error": str(e)}}
+                )
+
+        if recuperados:
+            logger.info("[Scheduler] Global66 recuperados: %d eventos causados", recuperados)
+
+    except Exception as e:
+        logger.error("[Scheduler] Error recuperación Global66: %s", e)
 
 
 def stop_scheduler() -> None:
