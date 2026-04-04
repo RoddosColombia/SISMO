@@ -1,0 +1,435 @@
+BUILD 23 "CONTADOR OPERATIVO" — RODDOS SISMO
+Objetivo: Agente Contador de 4.8/10 a 8.5/10 + Módulo Backlog de Movimientos
+Prerequisito para FASE 3: subir extractos bancarios enero-marzo 2026
+
+════════════════════════════════════════════════════════════════
+CONTEXTO TÉCNICO — LEER ANTES DE ESCRIBIR CÓDIGO
+════════════════════════════════════════════════════════════════
+
+Stack: FastAPI Python 3.11 · MongoDB Motor async · React 19 · Tailwind
+Backend repo: RoddosColombia/SISMO · directorio backend/
+Frontend repo: mismo repo · directorio frontend/src/
+
+Reglas inamovibles Alegra:
+- URL base: https://api.alegra.com/api/v1/
+- Endpoint journals: /journals NUNCA /journal-entries (da 403)
+- Endpoint cuentas: /categories NUNCA /accounts (da 403)
+- Auth: Basic base64(ALEGRA_EMAIL:ALEGRA_TOKEN)
+- request_with_verify() SIEMPRE para writes — POST + GET verificación HTTP 200
+- GET /journals da TIMEOUT — NUNCA usar en bulk. Solo DELETE /journals/{id} por ID conocido.
+- AC-XX en Alegra = numeric ID XX para DELETE
+
+Reglas negocio:
+- Fallback cuenta: ID 5493 NUNCA ID 5495
+- Auteco NIT 860024781 = autoretenedor, NUNCA ReteFuente
+- Socios Andrés CC 80075452 / Iván CC 80086601 → CXC socios NUNCA gasto operativo
+- IVA cuatrimestral: ene-abr / may-ago / sep-dic
+- VIN + motor obligatorios en facturas venta moto
+
+Colecciones MongoDB relevantes:
+- contabilidad_pendientes: backlog de movimientos <70% confianza (nueva/existente)
+- plan_cuentas_roddos: 28 cuentas con IDs reales Alegra
+- agent_sessions: historial conversacional 72h TTL
+- roddos_events: bus eventos append-only
+- cartera_pagos, loanbook, inventario_motos: NO TOCAR en este build
+
+Tests actuales: 67 pasando en verde (NO romper ninguno)
+COMMIT PROTOCOL antes de cada commit:
+  grep -rn "app.alegra.com" → 0 resultados
+  grep -rn "api/r1" → 0 resultados
+  grep -rn "journal-entries" → 0 resultados
+  pytest backend/tests/test_permissions.py backend/tests/test_event_bus.py
+        backend/tests/test_mongodb_init.py backend/tests/test_phase4_agents.py -v
+
+════════════════════════════════════════════════════════════════
+SPRINT S0 — ERROR-016: consultar_journals en ACTION_MAP
+Prioridad: BLOQUEANTE — el agente no puede auditar Alegra sin esto
+════════════════════════════════════════════════════════════════
+
+PROBLEMA:
+El Agente Contador no tiene herramienta para consultar journals en Alegra.
+Sin esto, después de causar un asiento no puede verificarlo vía chat — viola ROG-1.
+El agente confirma: "No tengo una herramienta de solo lectura para listar comprobantes de diario".
+
+QUÉ IMPLEMENTAR:
+
+1. Nueva acción en ACTION_MAP: consultar_journals
+   En backend/routers/ai_chat.py, agregar en el dict ACTION_MAP:
+   "consultar_journals": handler_consultar_journals
+
+2. Handler handler_consultar_journals(params, db) en ai_chat.py:
+   - Recibe params: {fecha_desde, fecha_hasta, limite} (todos opcionales)
+   - Hace GET /journals a Alegra SIN filtros de fecha (REGLA: date_afterOrNow causa TIMEOUT)
+   - Pagina con limit=30, offset=0,30,60... hasta agotar resultados
+   - Filtra localmente por fecha si fecha_desde/fecha_hasta están presentes
+   - Retorna lista de journals: {id, date, observations, total_debito, entries_count}
+   - Máximo 50 journals en respuesta al LLM para no saturar contexto
+   - Si Alegra da error → retorna mensaje de error en español
+
+3. En el SYSTEM_PROMPT del Agente Contador, agregar descripción de la herramienta:
+   "consultar_journals: lista comprobantes de diario existentes en Alegra.
+    Úsala para verificar asientos después de crearlos o para auditar el estado contable."
+
+TESTS S0 (crear backend/tests/test_s0_consultar_journals.py):
+T1: ACTION_MAP contiene la clave "consultar_journals"
+T2: handler_consultar_journals con Alegra en demo mode → retorna lista vacía sin error
+T3: handler_consultar_journals con fecha_desde="2026-01-01" → filtra localmente
+T4: prompt "lista los journals de enero" → intent detectado → acción consultar_journals
+T5: respuesta incluye IDs y fechas de journals en formato legible
+
+════════════════════════════════════════════════════════════════
+SPRINT S1 — Chat Transaccional F2: 3/10 → 7/10
+════════════════════════════════════════════════════════════════
+
+PROBLEMA ACTUAL:
+El chat del Agente Contador no crea journals en Alegra. El agente propone el asiento
+pero no lo ejecuta — la acción registrar_gasto existe en el ACTION_MAP pero
+usar service.request() directamente en lugar de request_with_verify() (viola ROG-1).
+
+CORRECCIÓN CRÍTICA (ROG-1 violation identificada):
+En backend/routers/ai_chat.py, la función crear_causacion o equivalente usa
+service.request() para POST a Alegra. Debe usar request_with_verify() que hace
+POST + GET de verificación. Sin esto el agente reporta éxito sin verificar HTTP 200.
+
+QUÉ IMPLEMENTAR:
+
+1. Corregir crear_causacion para usar request_with_verify():
+   El patrón correcto es:
+     resultado = await alegra_service.request_with_verify("journals", "POST", body=payload)
+   No:
+     resultado = await alegra_service.request("journals", "POST", body=payload)
+
+2. El flujo chat transaccional completo debe ser:
+   Usuario: "Pagamos arriendo $3.614.953"
+   Agente: detecta gasto → llama accounting_engine.clasificar_movimiento() →
+           obtiene cuenta (5480 arriendo) + retenciones (5386 ReteFuente 3.5%) →
+           propone asiento DÉBITO/CRÉDITO al usuario →
+           usuario confirma → ejecuta request_with_verify() POST /journals →
+           verifica con GET → retorna ID del journal creado al usuario
+
+3. El agente SIEMPRE muestra el asiento propuesto antes de ejecutar.
+   Formato de propuesta:
+   "Voy a crear este asiento en Alegra:
+    DÉBITO: Arrendamientos (5480) $3.614.953
+    CRÉDITO: ReteFuente 3.5% (5386) $126.523
+    CRÉDITO: CXP Proveedores (5376) $3.488.430
+    ¿Confirmas?"
+
+4. Después de crear el journal, el agente reporta:
+   "✅ Journal creado en Alegra. ID: AC-XXX. Monto: $3.614.953"
+   Si falla: "❌ Error al crear en Alegra: [descripción en español]"
+
+5. Máximo 1 pregunta por turno al usuario antes de proponer el asiento.
+
+RETENCIONES A CALCULAR AUTOMÁTICAMENTE:
+- Arriendo: ReteFuente 3.5% (cuenta 5386)
+- Servicios: ReteFuente 4% (cuenta 5383)
+- Honorarios PN: ReteFuente 10% (cuenta 5381)
+- Honorarios PJ: ReteFuente 11% (cuenta 5382)
+- Compras >$1.344.573: ReteFuente 2.5% (cuenta 5388)
+- Toda operación: ReteICA 0.414% (cuenta 5392)
+- Auteco NIT 860024781: NUNCA ReteFuente (autoretenedor)
+
+TESTS S1 (crear backend/tests/test_s1_chat_transaccional.py):
+T1: "Pagamos arriendo $3.614.953" → intent registrar_gasto → cuenta 5480 + retención 5386
+T2: crear_causacion usa request_with_verify no request directo (grep test)
+T3: asiento propuesto incluye DÉBITO y CRÉDITO con montos correctos
+T4: confirmación usuario → POST /journals → retorna ID de Alegra
+T5: sin confirmación usuario → NO ejecutar en Alegra
+T6: Alegra error 503 → mensaje error en español, no stacktrace
+T7: "Honorarios al abogado $800.000 persona natural" → ReteFuente 10% calculado
+
+════════════════════════════════════════════════════════════════
+SPRINT S2 — Facturación Ventas Motos F6: 1/10 → 8/10
+════════════════════════════════════════════════════════════════
+
+PROBLEMA ACTUAL:
+POST /api/ventas/crear-factura existe pero no crea la factura en Alegra correctamente.
+VIN y motor no aparecen en el ítem de Alegra con el formato requerido.
+El inventario no se actualiza al crear la factura.
+El loanbook pendiente_entrega no se crea.
+
+QUÉ IMPLEMENTAR:
+
+1. Endpoint POST /api/ventas/crear-factura en backend/routers/ventas.py:
+   Payload requerido:
+   {
+     "cliente_nombre": str,
+     "cliente_cedula": str,
+     "cliente_telefono": str,
+     "moto_vin": str,       # OBLIGATORIO
+     "moto_motor": str,     # OBLIGATORIO
+     "moto_modelo": str,
+     "moto_color": str,
+     "plan": str,           # P39S / P52S / P78S
+     "modo_pago": str,      # semanal / quincenal / mensual
+     "cuota_inicial": float,
+     "precio_venta": float
+   }
+
+2. Formato OBLIGATORIO del ítem en Alegra (sin este formato el inventario no se actualiza):
+   name: "[Modelo] [Color] - VIN: [chasis] / Motor: [motor]"
+   Ejemplo: "TVS Raider 125 Negro - VIN: 9FL25AF31VDB95058 / Motor: BF3AT18C2356"
+   price: precio_venta
+
+3. Flujo al confirmar venta:
+   a. Verificar moto en inventario_motos con estado == "Disponible" — si no, ERROR
+   b. Crear cliente en Alegra si no existe (POST /contacts)
+   c. Crear factura en Alegra con request_with_verify() POST /invoices
+   d. Verificar HTTP 200 y obtener ID de factura
+   e. Actualizar inventario_motos: estado → "Vendida", factura_alegra_id = ID
+   f. Crear loanbook con estado "pendiente_entrega", cuotas=[], fecha_entrega=null
+   g. Publicar evento factura.venta.creada al bus roddos_events
+   h. Retornar {success: true, factura_id, loanbook_id}
+
+4. Si falta VIN o motor → ERROR 400 antes de tocar Alegra. Nunca crear factura parcial.
+
+5. Si Alegra falla → NO actualizar inventario ni crear loanbook (atomicidad).
+
+TESTS S2 (crear backend/tests/test_s2_facturacion_motos.py):
+T1: payload sin VIN → HTTP 400 antes de llamar Alegra
+T2: payload sin motor → HTTP 400 antes de llamar Alegra
+T3: moto no disponible (estado != "Disponible") → HTTP 400
+T4: factura creada → ítem Alegra contiene "VIN:" y "Motor:" en el name
+T5: factura creada → inventario_motos estado cambia a "Vendida"
+T6: factura creada → loanbook creado con estado "pendiente_entrega"
+T7: factura creada → evento "factura.venta.creada" en roddos_events
+T8: Alegra error → inventario y loanbook NO modificados
+
+════════════════════════════════════════════════════════════════
+SPRINT S3 — Ingresos Cuotas Cartera F7: 5/10 → 8/10
+════════════════════════════════════════════════════════════════
+
+PROBLEMA ACTUAL:
+Cuando se registra un pago de cuota, el journal de ingreso en Alegra no se crea.
+El CFO no puede ver el recaudo real porque los ingresos no llegan a Alegra.
+
+QUÉ IMPLEMENTAR:
+
+1. En backend/routers/cartera.py, función registrar_pago_cuota():
+   Al registrar un pago de cuota, además de actualizar MongoDB, crear journal en Alegra:
+   DÉBITO: Bancolombia 2029 (ID 5314) o banco correspondiente
+   CRÉDITO: Créditos Directos Roddos (ID 5327)
+   observations: "Cuota {N} loanbook {loanbook_id} — {cliente_nombre}"
+
+2. Usar request_with_verify() para el POST /journals. Nunca reportar éxito sin HTTP 200.
+
+3. Después de crear el journal en Alegra:
+   - Actualizar cuota en loanbook: estado → "pagada", journal_alegra_id = ID
+   - Actualizar cartera_pagos con journal_alegra_id
+   - Publicar evento pago.cuota.registrado al bus
+   - Invalidar cfo_cache
+
+4. Si Alegra falla → marcar pago como pendiente_sync en cartera_pagos, no como pagado.
+   No reportar éxito al usuario si Alegra no confirma.
+
+5. El campo cfo_cache se invalida inmediatamente para que el CFO vea el recaudo actualizado.
+
+TESTS S3 (crear backend/tests/test_s3_ingresos_cuotas.py):
+T1: registrar_pago_cuota → POST /journals en Alegra con cuentas correctas
+T2: journal Alegra usa request_with_verify (grep)
+T3: cuota pagada → loanbook.cuotas[N].estado == "pagada" con journal_alegra_id
+T4: cuota pagada → evento pago.cuota.registrado en roddos_events
+T5: cuota pagada → cfo_cache invalidado
+T6: Alegra falla → cuota queda pendiente_sync, no "pagada"
+T7: monto journal = monto cuota exacto
+
+════════════════════════════════════════════════════════════════
+SPRINT S4 — Módulo Nómina F4: 0/10 → 7/10
+════════════════════════════════════════════════════════════════
+
+PROBLEMA ACTUAL:
+No existe módulo de nómina. Los pagos de nómina se registran manualmente
+uno a uno en el chat, sin estructura ni anti-duplicado por mes.
+
+QUÉ IMPLEMENTAR:
+
+1. Endpoint POST /api/nomina/registrar en backend/routers/nomina.py:
+   Payload:
+   {
+     "mes": str,         # "2026-01" formato YYYY-MM
+     "empleados": [
+       {"nombre": str, "cedula": str, "salario_base": float,
+        "auxilio_transporte": float, "deducciones": float}
+     ]
+   }
+
+2. Anti-duplicado: antes de crear journals, verificar en MongoDB colección nomina_registros
+   que no existe un registro para el mismo mes. Si existe → ERROR 409 con mensaje claro.
+
+3. Por cada empleado crear journal en Alegra:
+   DÉBITO: Sueldos y salarios (5462) = salario_base
+   DÉBITO: Auxilio de transporte (5465) = auxilio_transporte (si > 0)
+   CRÉDITO: Salarios por pagar (5413) = salario_base + auxilio - deducciones
+   CRÉDITO: [retenciones SGSSS si aplica]
+   observations: "Nómina {mes} — {nombre} CC {cedula}"
+
+4. Usar BackgroundTasks para procesar múltiples empleados (anti-timeout).
+   Retornar job_id inmediatamente. Estado del job en MongoDB.
+
+5. Guardar en colección nomina_registros: {mes, empleados, journals_ids, creado_at}
+
+6. Valores de referencia (desde MongoDB, nunca hardcodeados):
+   Los salarios vienen del payload — no hardcodear valores específicos.
+
+TESTS S4 (crear backend/tests/test_s4_nomina.py):
+T1: nomina mismo mes dos veces → segunda retorna HTTP 409
+T2: nomina registrada → journal en Alegra por cada empleado
+T3: nomina con 2 empleados → usa BackgroundTasks, retorna job_id
+T4: journal nómina → cuenta débito 5462, crédito 5413
+T5: nomina registrada → documento en nomina_registros con mes correcto
+
+════════════════════════════════════════════════════════════════
+SPRINT S5 — MÓDULO BACKLOG DE MOVIMIENTOS (NUEVO)
+Pantalla separada en el menú de SISMO
+════════════════════════════════════════════════════════════════
+
+CONTEXTO:
+Durante la conciliación bancaria, los movimientos con confianza <70% no se causan
+automáticamente — van a un backlog. Actualmente ese backlog no tiene interfaz en SISMO.
+Este módulo es el prerequisito para completar FASE 3 (subir extractos enero-marzo).
+
+QUÉ IMPLEMENTAR — BACKEND:
+
+1. Colección MongoDB: contabilidad_pendientes
+   Schema de cada documento:
+   {
+     "_id": ObjectId,
+     "banco": str,              # "bbva" | "bancolombia" | "nequi" | "davivienda"
+     "extracto": str,           # "bbva_enero_2026"
+     "fecha": str,              # "2026-01-02" YYYY-MM-DD
+     "descripcion": str,        # texto original del banco
+     "monto": float,            # negativo = egreso, positivo = ingreso
+     "tipo": str,               # "EGRESO" | "INGRESO"
+     "confianza_motor": float,  # 0.0 - 1.0
+     "cuenta_sugerida": int,    # ID Alegra sugerido por motor (puede ser null)
+     "razon_baja_confianza": str,
+     "estado": str,             # "pendiente" | "causado" | "descartado"
+     "journal_alegra_id": str,  # null hasta que se cause
+     "resuelto_por": str,       # usuario que resolvió
+     "creado_at": str,
+     "resuelto_at": str
+   }
+
+2. Índice en contabilidad_pendientes: {estado: 1, banco: 1, fecha: 1}
+
+3. Endpoints en backend/routers/backlog.py:
+   
+   GET /api/backlog/movimientos
+   Query params: estado (default "pendiente"), banco, mes (YYYY-MM)
+   Retorna lista paginada de movimientos pendientes con total_count
+   
+   POST /api/backlog/movimientos
+   Crea un movimiento pendiente (usado por bank_reconciliation al encontrar <70%)
+   Payload: banco, extracto, fecha, descripcion, monto, tipo, confianza_motor,
+            cuenta_sugerida, razon_baja_confianza
+   Anti-duplicado: hash(banco + fecha + descripcion + monto) — no crear si ya existe
+   
+   PATCH /api/backlog/movimientos/{id}/causar
+   Payload: {cuenta_debito: int, cuenta_credito: int, observaciones: str}
+   Crea el journal en Alegra con request_with_verify()
+   Al éxito: estado → "causado", journal_alegra_id = ID retornado
+   
+   PATCH /api/backlog/movimientos/{id}/descartar
+   Payload: {razon: str}
+   Estado → "descartado"
+   
+   GET /api/backlog/stats
+   Retorna: {total_pendientes, total_causados, total_descartados, por_banco: {...}}
+
+4. El endpoint GET /api/backlog/stats también expone el conteo para el badge del menú.
+
+QUÉ IMPLEMENTAR — FRONTEND:
+
+5. Nueva pantalla: frontend/src/pages/BacklogPage.tsx
+   Ruta: /backlog
+   
+   Componentes:
+   a. Header con título "Backlog de Movimientos" + badge con total pendientes
+   b. Filtros: dropdown banco (Todos/BBVA/Bancolombia/Nequi/Davivienda),
+               dropdown mes, dropdown estado (Pendientes/Causados/Descartados)
+   c. Tabla de movimientos con columnas:
+      - Fecha | Banco | Tipo (badge verde INGRESO / rojo EGRESO) |
+        Monto (formato COP) | Descripción | Confianza motor | Cuenta sugerida | Acciones
+   d. Por cada movimiento pendiente, dos acciones:
+      - Botón "Causar" → abre Modal de causación
+      - Botón "Descartar" → confirma y descarta
+   e. Modal de causación:
+      - Muestra descripción y monto del movimiento
+      - Selector de cuenta débito (dropdown con plan_cuentas_roddos)
+      - Selector de cuenta crédito (dropdown con plan_cuentas_roddos)
+      - Campo observaciones (pre-llenado con descripción)
+      - Botón "Crear en Alegra" → llama PATCH /causar → muestra ID retornado
+   f. Paginación: 20 items por página
+   g. Empty state: "No hay movimientos pendientes" con ícono
+
+6. Agregar al menú lateral (Sidebar) un ítem "Backlog" con:
+   - Ícono apropiado (lista con reloj o similar)
+   - Badge numérico con total_pendientes (se actualiza al cargar cada página)
+   - Enlace a /backlog
+
+7. Integración en bank_reconciliation.py:
+   Cuando un movimiento tiene confianza < 0.70 Y no es traslado interno,
+   en lugar de solo guardarlo en contabilidad_pendientes de MongoDB (ya existe
+   la función guardar_movimiento_pendiente), asegurarse que usa el nuevo schema
+   completo incluyendo los campos banco, extracto, confianza_motor, cuenta_sugerida.
+
+TESTS S5 (crear backend/tests/test_s5_backlog.py):
+T1: POST /api/backlog/movimientos crea documento con todos los campos requeridos
+T2: POST mismo movimiento dos veces → segundo retorna HTTP 409 (anti-duplicado)
+T3: GET /api/backlog/movimientos?estado=pendiente → retorna solo pendientes
+T4: PATCH /causar con cuentas válidas → journal creado en Alegra (mock)
+T5: PATCH /causar → estado cambia a "causado", journal_alegra_id no null
+T6: PATCH /descartar → estado cambia a "descartado"
+T7: GET /api/backlog/stats → retorna conteos por estado y banco
+
+════════════════════════════════════════════════════════════════
+SMOKE TEST FINAL — 20/20 antes de declarar BUILD 23 completo
+════════════════════════════════════════════════════════════════
+
+TESTS DE HUMO (ejecutar manualmente o automatizados):
+
+Agente Contador:
+[ ] ST1: Chat "lista journals de enero" → agente llama consultar_journals → lista con IDs
+[ ] ST2: Chat "Pagamos arriendo $3.614.953" → propuesta asiento → confirmar → journal en Alegra con ID
+[ ] ST3: Chat "Honorarios abogado $800.000 persona natural" → ReteFuente 10% calculado
+[ ] ST4: Chat "Nómina enero Alexa $4.5M Liz $2.2M" → journals nómina en Alegra
+[ ] ST5: Registrar pago cuota loanbook → journal ingreso en Alegra → CFO cache invalidado
+
+Facturación:
+[ ] ST6: POST /api/ventas/crear-factura sin VIN → HTTP 400
+[ ] ST7: POST /api/ventas/crear-factura completo → factura en Alegra con VIN en ítem
+[ ] ST8: Factura creada → inventario moto → "Vendida" → loanbook pendiente_entrega creado
+
+Backlog:
+[ ] ST9: Pantalla /backlog carga sin errores
+[ ] ST10: Badge en menú muestra número correcto de pendientes
+[ ] ST11: Filtrar por banco BBVA → solo movimientos BBVA
+[ ] ST12: Modal causar → seleccionar cuentas → crear → ID journal aparece en tabla
+[ ] ST13: Descartar movimiento → desaparece de pendientes
+
+Integridad:
+[ ] ST14: 67 tests anteriores siguen pasando (pytest)
+[ ] ST15: grep "app.alegra.com" → 0 resultados
+[ ] ST16: grep "journal-entries" → 0 resultados
+[ ] ST17: Alegra caído → UI no colapsa, mensaje de error en español
+[ ] ST18: Anti-duplicado nómina mismo mes → HTTP 409 correcto
+[ ] ST19: Anti-duplicado backlog mismo movimiento → HTTP 409 correcto
+[ ] ST20: request_with_verify en todos los writes a Alegra (grep de todos los routers)
+
+════════════════════════════════════════════════════════════════
+REPORTE FINAL — formato obligatorio
+════════════════════════════════════════════════════════════════
+
+Al terminar cada sprint reportar:
+[ ] Tests unitarios: N/N pasando
+[ ] Smoke tests del sprint: N/N
+[ ] grep checks: 0 usos de endpoints prohibidos
+[ ] Commits realizados con mensaje descriptivo
+
+VEREDICTO BUILD 23 COMPLETO: solo si 20/20 smoke tests pasan Y los 67 tests
+anteriores siguen en verde Y grep checks todos en 0.
+
+Score esperado al completar: 8.5/10
+Habilitador de FASE 3: módulo backlog disponible para recibir movimientos <70%
+de los extractos BBVA, Bancolombia y Nequi enero-marzo 2026.

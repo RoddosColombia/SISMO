@@ -111,13 +111,15 @@ Antes de cada commit verificar:
 - **BUILD:** 24 completo (`v24.0.0`)
 - **Score:** 9.3/10
 - **Tests:** 67 en verde
-- **Próximo:** BUILD 23 — Agente Contador 8.5/10
-- **Pendiente crítico:**
-  - ERROR-016: `consultar_journals` falta en ACTION_MAP — agente no puede auditar Alegra
-  - S1 chat transaccional F2 (3/10)
-  - S2 facturación motos F6 (1/10)
-  - S3 ingresos cuotas F7 (5/10)
-  - S4 nómina F4 (0/10)
+- **Próximo:** BUILD 23 "Contador Operativo" — Agente Contador 4.8/10 → 8.5/10
+- **Prompt BUILD 23:** `backend/scripts/prompt_build23_contador_operativo.txt`
+- **Sprints BUILD 23:**
+  - S0: ERROR-016 `consultar_journals` en ACTION_MAP (BLOQUEANTE)
+  - S1: Chat transaccional F2 3/10 → 7/10 (fix ROG-1: request_with_verify)
+  - S2: Facturación motos F6 1/10 → 8/10 (VIN obligatorio + inventario + loanbook)
+  - S3: Ingresos cuotas cartera F7 5/10 → 8/10 (journal ingreso en Alegra)
+  - S4: Nómina F4 0/10 → 7/10 (anti-dup por mes + BackgroundTasks)
+  - S5: Módulo Backlog movimientos — pantalla separada menú (nuevo)
 - **Hotfix aplicado:** ERROR-017 URL base Alegra — tag `v24-hotfix-alegra`
 
 ## LIMPIEZA CONTABLE ENERO-FEBRERO 2026 — ESTADO
