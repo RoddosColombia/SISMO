@@ -205,7 +205,7 @@ REGLAS_CLASIFICACION = {
 
     # CARGO GMF 4x1000
     "gmf": {
-        "palabras_clave": ["4x1000", "impuesto 4x1000", "gravamen", "gmf"],
+        "palabras_clave": ["4x1000", "4x1.000", "impuesto 4x1000", "impuesto 4x1.000", "gravamen", "gmf"],
         "cuenta_debito": 5509,
         "cuenta_credito": None,  # Se toma del banco de origen
         "confianza_min": 0.9,
@@ -1169,6 +1169,67 @@ def clasificar_movimiento(
                 razon="Intereses pagados a rentistas → 5534 (NO 5533 acumulativa)",
                 categoria="INTERES_RENTISTA"
             )
+
+    # ─────────────────────────────────────────────────────────────────────────────
+    # POLÍTICA CONTABLE BBVA FEBRERO 2026 — 5 REGLAS NUEVAS
+    # ─────────────────────────────────────────────────────────────────────────────
+
+    # FEB-1. EMBARGO CUENTA CORRIENTE → ICA por pagar (5410) confianza 85%
+    # Embargo judicial Hacienda Bogotá por ICA adeudado — reduce pasivo 5410
+    if "embargo cuenta corriente" in desc_check or "embargo cuenta ahorros" in desc_check:
+        return ClasificacionResult(
+            cuenta_debito=5410,
+            cuenta_credito=banco_origen,
+            confianza=0.85,
+            requiere_confirmacion=False,
+            razon="Embargo judicial Hacienda Bogotá (ICA) → reduce ICA por pagar (5410)",
+            categoria="EMBARGO_ICA"
+        )
+
+    # FEB-2. ABONO DOMI. → Ingreso cartera (5327) confianza 88%
+    # Pagos en efectivo de clientes consignados en cuenta bancaria
+    if "abono domi." in desc_check or "abono domi " in desc_check:
+        return ClasificacionResult(
+            cuenta_debito=banco_origen,
+            cuenta_credito=5327,
+            confianza=0.88,
+            requiere_confirmacion=False,
+            razon="ABONO DOMI → Pago efectivo cliente consignado → Créditos Directos RODDOS (5327)",
+            categoria="INGRESO_CARTERA"
+        )
+
+    # FEB-3. COBRO POR GIRO AL BANCO AGRARIO → Comisión bancaria (5508) confianza 90%
+    if "cobro por giro al banco agrario" in desc_check:
+        return ClasificacionResult(
+            cuenta_debito=5508,
+            cuenta_credito=banco_origen,
+            confianza=0.90,
+            requiere_confirmacion=False,
+            razon="Cobro giro Banco Agrario → Comisión bancaria (5508)",
+            categoria="COMISION_BANCARIA"
+        )
+
+    # FEB-4. PAGO POR PSE A [BANCO] → Backlog (sin contexto) confianza 20%
+    if "pago por pse a banco" in desc_check or "pago por pse a bancolombia" in desc_check:
+        return ClasificacionResult(
+            cuenta_debito=5496,
+            cuenta_credito=banco_origen,
+            confianza=0.20,
+            requiere_confirmacion=True,
+            razon="Pago PSE a banco externo → requiere contexto (¿pago a quién?)",
+            categoria="PENDIENTE"
+        )
+
+    # FEB-5. ABONO DOMI. TRANS DAVP-ACH → Ingreso cartera (5327) confianza 80%
+    if "davp-ach" in desc_check or "trans davp" in desc_check:
+        return ClasificacionResult(
+            cuenta_debito=banco_origen,
+            cuenta_credito=5327,
+            confianza=0.80,
+            requiere_confirmacion=False,
+            razon="Transferencia ACH Davivienda → Ingreso cartera (5327)",
+            categoria="INGRESO_CARTERA"
+        )
 
     # 4. GMF 4x1000
     if any(kw in desc_check for kw in REGLAS_CLASIFICACION["gmf"]["palabras_clave"]):
