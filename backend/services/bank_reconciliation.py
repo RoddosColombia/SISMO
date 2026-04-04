@@ -110,7 +110,7 @@ class BancolombiParser:
             )
 
             movimientos = []
-            for _, row in df.iterrows():
+            for idx, row in df.iterrows():
                 try:
                     # Parseo robusto de fecha: soporta "1/01", "01/01", "15/01", etc.
                     fecha_raw = str(row[BancolombiParser.COL_FECHA]).strip()
@@ -146,7 +146,7 @@ class BancolombiParser:
                         tipo=tipo,
                         banco=Banco.BANCOLOMBIA,
                         cuenta_banco_id=BancolombiParser.CUENTA_ALEGRA,
-                        referencia_original=f"{fecha_str}|{descripcion}|{monto_raw}",
+                        referencia_original=f"{fecha_str}|{descripcion}|{monto_raw}|row{idx}",
                         proveedor=proveedor,
                     ))
                 except (ValueError, KeyError, TypeError) as e:
@@ -182,7 +182,7 @@ class BBVAParser:
             )
 
             movimientos = []
-            for _, row in df.iterrows():
+            for idx, row in df.iterrows():
                 try:
                     # Parseo robusto de fecha: soporta DD-MM-YYYY y D-MM-YYYY
                     fecha_raw = str(row[BBVAParser.COL_FECHA]).strip()
@@ -219,7 +219,7 @@ class BBVAParser:
                         tipo=tipo,
                         banco=Banco.BBVA,
                         cuenta_banco_id=BBVAParser.CUENTA_ALEGRA,
-                        referencia_original=f"{fecha_str}|{descripcion}|{monto_raw}",
+                        referencia_original=f"{fecha_str}|{descripcion}|{monto_raw}|row{idx}",
                         proveedor=proveedor,
                     ))
                 except (ValueError, KeyError) as e:
@@ -253,7 +253,7 @@ class DaviviendaParser:
             )
 
             movimientos = []
-            for _, row in df.iterrows():
+            for idx, row in df.iterrows():
                 try:
                     fecha_str = pd.to_datetime(row[DaviviendaParser.COL_FECHA]).strftime("%Y-%m-%d")
                     descripcion = str(row[DaviviendaParser.COL_DESCRIPCION]).strip()
@@ -273,7 +273,7 @@ class DaviviendaParser:
                         tipo=tipo,
                         banco=Banco.DAVIVIENDA,
                         cuenta_banco_id=DaviviendaParser.CUENTA_ALEGRA,
-                        referencia_original=f"{fecha_str}|{descripcion}|{monto}|{tipo_orig}",
+                        referencia_original=f"{fecha_str}|{descripcion}|{monto}|{tipo_orig}|row{idx}",
                         proveedor=proveedor,
                     ))
                 except (ValueError, KeyError) as e:
@@ -308,7 +308,7 @@ class NequiParser:
             )
 
             movimientos = []
-            for _, row in df.iterrows():
+            for idx, row in df.iterrows():
                 try:
                     fecha_str = pd.to_datetime(row[NequiParser.COL_FECHA]).strftime("%Y-%m-%d")
                     descripcion = str(row[NequiParser.COL_DESCRIPCION]).strip()
@@ -328,7 +328,7 @@ class NequiParser:
                         tipo=tipo,
                         banco=Banco.NEQUI,
                         cuenta_banco_id=NequiParser.CUENTA_ALEGRA,
-                        referencia_original=f"{fecha_str}|{descripcion}|{monto}|{tipo_orig}",
+                        referencia_original=f"{fecha_str}|{descripcion}|{monto}|{tipo_orig}|row{idx}",
                         proveedor=proveedor,
                     ))
                 except (ValueError, KeyError) as e:
