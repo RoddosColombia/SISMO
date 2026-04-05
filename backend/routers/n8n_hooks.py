@@ -80,7 +80,7 @@ async def n8n_health():
     """Health check ligero para que n8n detecte si SISMO está caído. < 300ms."""
     from database import db
     try:
-        loanbooks_activos = await db.loanbooks.count_documents({"estado": "activo"})
+        loanbooks_activos = await db.loanbook.count_documents({"estado": {"$in": ["activo", "mora"]}})
     except Exception:
         loanbooks_activos = -1
 
@@ -318,7 +318,7 @@ async def n8n_agente_radar(payload: AgenteRequest, request: Request):
             result = {"cola": cola, "total": len(cola)}
 
         elif accion == "mora_activa":
-            en_mora = await db.loanbooks.find(
+            en_mora = await db.loanbook.find(
                 {"dpd": {"$gt": 0}, "estado": "activo"}, {"_id": 0, "cliente": 1, "dpd": 1, "bucket": 1}
             ).to_list(100)
             result = {"en_mora": en_mora, "total": len(en_mora)}
@@ -354,7 +354,7 @@ async def n8n_agente_loanbook(payload: AgenteRequest, request: Request):
                 {"$match": {"estado": "activo"}},
                 {"$group": {"_id": "$bucket", "count": {"$sum": 1}}},
             ]
-            buckets = await db.loanbooks.aggregate(pipeline).to_list(20)
+            buckets = await db.loanbook.aggregate(pipeline).to_list(20)
             result = {"buckets": buckets}
 
         elif accion == "scores_resumen":
@@ -362,7 +362,7 @@ async def n8n_agente_loanbook(payload: AgenteRequest, request: Request):
                 {"$match": {"estado": "activo"}},
                 {"$group": {"_id": "$score", "count": {"$sum": 1}}},
             ]
-            scores = await db.loanbooks.aggregate(pipeline).to_list(10)
+            scores = await db.loanbook.aggregate(pipeline).to_list(10)
             result = {"scores": scores}
 
         elif accion == "recalcular_dpd":
