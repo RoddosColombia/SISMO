@@ -1,12 +1,16 @@
 """radar.py — RODDOS RADAR: cobranza, cola de gestión, salud de cartera."""
-from datetime import date, timedelta
+import uuid
+import logging
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 
 from database import db
 from dependencies import get_current_user
 from services.shared_state import get_portfolio_health, get_daily_collection_queue
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/radar", tags=["radar"])
 
@@ -150,4 +154,99 @@ async def roll_rate(current_user=Depends(get_current_user)):
         "empeorados":             worsened,
         "mejorados":              improved,
         "periodo_dias":           7,
+    }
+
+
+# ── FASE 8-A: Diagnóstico + Arranque ─────────────────────────────────────────
+
+@router.get("/diagnostico")
+async def diagnostico(current_user=Depends(get_current_user)):
+    """Estado de salud del CRM: loanbooks con DPD, score_roddos y etapa_cobro calculados.
+
+    También reporta configuración de Mercately y último run de cada scheduler job.
+    """
+    try:
+        total_activos = await db.loanbook.count_documents({"estado": {"$in": ["activo", "mora"]}})
+
+        loanbooks_con_dpd = await db.loanbook.count_documents(
+            {"estado": {"$in": ["activo", "mora"]}, "dpd_actual": {"$exists": True}}
+        )
+        loanbooks_con_score = await db.loanbook.count_documents(
+            {"estado": {"$in": ["activo", "mora"]}, "score_roddos": {"$exists": True}}
+        )
+        loanbooks_con_etapa = await db.loanbook.count_documents(
+            {"estado": {"$in": ["activo", "mora"]}, "etapa_cobro": {"$exists": True}}
+        )
+
+        # Estado Mercately
+        mercately_cfg = await db.mercately_config.find_one({}, {"_id": 0, "api_key": 1}) or {}
+        mercately_configurado = bool(mercately_cfg.get("api_key"))
+
+        # Último run de cada job desde roddos_events
+        JOBS_INTERES = ["calcular_dpd_todos", "calcular_scores", "generar_cola_radar"]
+        ultimo_run_jobs: dict = {}
+        for job_name in JOBS_INTERES:
+            evento = await db.roddos_events.find_one(
+                {"event_type": "scheduler.job_run", "metadata.job": job_name},
+                {"_id": 0, "timestamp": 1, "metadata": 1},
+                sort=[("timestamp", -1)],
+            )
+            if evento:
+                ultimo_run_jobs[job_name] = evento.get("timestamp")
+            else:
+                # Fallback: buscar por source=scheduler en events de wa.sent
+                evento_alt = await db.roddos_events.find_one(
+                    {"source": "scheduler", "metadata.job": job_name},
+                    {"_id": 0, "timestamp": 1},
+                    sort=[("timestamp", -1)],
+                )
+                ultimo_run_jobs[job_name] = (evento_alt or {}).get("timestamp")
+
+        return {
+            "total_loanbooks_activos": total_activos,
+            "loanbooks_con_dpd": loanbooks_con_dpd,
+            "loanbooks_con_score_roddos": loanbooks_con_score,
+            "loanbooks_con_etapa_cobro": loanbooks_con_etapa,
+            "mercately_configurado": mercately_configurado,
+            "ultimo_run_jobs": ultimo_run_jobs,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        logger.error("[RADAR] diagnostico error: %s", e)
+        return {
+            "error": str(e),
+            "total_loanbooks_activos": 0,
+            "loanbooks_con_dpd": 0,
+            "loanbooks_con_score_roddos": 0,
+            "loanbooks_con_etapa_cobro": 0,
+            "mercately_configurado": False,
+            "ultimo_run_jobs": {},
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+
+@router.post("/arranque")
+async def arranque(background_tasks: BackgroundTasks, current_user=Depends(get_current_user)):
+    """Dispara manualmente los 3 scheduler jobs FASE 8-A via BackgroundTasks.
+
+    No espera a las 06:00 AM. Útil para inicializar datos o forzar recálculo.
+    Retorna job_id para tracking.
+    """
+    from services.loanbook_scheduler import calcular_dpd_todos, calcular_scores, generar_cola_radar
+
+    job_id = str(uuid.uuid4())
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    background_tasks.add_task(calcular_dpd_todos)
+    background_tasks.add_task(calcular_scores)
+    background_tasks.add_task(generar_cola_radar)
+
+    logger.info("[RADAR] arranque manual. job_id=%s actor=%s", job_id, current_user.get("email"))
+
+    return {
+        "job_id": job_id,
+        "status": "dispatched",
+        "jobs": ["calcular_dpd_todos", "calcular_scores", "generar_cola_radar"],
+        "dispatched_at": now_iso,
+        "nota": "Los jobs corren en background. Usa GET /api/radar/diagnostico para verificar el resultado.",
     }
