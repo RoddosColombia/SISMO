@@ -289,58 +289,227 @@ class DaviviendaParser:
 
 
 class NequiParser:
-    """Parser para extractos Nequi."""
-    SKIP_ROWS = 1
-    COL_FECHA = "Fecha"
-    COL_DESCRIPCION = "Descripción"
-    COL_VALOR = "Monto"
-    COL_TIPO = "Tipo"  # ingreso | egreso
-    CUENTA_ALEGRA = 5310  # Caja general
+    """Parser para extractos Nequi (.xlsx).
+
+    Detección automática de hoja y columnas para soportar distintas
+    versiones del exportador de Nequi sin romper si cambia el formato.
+
+    Cuenta Alegra: 5310 (Nequi / Caja)
+    """
+    CUENTA_ALEGRA = 5310  # Nequi / Caja
+
+    # Variantes posibles — se prueba en orden, se usa el primero que exista
+    _SHEETS = ["Extracto Nequi", "Extracto", "Movimientos", "Hoja1", "Sheet1", 0]
+    _COLS_FECHA = ["Fecha", "FECHA", "Date", "Fecha de operación", "Fecha Operación"]
+    _COLS_DESC  = ["Descripción", "DESCRIPCIÓN", "Descripcion", "DESCRIPCION",
+                   "Concepto", "CONCEPTO", "Detalle", "Tipo de transacción"]
+    _COLS_VALOR = ["Monto", "MONTO", "Valor", "VALOR", "Importe", "Amount"]
+    _COLS_TIPO  = ["Tipo", "TIPO", "Naturaleza", "Tipo de transacción",
+                   "Tipo Transacción", "Dirección"]
+
+    @staticmethod
+    def _col(df_cols, opciones: list) -> Optional[str]:
+        """Devuelve el primer nombre de columna que exista (case-insensitive)."""
+        upper_map = {c.upper(): c for c in df_cols}
+        for opt in opciones:
+            if opt in df_cols:
+                return opt
+            if opt.upper() in upper_map:
+                return upper_map[opt.upper()]
+        return None
 
     @staticmethod
     async def parsear(archivo_bytes: bytes) -> List[MovimientoBancario]:
-        """Parsea extracto Nequi."""
-        try:
-            df = pd.read_excel(
-                BytesIO(archivo_bytes),
-                skiprows=NequiParser.SKIP_ROWS,
-                sheet_name='Extracto Nequi',
+        """Parsea extracto Nequi con detección automática de hoja y columnas."""
+        df = None
+        sheet_usada = None
+        for sheet in NequiParser._SHEETS:
+            try:
+                df = pd.read_excel(BytesIO(archivo_bytes), sheet_name=sheet)
+                if not df.empty:
+                    sheet_usada = sheet
+                    break
+            except Exception:
+                continue
+
+        if df is None or df.empty:
+            raise ValueError(
+                "[Nequi] No se pudo leer el extracto — "
+                "verifica que el archivo es .xlsx con datos"
             )
 
-            movimientos = []
-            for idx, row in df.iterrows():
-                try:
-                    fecha_str = pd.to_datetime(row[NequiParser.COL_FECHA]).strftime("%Y-%m-%d")
-                    descripcion = str(row[NequiParser.COL_DESCRIPCION]).strip()
-                    monto = float(row[NequiParser.COL_VALOR])
-                    tipo_orig = str(row[NequiParser.COL_TIPO]).strip().lower()
+        logger.info(f"[Nequi] Hoja: '{sheet_usada}' | Columnas: {list(df.columns)}")
 
-                    # Mapear tipo
-                    tipo = TipoMovimiento.INGRESO if "ingreso" in tipo_orig else TipoMovimiento.EGRESO
+        col_fecha = NequiParser._col(df.columns, NequiParser._COLS_FECHA)
+        col_desc  = NequiParser._col(df.columns, NequiParser._COLS_DESC)
+        col_valor = NequiParser._col(df.columns, NequiParser._COLS_VALOR)
+        col_tipo  = NequiParser._col(df.columns, NequiParser._COLS_TIPO)
 
-                    # Extraer proveedor (helper consolidado — CONT-01)
-                    proveedor = _extraer_proveedor(descripcion)
+        logger.info(
+            f"[Nequi] Mapeado — "
+            f"fecha={col_fecha} desc={col_desc} valor={col_valor} tipo={col_tipo}"
+        )
 
-                    movimientos.append(MovimientoBancario(
-                        fecha=fecha_str,
-                        descripcion=descripcion,
-                        monto=abs(monto),
-                        tipo=tipo,
-                        banco=Banco.NEQUI,
-                        cuenta_banco_id=NequiParser.CUENTA_ALEGRA,
-                        referencia_original=f"{fecha_str}|{descripcion}|{monto}|{tipo_orig}|row{idx}",
-                        proveedor=proveedor,
-                    ))
-                except (ValueError, KeyError) as e:
-                    logger.warning(f"[Nequi] Error parseando fila: {e}")
+        if not col_fecha or not col_valor:
+            raise ValueError(
+                f"[Nequi] Columnas requeridas no encontradas. "
+                f"Disponibles: {list(df.columns)}"
+            )
+
+        movimientos = []
+        for idx, row in df.iterrows():
+            try:
+                fecha_raw = row[col_fecha]
+                if pd.isna(fecha_raw):
+                    continue
+                fecha_str = pd.to_datetime(fecha_raw).strftime("%Y-%m-%d")
+
+                descripcion = (
+                    str(row[col_desc]).strip().upper()
+                    if col_desc and not pd.isna(row.get(col_desc, ""))
+                    else "MOVIMIENTO NEQUI"
+                )
+
+                monto_raw = float(row[col_valor])
+                if pd.isna(monto_raw):
                     continue
 
-            logger.info(f"[Nequi] Parseados {len(movimientos)} movimientos")
-            return movimientos
+                # Determinar tipo: columna Tipo si existe, sino signo del monto
+                if col_tipo and not pd.isna(row.get(col_tipo, "")):
+                    tipo_str = str(row[col_tipo]).strip().lower()
+                    tipo = TipoMovimiento.INGRESO if any(
+                        kw in tipo_str for kw in ["ingreso", "entrada", "abono", "recibo"]
+                    ) else TipoMovimiento.EGRESO
+                else:
+                    tipo = TipoMovimiento.INGRESO if monto_raw > 0 else TipoMovimiento.EGRESO
 
+                proveedor = _extraer_proveedor(descripcion)
+
+                movimientos.append(MovimientoBancario(
+                    fecha=fecha_str,
+                    descripcion=descripcion,
+                    monto=abs(monto_raw),
+                    tipo=tipo,
+                    banco=Banco.NEQUI,
+                    cuenta_banco_id=NequiParser.CUENTA_ALEGRA,
+                    referencia_original=f"{fecha_str}|{descripcion}|{monto_raw}|row{idx}",
+                    proveedor=proveedor,
+                ))
+            except (ValueError, KeyError, TypeError) as e:
+                logger.warning(f"[Nequi] Error fila {idx}: {e}")
+                continue
+
+        logger.info(f"[Nequi] Parseados {len(movimientos)} movimientos desde hoja '{sheet_usada}'")
+        return movimientos
+
+
+class Global66Parser:
+    """Parser para extractos Global66 (.xlsx exportado desde la plataforma).
+
+    Global66 exporta con columnas variables según versión. Se detectan
+    automáticamente para no romper si Global66 cambia su exportador.
+
+    Cuenta Alegra: 5310 (misma que Nequi — billeteras digitales).
+    Los movimientos que entran por webhook ya van por _recuperar_global66_pendientes;
+    este parser es para reconciliación manual de extractos mensuales.
+    """
+    CUENTA_ALEGRA = 5310  # Billeteras digitales — igual que Nequi
+
+    _COLS_FECHA = ["Fecha", "FECHA", "Date", "Fecha de transacción",
+                   "Fecha Transacción", "Fecha operación", "Fecha de operación"]
+    _COLS_DESC  = ["Descripción", "DESCRIPCIÓN", "Descripcion", "Concepto",
+                   "CONCEPTO", "Purpose", "Detalle", "Tipo de transacción",
+                   "Tipo Transacción", "Referencia"]
+    _COLS_VALOR = ["Monto", "MONTO", "Valor", "VALOR", "Amount",
+                   "Importe", "Importe (COP)", "Monto COP", "Monto (COP)"]
+    _COLS_TIPO  = ["Tipo", "TIPO", "Naturaleza", "Tipo de movimiento",
+                   "Dirección", "Sentido"]
+
+    @staticmethod
+    def _col(df_cols, opciones: list) -> Optional[str]:
+        """Devuelve el primer nombre de columna que exista (case-insensitive)."""
+        upper_map = {c.upper(): c for c in df_cols}
+        for opt in opciones:
+            if opt in df_cols:
+                return opt
+            if opt.upper() in upper_map:
+                return upper_map[opt.upper()]
+        return None
+
+    @staticmethod
+    async def parsear(archivo_bytes: bytes) -> List[MovimientoBancario]:
+        """Parsea extracto Global66 con detección automática de columnas."""
+        try:
+            df = pd.read_excel(BytesIO(archivo_bytes))
         except Exception as e:
-            logger.error(f"[Nequi] Error general: {e}")
-            raise
+            raise ValueError(f"[Global66] No se pudo leer el archivo .xlsx: {e}")
+
+        if df.empty:
+            raise ValueError("[Global66] El archivo está vacío")
+
+        logger.info(f"[Global66] Columnas: {list(df.columns)}")
+
+        col_fecha = Global66Parser._col(df.columns, Global66Parser._COLS_FECHA)
+        col_desc  = Global66Parser._col(df.columns, Global66Parser._COLS_DESC)
+        col_valor = Global66Parser._col(df.columns, Global66Parser._COLS_VALOR)
+        col_tipo  = Global66Parser._col(df.columns, Global66Parser._COLS_TIPO)
+
+        logger.info(
+            f"[Global66] Mapeado — "
+            f"fecha={col_fecha} desc={col_desc} valor={col_valor} tipo={col_tipo}"
+        )
+
+        if not col_fecha or not col_valor:
+            raise ValueError(
+                f"[Global66] Columnas requeridas no encontradas. "
+                f"Disponibles: {list(df.columns)}"
+            )
+
+        movimientos = []
+        for idx, row in df.iterrows():
+            try:
+                fecha_raw = row[col_fecha]
+                if pd.isna(fecha_raw):
+                    continue
+                fecha_str = pd.to_datetime(fecha_raw).strftime("%Y-%m-%d")
+
+                descripcion = (
+                    str(row[col_desc]).strip().upper()
+                    if col_desc and not pd.isna(row.get(col_desc, ""))
+                    else "MOVIMIENTO GLOBAL66"
+                )
+
+                monto_raw = float(row[col_valor])
+                if pd.isna(monto_raw):
+                    continue
+
+                if col_tipo and not pd.isna(row.get(col_tipo, "")):
+                    tipo_str = str(row[col_tipo]).strip().lower()
+                    tipo = TipoMovimiento.INGRESO if any(
+                        kw in tipo_str
+                        for kw in ["ingreso", "entrada", "abono", "recibido", "founding", "in"]
+                    ) else TipoMovimiento.EGRESO
+                else:
+                    tipo = TipoMovimiento.INGRESO if monto_raw > 0 else TipoMovimiento.EGRESO
+
+                proveedor = _extraer_proveedor(descripcion)
+
+                movimientos.append(MovimientoBancario(
+                    fecha=fecha_str,
+                    descripcion=descripcion,
+                    monto=abs(monto_raw),
+                    tipo=tipo,
+                    banco=Banco.GLOBAL66,
+                    cuenta_banco_id=Global66Parser.CUENTA_ALEGRA,
+                    referencia_original=f"{fecha_str}|{descripcion}|{monto_raw}|row{idx}",
+                    proveedor=proveedor,
+                ))
+            except (ValueError, KeyError, TypeError) as e:
+                logger.warning(f"[Global66] Error fila {idx}: {e}")
+                continue
+
+        logger.info(f"[Global66] Parseados {len(movimientos)} movimientos")
+        return movimientos
 
 
 class BankReconciliationEngine:
@@ -351,6 +520,7 @@ class BankReconciliationEngine:
         Banco.BBVA: BBVAParser,
         Banco.DAVIVIENDA: DaviviendaParser,
         Banco.NEQUI: NequiParser,
+        Banco.GLOBAL66: Global66Parser,  # P-05
     }
 
     def __init__(self, db_instance):

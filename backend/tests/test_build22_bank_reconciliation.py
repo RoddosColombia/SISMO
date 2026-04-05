@@ -414,5 +414,201 @@ class TestFase3CompensacionDiferida:
         assert result.categoria == "BC_CXC_EMPLEADO"
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# P-04 — NequiParser flexible (detección automática de hoja y columnas)
+# P-05 — Global66Parser (nueva clase + PARSERS dict)
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestNequiParserFlexible:
+    """Verifica que NequiParser soporta distintos formatos de extracto Nequi."""
+
+    @pytest.mark.asyncio
+    async def test_nequi_columnas_estandar(self):
+        """Parsea extracto Nequi con columnas estándar: Fecha/Descripción/Monto/Tipo."""
+        import pandas as pd
+        from io import BytesIO
+        from services.bank_reconciliation import NequiParser, Banco, TipoMovimiento
+
+        df = pd.DataFrame({
+            "Fecha": ["2026-01-15", "2026-01-16", "2026-01-17"],
+            "Descripción": ["PAGO RECIBIDO CLIENTE", "COMPRA SUPERMERCADO", "TRANSFERENCIA BANCOLOMBIA"],
+            "Monto": [350000, -45000, -200000],
+            "Tipo": ["Ingreso", "Egreso", "Egreso"],
+        })
+        buf = BytesIO()
+        df.to_excel(buf, index=False)
+        buf.seek(0)
+
+        movimientos = await NequiParser.parsear(buf.read())
+
+        assert len(movimientos) == 3
+        assert movimientos[0].tipo == TipoMovimiento.INGRESO
+        assert movimientos[1].tipo == TipoMovimiento.EGRESO
+        assert movimientos[0].banco == Banco.NEQUI
+        assert movimientos[0].cuenta_banco_id == 5310
+
+    @pytest.mark.asyncio
+    async def test_nequi_columnas_alternativas(self):
+        """Parsea Nequi con columnas FECHA/VALOR/TIPO en mayúsculas (variante)."""
+        import pandas as pd
+        from io import BytesIO
+        from services.bank_reconciliation import NequiParser, TipoMovimiento
+
+        df = pd.DataFrame({
+            "FECHA": ["2026-02-01", "2026-02-02"],
+            "CONCEPTO": ["RECARGA NEQUI", "PAGO SERVICIO"],
+            "VALOR": [100000, -30000],
+        })
+        buf = BytesIO()
+        df.to_excel(buf, index=False)
+        buf.seek(0)
+
+        movimientos = await NequiParser.parsear(buf.read())
+
+        assert len(movimientos) == 2
+        # Sin columna Tipo: positivo=ingreso, negativo=egreso
+        assert movimientos[0].tipo == TipoMovimiento.INGRESO
+        assert movimientos[1].tipo == TipoMovimiento.EGRESO
+
+    @pytest.mark.asyncio
+    async def test_nequi_filas_nulas_se_saltan(self):
+        """Filas con Fecha o Monto nulos no generan movimientos."""
+        import pandas as pd
+        import numpy as np
+        from io import BytesIO
+        from services.bank_reconciliation import NequiParser
+
+        df = pd.DataFrame({
+            "Fecha": ["2026-01-10", None, "2026-01-12"],
+            "Descripción": ["PAGO A", "NULO", "PAGO B"],
+            "Monto": [50000, 10000, None],
+        })
+        buf = BytesIO()
+        df.to_excel(buf, index=False)
+        buf.seek(0)
+
+        movimientos = await NequiParser.parsear(buf.read())
+        # Fila 0 ok, fila 1 sin fecha=skip, fila 2 sin monto=skip
+        assert len(movimientos) == 1
+        assert movimientos[0].monto == 50000
+
+    def test_nequi_en_banco_enum(self):
+        """Banco.NEQUI existe y tiene parser asignado en PARSERS."""
+        from services.bank_reconciliation import BankReconciliationEngine, Banco
+        assert Banco.NEQUI in BankReconciliationEngine.PARSERS
+        assert BankReconciliationEngine.PARSERS[Banco.NEQUI] is not None
+
+
+class TestGlobal66Parser:
+    """Verifica que Global66Parser existe y procesa extractos correctamente."""
+
+    def test_global66_en_banco_enum(self):
+        """Banco.GLOBAL66 existe en el enum."""
+        from services.bank_reconciliation import Banco
+        assert Banco.GLOBAL66.value == "global66"
+
+    def test_global66_en_parsers_dict(self):
+        """Global66Parser está registrado en PARSERS — era el gap de P-05."""
+        from services.bank_reconciliation import BankReconciliationEngine, Banco
+        assert Banco.GLOBAL66 in BankReconciliationEngine.PARSERS, (
+            "Global66Parser no está en PARSERS — P-05 no aplicado"
+        )
+
+    @pytest.mark.asyncio
+    async def test_global66_columnas_estandar(self):
+        """Parsea extracto Global66 con columnas Fecha/Descripción/Monto/Tipo."""
+        import pandas as pd
+        from io import BytesIO
+        from services.bank_reconciliation import Global66Parser, Banco, TipoMovimiento
+
+        df = pd.DataFrame({
+            "Fecha": ["2026-01-20", "2026-01-21", "2026-01-22"],
+            "Descripción": ["PAGO RECIBIDO USD", "ENVIO INTERNACIONAL", "COMISION GLOBAL66"],
+            "Monto": [1200000, -800000, -15000],
+            "Tipo": ["Ingreso", "Egreso", "Egreso"],
+        })
+        buf = BytesIO()
+        df.to_excel(buf, index=False)
+        buf.seek(0)
+
+        movimientos = await Global66Parser.parsear(buf.read())
+
+        assert len(movimientos) == 3
+        assert movimientos[0].tipo == TipoMovimiento.INGRESO
+        assert movimientos[1].tipo == TipoMovimiento.EGRESO
+        assert movimientos[0].banco == Banco.GLOBAL66
+        assert movimientos[0].cuenta_banco_id == 5310
+
+    @pytest.mark.asyncio
+    async def test_global66_columnas_alternativas_purpose(self):
+        """Parsea Global66 con columnas Purpose/Amount (variante inglés)."""
+        import pandas as pd
+        from io import BytesIO
+        from services.bank_reconciliation import Global66Parser, TipoMovimiento
+
+        df = pd.DataFrame({
+            "Date": ["2026-02-10", "2026-02-11"],
+            "Purpose": ["WALLET FOUNDING", "RMT TRANSFER"],
+            "Amount": [500000, -300000],
+        })
+        buf = BytesIO()
+        df.to_excel(buf, index=False)
+        buf.seek(0)
+
+        movimientos = await Global66Parser.parsear(buf.read())
+
+        assert len(movimientos) == 2
+        assert movimientos[0].tipo == TipoMovimiento.INGRESO
+        assert movimientos[1].tipo == TipoMovimiento.EGRESO
+
+    @pytest.mark.asyncio
+    async def test_global66_tipo_founding_es_ingreso(self):
+        """Tipo 'founding' en columna Tipo → INGRESO."""
+        import pandas as pd
+        from io import BytesIO
+        from services.bank_reconciliation import Global66Parser, TipoMovimiento
+
+        df = pd.DataFrame({
+            "Fecha": ["2026-03-01"],
+            "Descripción": ["WALLET FOUNDING STATUS"],
+            "Monto": [750000],
+            "Tipo": ["founding"],
+        })
+        buf = BytesIO()
+        df.to_excel(buf, index=False)
+        buf.seek(0)
+
+        movimientos = await Global66Parser.parsear(buf.read())
+
+        assert len(movimientos) == 1
+        assert movimientos[0].tipo == TipoMovimiento.INGRESO
+
+    @pytest.mark.asyncio
+    async def test_global66_via_engine_parsear_extracto(self):
+        """BankReconciliationEngine.parsear_extracto acepta banco='global66'."""
+        import pandas as pd
+        from io import BytesIO
+        from unittest.mock import MagicMock
+        from services.bank_reconciliation import BankReconciliationEngine
+
+        mock_db = MagicMock()
+        engine = BankReconciliationEngine(mock_db)
+
+        df = pd.DataFrame({
+            "Fecha": ["2026-01-05", "2026-01-06"],
+            "Descripción": ["INGRESO GLOBAL66", "PAGO GLOBAL66"],
+            "Monto": [400000, -120000],
+        })
+        buf = BytesIO()
+        df.to_excel(buf, index=False)
+        buf.seek(0)
+
+        movimientos = await engine.parsear_extracto("global66", buf.read())
+
+        assert len(movimientos) == 2
+        assert movimientos[0].monto == 400000
+        assert movimientos[1].monto == 120000
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])
