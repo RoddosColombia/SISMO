@@ -1269,6 +1269,13 @@ async def register_entrega(loan_id: str, req: EntregaRequest, current_user=Depen
         },
     ))
 
+    # Sync CRM (FASE 8-A) — no bloqueante, no debe romper entrega si falla
+    try:
+        from services.crm_service import upsert_cliente_desde_loanbook
+        await upsert_cliente_desde_loanbook(db, loan)
+    except Exception as e:
+        logger.warning("[CRM] sync failed en register_entrega: %s", str(e))
+
     # Invalidate CFO cache
     await invalidar_cache_cfo()
 

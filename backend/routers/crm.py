@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from database import db
 from dependencies import get_current_user
-from services.crm_service import registrar_gestion, agregar_nota, registrar_ptp
+from services.crm_service import registrar_gestion, agregar_nota, registrar_ptp, crear_acuerdo, actualizar_estado_acuerdo
 
 router = APIRouter(prefix="/crm", tags=["crm"])
 
@@ -339,3 +339,70 @@ async def register_ptp(id: str, req: PTPCreate, current_user=Depends(get_current
         db, loan["id"], req.ptp_fecha, req.ptp_monto, current_user.get("email", "")
     )
     return ptp
+
+
+# ── Acuerdos de Pago (FASE 8-A) ───────────────────────────────────────────────
+
+class AcuerdoCreate(BaseModel):
+    tipo: str = "acuerdo_total"   # pago_parcial | descuento_mora | refinanciacion | acuerdo_total
+    condiciones: Optional[str] = ""
+    monto_acordado: float = 0
+    fecha_inicio: Optional[str] = None
+    fecha_limite: Optional[str] = None
+    cuotas_acuerdo: Optional[list] = []
+
+
+class AcuerdoEstadoUpdate(BaseModel):
+    estado: str   # activo | cumplido | incumplido | cancelado
+
+
+@router.post("/{id}/acuerdo")
+async def create_acuerdo(id: str, req: AcuerdoCreate, current_user=Depends(get_current_user)):
+    """Crea un acuerdo de pago formal en acuerdos_pago + registra gestión 'acuerdo_firmado'."""
+    loan = await _get_loan_for_id(id)
+    if not loan:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado.")
+
+    datos = req.dict()
+    if not datos.get("fecha_inicio"):
+        datos["fecha_inicio"] = date.today().isoformat()
+
+    try:
+        acuerdo = await crear_acuerdo(
+            db,
+            loanbook_id=loan["id"],
+            datos=datos,
+            autor=current_user.get("email", "sistema"),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return acuerdo
+
+
+@router.get("/{id}/acuerdos")
+async def list_acuerdos(id: str, current_user=Depends(get_current_user)):
+    """Lista todos los acuerdos de pago de un loanbook, ordenados por fecha."""
+    loan = await _get_loan_for_id(id)
+    if not loan:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado.")
+
+    acuerdos = await db.acuerdos_pago.find(
+        {"loanbook_id": loan["id"]}, {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+
+    return {"loanbook_id": loan["id"], "total": len(acuerdos), "acuerdos": acuerdos}
+
+
+@router.put("/acuerdos/{acuerdo_id}/estado")
+async def update_acuerdo_estado(acuerdo_id: str, req: AcuerdoEstadoUpdate, current_user=Depends(get_current_user)):
+    """Actualiza el estado de un acuerdo de pago (cumplido | incumplido | cancelado | activo)."""
+    try:
+        acuerdo = await actualizar_estado_acuerdo(db, acuerdo_id, req.estado)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if not acuerdo:
+        raise HTTPException(status_code=404, detail="Acuerdo no encontrado.")
+
+    return acuerdo
