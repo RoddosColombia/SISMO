@@ -115,5 +115,5 @@ def test_alegra_permission_denied():
     with pytest.raises(PermissionError):
         validate_alegra_permission("radar", "journal-entries")
     # Verify allowed case does not raise
-    validate_alegra_permission("contador", "journal-entries")
+    validate_alegra_permission("contador", "journals")
     validate_alegra_permission("loanbook", "invoices")
