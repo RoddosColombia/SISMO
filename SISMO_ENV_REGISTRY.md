@@ -27,8 +27,13 @@
 
 | Parámetro | Valor | Error histórico a evitar |
 |---|---|---|
-| **Nombre DB** | `sismo` | NO usar `sismo-prod` — existe pero está vacía |
+| **Nombre DB** | Variable `DB_NAME` en Render — leer SIEMPRE con `os.environ.get('DB_NAME')` | NO hardcodear 'sismo' ni 'sismo-prod' — viene de `database.py` que lee `DB_NAME` |
 | **Variable de conexión** | `MONGO_URL` | NO usar `MONGODB_URI` ni `MONGO_URI` |
+| **Cómo conectar en scripts** | `client = AsyncIOMotorClient(os.environ['MONGO_URL'])` / `db = client[os.environ['DB_NAME']]` | Ver database.py — patrón exacto que usa el servidor |
+
+> **REGLA PERMANENTE:** Antes de escribir cualquier script que toque MongoDB en producción,
+> leer `database.py` para confirmar cómo se conecta el servidor. Ese es el patrón canónico.
+> NUNCA adivinar el nombre de la DB — siempre leer `DB_NAME` desde el entorno.
 
 ### 2.1 Colecciones activas
 
