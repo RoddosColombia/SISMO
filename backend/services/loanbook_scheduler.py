@@ -64,6 +64,36 @@ def _get_bucket(dpd: int) -> str:
     return "22+"
 
 
+def _calcular_etapa_cobro(dpd: int, proxima_cuota_fecha: str | None) -> str:
+    """Clasifica la etapa de cobro según DPD y fecha de próxima cuota (FASE 8-A).
+
+    Etapas:
+      preventivo        — dpd==0 y próxima cuota > 2 días
+      vencimiento_proximo — dpd==0 y próxima cuota <= 2 días
+      gestion_activa    — dpd 1-7
+      alerta_formal     — dpd 8-14
+      escalacion        — dpd 15-21
+      recuperacion      — dpd >= 22
+    """
+    if dpd >= 22:
+        return "recuperacion"
+    if dpd >= 15:
+        return "escalacion"
+    if dpd >= 8:
+        return "alerta_formal"
+    if dpd >= 1:
+        return "gestion_activa"
+    # dpd == 0: check days to next installment
+    if proxima_cuota_fecha:
+        try:
+            dias_para_cuota = (date.fromisoformat(proxima_cuota_fecha[:10]) - date.today()).days
+            if dias_para_cuota <= 2:
+                return "vencimiento_proximo"
+        except (ValueError, TypeError):
+            pass
+    return "preventivo"
+
+
 async def _get_mercately_config() -> dict:
     from database import db
     return await db.mercately_config.find_one({}, {"_id": 0}) or {}
@@ -154,11 +184,21 @@ async def calcular_dpd_todos() -> None:
             else:
                 nuevo_estado = estado_actual
 
+            # Calcular etapa_cobro (FASE 8-A)
+            proxima_cuota_pendiente = next(
+                (c for c in sorted(cuotas, key=lambda x: x.get("fecha_vencimiento", ""))
+                 if c.get("estado") in ("pendiente",) and c.get("fecha_vencimiento", "") >= hoy_str),
+                None,
+            )
+            proxima_cuota_fecha = (proxima_cuota_pendiente or {}).get("fecha_vencimiento")
+            etapa_cobro = _calcular_etapa_cobro(dpd_actual, proxima_cuota_fecha)
+
             update_fields: dict = {
                 "dpd_actual":             dpd_actual,
                 "dpd_bucket":             bucket,
                 "dpd_maximo_historico":   nuevo_dpd_max,
                 "interes_mora_acumulado": round(interes_mora, 2),
+                "etapa_cobro":            etapa_cobro,
                 "updated_at":             now_iso,
             }
             if nuevo_estado != estado_actual:
@@ -375,8 +415,9 @@ async def verificar_alertas_cfo() -> None:
 # ─── CRON 4: 06:30 AM — Scores + PTP follow-up ───────────────────────────────
 
 async def calcular_scores() -> None:
-    """Calcula score A+..E, estrella_nivel y envía recordatorio PTP si es fecha de hoy."""
+    """Calcula score A+..E, estrella_nivel, score_roddos multidimensional (FASE 8-A) y PTP follow-up."""
     from database import db
+    from services.crm_service import calcular_score_roddos  # inline import — evita circular
 
     try:
         today_str = date.today().isoformat()
@@ -385,7 +426,7 @@ async def calcular_scores() -> None:
         loans = await db.loanbook.find(
             {"estado": {"$in": ["activo", "mora", "recuperacion"]}},
             {"_id": 0, "id": 1, "dpd_actual": 1, "dpd_maximo_historico": 1,
-             "cuotas": 1, "gestiones": 1,
+             "cuotas": 1, "gestiones": 1, "score_historial": 1,
              "cliente_nombre": 1, "cliente_telefono": 1,
              "ptp_fecha": 1, "ptp_monto": 1},
         ).to_list(5000)
@@ -433,17 +474,33 @@ async def calcular_scores() -> None:
                 score = "A"
                 estrellas = 4
 
+            # ── Score multidimensional FASE 8-A ──────────────────────────────
+            # Leer pagos de cartera para dimension_velocidad
+            pagos = await db.cartera_pagos.find(
+                {"loanbook_id": loan_id}, {"_id": 0}
+            ).sort("fecha_pago", -1).to_list(20)
+
+            score_result = calcular_score_roddos(loan, gestiones, pagos)
+            score_roddos    = score_result["score_roddos"]
+            etiqueta_roddos = score_result["etiqueta_roddos"]
+
             score_entry = {
                 "fecha": today_str, "score": score,
                 "estrellas": estrellas, "dpd_actual": dpd,
+                "score_roddos": score_roddos,
                 "calculado_por": "scheduler",
             }
 
             await db.loanbook.update_one(
                 {"id": loan_id},
                 {
-                    "$set": {"score_pago": score, "estrella_nivel": estrellas,
-                              "updated_at": now_iso},
+                    "$set": {
+                        "score_pago": score,
+                        "estrella_nivel": estrellas,
+                        "score_roddos": score_roddos,
+                        "etiqueta_roddos": etiqueta_roddos,
+                        "updated_at": now_iso,
+                    },
                     "$push": {"score_historial": score_entry},
                 },
             )
