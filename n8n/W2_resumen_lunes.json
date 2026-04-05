@@ -1,0 +1,228 @@
+{
+  "name": "W2 — Resumen Lunes CEO + CFO",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "10 11 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "b2c3d4e5-0002-0002-0002-000000000001",
+      "name": "Lunes 8:10 AM Bogotá",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300],
+      "notes": "CRON: '10 11 * * 1' = lunes 11:10 UTC = 8:10 AM Bogotá (UTC-5 en hora estándar / UTC-5 todo el año en Colombia)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://sismo-backend-40ca.onrender.com/api/n8n/scheduler/resumen_semanal_ceo",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Key",
+              "value": "={{ $vars.SISMO_N8N_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "b2c3d4e5-0002-0002-0002-000000000002",
+      "name": "Triggerear resumen_semanal_ceo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://sismo-backend-40ca.onrender.com/api/n8n/agente/cfo",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Key",
+              "value": "={{ $vars.SISMO_N8N_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"accion\": \"resumen_semanal\"}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "b2c3d4e5-0002-0002-0002-000000000003",
+      "name": "CFO — resumen_semanal",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 420]
+    },
+    {
+      "parameters": {
+        "url": "https://sismo-backend-40ca.onrender.com/api/n8n/health",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "b2c3d4e5-0002-0002-0002-000000000004",
+      "name": "Verificar estado post-resumen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-ok",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "ok",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b2c3d4e5-0002-0002-0002-000000000005",
+      "name": "¿Ejecutó correctamente?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://sismo-backend-40ca.onrender.com/api/n8n/alerta",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-N8N-Key",
+              "value": "={{ $vars.SISMO_N8N_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"tipo\": \"sistema_degradado\", \"mensaje\": \"W2: Resumen lunes falló — SISMO status={{ $node['Verificar estado post-resumen'].json.status }} | {{ $now.toISO() }}\", \"severidad\": \"media\"}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "b2c3d4e5-0002-0002-0002-000000000006",
+      "name": "Alerta — resumen falló",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 420]
+    },
+    {
+      "parameters": {},
+      "id": "b2c3d4e5-0002-0002-0002-000000000007",
+      "name": "Resumen enviado OK",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1120, 200]
+    }
+  ],
+  "connections": {
+    "Lunes 8:10 AM Bogotá": {
+      "main": [
+        [
+          {
+            "node": "Triggerear resumen_semanal_ceo",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "CFO — resumen_semanal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Triggerear resumen_semanal_ceo": {
+      "main": [
+        [
+          {
+            "node": "Verificar estado post-resumen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CFO — resumen_semanal": {
+      "main": [
+        [
+          {
+            "node": "Verificar estado post-resumen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar estado post-resumen": {
+      "main": [
+        [
+          {
+            "node": "¿Ejecutó correctamente?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Ejecutó correctamente?": {
+      "main": [
+        [
+          {
+            "node": "Resumen enviado OK",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alerta — resumen falló",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": ["sismo", "cfo", "lunes"],
+  "triggerCount": 1,
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "notes": "Dispara resumen semanal cada lunes 8:10 AM (Bogotá). El CRON usa UTC: '10 11 * * 1' = lunes 11:10 UTC = 8:10 AM Colombia (UTC-5, sin cambio horario). Lanza en paralelo: (1) resumen_semanal_ceo via scheduler, (2) resumen_semanal via agente CFO. Verifica que SISMO respondió OK. Requiere variable n8n: SISMO_N8N_KEY."
+}
