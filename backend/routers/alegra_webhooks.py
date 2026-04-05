@@ -197,11 +197,15 @@ async def _nueva_factura(datos: dict):
 
     if chasis:
         # Update inventory — only if currently Disponible (don't downgrade from Entregada)
-        moto = await db.inventario_motos.find_one({"chasis": chasis}, {"_id": 0, "id": 1, "estado": 1})
+        # FIX FASE5: usar $or para cubrir motos con campo "vin" (migración parcial) y "chasis"
+        moto = await db.inventario_motos.find_one(
+            {"$or": [{"chasis": chasis}, {"vin": chasis}]},
+            {"_id": 0, "id": 1, "estado": 1, "chasis": 1, "vin": 1},
+        )
         if moto:
             if moto.get("estado") not in ("Vendida", "Entregada"):
                 await db.inventario_motos.update_one(
-                    {"chasis": chasis},
+                    {"$or": [{"chasis": chasis}, {"vin": chasis}]},
                     {"$set": {
                         "estado": "Vendida",
                         "factura_alegra_id": factura_id,
@@ -214,25 +218,42 @@ async def _nueva_factura(datos: dict):
             else:
                 logger.info("[Webhook] Moto VIN=%s ya estaba %s (factura %s) — sin cambios", chasis, moto.get("estado"), factura_id)
         else:
-            # Moto not in inventory yet — create it
-            await db.inventario_motos.insert_one({
-                "id": str(__import__("uuid").uuid4()),
-                "chasis": chasis,
-                "motor": motor_val,
-                "modelo": modelo_val,
-                "estado": "Vendida",
-                "factura_alegra_id": factura_id,
-                "fecha_venta": fecha,
-                "propietario": cliente.get("name", ""),
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            })
-            await db.roddos_events.insert_one({
-                "event_type": "moto.nueva.creada.desde.factura",
-                "chasis": chasis, "factura_id": factura_id,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            })
-            logger.info("[Webhook] Moto VIN=%s creada automáticamente desde factura %s", chasis, factura_id)
+            # FIX FASE5: anti-duplicado — verificar si existe con vin o chasis antes de insertar
+            existing_vin = await db.inventario_motos.find_one(
+                {"$or": [{"chasis": chasis}, {"vin": chasis}]}, {"_id": 0, "id": 1}
+            )
+            if existing_vin:
+                await db.inventario_motos.update_one(
+                    {"$or": [{"chasis": chasis}, {"vin": chasis}]},
+                    {"$set": {
+                        "estado": "Vendida",
+                        "factura_alegra_id": factura_id,
+                        "fecha_venta": fecha,
+                        "propietario": cliente.get("name", ""),
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }},
+                )
+                logger.info("[Webhook] Moto VIN=%s ya existía (vin field) — actualizada a Vendida (factura %s)", chasis, factura_id)
+            else:
+                # Moto not in inventory yet — create it
+                await db.inventario_motos.insert_one({
+                    "id": str(__import__("uuid").uuid4()),
+                    "chasis": chasis,
+                    "motor": motor_val,
+                    "modelo": modelo_val,
+                    "estado": "Vendida",
+                    "factura_alegra_id": factura_id,
+                    "fecha_venta": fecha,
+                    "propietario": cliente.get("name", ""),
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                })
+                await db.roddos_events.insert_one({
+                    "event_type": "moto.nueva.creada.desde.factura",
+                    "chasis": chasis, "factura_id": factura_id,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                })
+                logger.info("[Webhook] Moto VIN=%s creada automáticamente desde factura %s", chasis, factura_id)
 
         # Update existing loanbook with VIN + motor if found
         loanbook = await db.loanbook.find_one(
