@@ -294,16 +294,26 @@ async def backlog_causar(
     payload: CausarMovimientoRequest,
     current_user=Depends(get_current_user),
 ):
-    """Crea journal en Alegra y marca movimiento como causado."""
+    """Crea journal en Alegra y marca movimiento como causado.
+
+    Acepta tanto ObjectId de MongoDB como backlog_hash (MD5) para máxima compatibilidad
+    con el frontend que puede enviar cualquiera de los dos según lo que tenga disponible.
+    """
     from bson import ObjectId
     from services.alegra_service import AlegraService
 
+    # Buscar por ObjectId o por backlog_hash (el frontend envía backlog_hash cuando no tiene _id)
+    mov = None
     try:
         oid = ObjectId(id)
+        mov = await db.contabilidad_pendientes.find_one({"_id": oid})
     except Exception:
-        raise HTTPException(status_code=400, detail="ID inválido")
+        pass
 
-    mov = await db.contabilidad_pendientes.find_one({"_id": oid})
+    if not mov:
+        # Intentar por backlog_hash
+        mov = await db.contabilidad_pendientes.find_one({"backlog_hash": id})
+
     if not mov:
         raise HTTPException(status_code=404, detail="Movimiento no encontrado")
     if mov.get("estado") != "pendiente":
@@ -330,7 +340,7 @@ async def backlog_causar(
 
     journal_id = result.get("id")
     await db.contabilidad_pendientes.update_one(
-        {"_id": oid},
+        {"_id": mov["_id"]},
         {"$set": {
             "estado": "causado",
             "journal_alegra_id": str(journal_id),
@@ -347,20 +357,29 @@ async def backlog_descartar(
     payload: DescartarMovimientoRequest,
     current_user=Depends(get_current_user),
 ):
-    """Marca movimiento como descartado."""
+    """Marca movimiento como descartado.
+
+    Acepta tanto ObjectId de MongoDB como backlog_hash (MD5) para máxima compatibilidad.
+    El frontend envía backlog_hash cuando el campo _id no está disponible en el item.
+    """
     from bson import ObjectId
 
+    # Buscar por ObjectId o por backlog_hash
+    mov = None
     try:
         oid = ObjectId(id)
+        mov = await db.contabilidad_pendientes.find_one({"_id": oid})
     except Exception:
-        raise HTTPException(status_code=400, detail="ID inválido")
+        pass
 
-    mov = await db.contabilidad_pendientes.find_one({"_id": oid})
+    if not mov:
+        mov = await db.contabilidad_pendientes.find_one({"backlog_hash": id})
+
     if not mov:
         raise HTTPException(status_code=404, detail="Movimiento no encontrado")
 
     await db.contabilidad_pendientes.update_one(
-        {"_id": oid},
+        {"_id": mov["_id"]},  # Usar el _id real del documento encontrado
         {"$set": {
             "estado": "descartado",
             "razon_descarte": payload.razon,
@@ -560,15 +579,22 @@ async def backlog_sugerencias(
     id: str,
     current_user=Depends(get_current_user),
 ):
-    """Retorna 3 sugerencias de asiento para un movimiento de backlog."""
+    """Retorna 3 sugerencias de asiento para un movimiento de backlog.
+
+    Acepta tanto ObjectId como backlog_hash.
+    """
     from bson import ObjectId
 
+    mov = None
     try:
         oid = ObjectId(id)
+        mov = await db.contabilidad_pendientes.find_one({"_id": oid})
     except Exception:
-        raise HTTPException(status_code=400, detail="ID inválido")
+        pass
 
-    mov = await db.contabilidad_pendientes.find_one({"_id": oid})
+    if not mov:
+        mov = await db.contabilidad_pendientes.find_one({"backlog_hash": id})
+
     if not mov:
         raise HTTPException(status_code=404, detail="Movimiento no encontrado")
 
