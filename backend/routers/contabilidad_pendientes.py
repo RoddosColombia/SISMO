@@ -331,16 +331,14 @@ async def backlog_causar(
     }
 
     try:
-        result = await service.request("journals", "POST", journal_payload)
-    except HTTPException:
-        raise
+        result = await service.request_with_verify("journals", "POST", journal_payload)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error conectando con Alegra: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creando journal en Alegra: {str(e)}")
 
-    if not isinstance(result, dict) or not result.get("id"):
-        raise HTTPException(status_code=500, detail=f"Alegra no retornó ID del journal. Respuesta: {result}")
+    journal_id = result.get("id") if isinstance(result, dict) else None
+    if not journal_id:
+        raise HTTPException(status_code=500, detail="Alegra no retornó ID del journal")
 
-    journal_id = result.get("id")
     await db.contabilidad_pendientes.update_one(
         {"_id": mov["_id"]},
         {"$set": {
