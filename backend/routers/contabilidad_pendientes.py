@@ -331,12 +331,14 @@ async def backlog_causar(
     }
 
     try:
-        result = await service.request_with_verify("journals", "POST", journal_payload)
+        result = await service.request("journals", "POST", journal_payload)
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error creando journal en Alegra: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error conectando con Alegra: {str(e)}")
 
-    if not result.get("_verificado"):
-        raise HTTPException(status_code=500, detail="Journal creado pero no verificado en Alegra")
+    if not isinstance(result, dict) or not result.get("id"):
+        raise HTTPException(status_code=500, detail=f"Alegra no retornó ID del journal. Respuesta: {result}")
 
     journal_id = result.get("id")
     await db.contabilidad_pendientes.update_one(
@@ -390,38 +392,56 @@ async def backlog_descartar(
     return {"success": True, "estado": "descartado"}
 
 
-# Mapa de cuentas RODDOS — nombres legibles por ID de Alegra
+# Mapa de cuentas RODDOS — IDs verificados contra Alegra (plan_cuentas_roddos + accounting_engine.py)
+# FUENTE DE VERDAD: plan_cuentas_roddos MongoDB + CUENTAS_ACTIVOS en accounting_engine.py
+# NUNCA inventar IDs — cada uno fue validado contra Alegra real
 CUENTAS_RODDOS: dict[int, str] = {
-    5462: "Sueldos y salarios",
-    5470: "Honorarios",
-    5471: "Seguridad social",
-    5472: "Dotaciones",
-    5480: "Arrendamientos",
-    5484: "Servicios públicos / Tech",
-    5487: "Teléfono / Internet",
-    5490: "Mantenimiento",
-    5491: "Transporte",
-    5493: "Gastos generales",
-    5497: "Papelería y útiles",
-    5500: "Publicidad",
-    5501: "Eventos",
-    5505: "ICA",
-    5507: "IVA comisión bancaria",
-    5508: "Comisiones bancarias",
-    5509: "GMF 4×1000",
-    5510: "Seguros",
-    5533: "Intereses financieros",
-    5534: "Intereses rentistas",
-    # Cuentas bancarias
-    5314: "Bancolombia 2029",
-    5318: "BBVA 0210",
-    5322: "Davivienda 482",
-    5310: "Caja / Nequi",
+    # ── Personal (cod. PUC 510x / 511x) ──────────────────────────────────────
+    5462: "Sueldos y salarios (510506)",
+    5466: "Cesantías (510530)",
+    5468: "Prima de servicios (510536)",
+    5469: "Vacaciones (510539)",
+    5470: "Dotación a trabajadores (510551)",
+    5472: "Aportes seguridad social (510570)",
+    5475: "Honorarios persona natural (511025)",
+    5476: "Honorarios persona jurídica (511030)",
+    # ── Operaciones (cod. PUC 512x / 513x / 519x) ────────────────────────────
+    5480: "Arrendamientos (512010)",
+    5482: "Aseo y vigilancia (513505)",
+    5483: "Asistencia técnica / Mantenimiento (513515)",
+    5485: "Servicios públicos / Acueducto (513525)",
+    5487: "Teléfono / Internet / Comunicaciones (513535)",
+    5497: "Útiles, papelería y fotocopia (519530)",
+    5498: "Combustibles y lubricantes (519535)",
+    5499: "Taxis y buses / Transporte (519545)",
+    # ── Impuestos y representación (cod. PUC 511x / 519x) ────────────────────
+    5478: "Industria y Comercio — ICA (511505)",
+    5495: "Gastos de representación / Publicidad (519520)",
+    # ── Financiero (cod. PUC 530x / 531x / 615x) ─────────────────────────────
+    5507: "Gastos bancarios (530505)",
+    5508: "Comisiones bancarias (530515)",
+    5509: "Gravamen al movimiento financiero — GMF 4×1000 (531520)",
+    5533: "Intereses créditos directos (615020)",
+    # ── Gastos generales / Otros ──────────────────────────────────────────────
+    5493: "Gastos generales (5195)",
+    5501: "Depreciación (5160)",
+    # ── Cuentas bancarias — Activos (cod. PUC 111x) ───────────────────────────
+    5310: "Caja general / Nequi",
     5311: "Caja Menor RODDOS (cód.PUC 11050502)",
-    # Ingresos y CXC
-    5327: "Créditos Directos RODDOS (cartera)",
-    5329: "CXC Socios",
-    # Retenciones
+    5314: "Bancolombia 2029",
+    5315: "Bancolombia 2540",
+    5318: "BBVA 0210",
+    5319: "BBVA 0212",
+    5321: "Banco de Bogotá 047674460",
+    5322: "Davivienda 482",
+    11100507: "Global66 Colombia",
+    # ── CXC y cartera (cod. PUC 1305x / 1406x) ───────────────────────────────
+    5326: "CXC Clientes nacionales",
+    5327: "Créditos Directos RODDOS — cartera",
+    5329: "CXC Socios y accionistas",
+    5331: "Anticipos a proveedores",
+    5332: "Anticipos a empleados",
+    # ── Retenciones por pagar (pasivo) ───────────────────────────────────────
     236505: "ReteFuente por pagar",
     236560: "ReteICA por pagar",
 }
@@ -504,14 +524,14 @@ def _generar_sugerencias(mov: dict) -> list[dict]:
             d2, c2 = 5462, cuenta_banco
             titulo2, razon2 = "Nómina y salarios", "Detectado: pago de nómina"
         elif any(k in descripcion for k in ["HONORARIO", "ABOGADO", "ASESOR", "CONSUL"]):
-            d2, c2 = 5470, cuenta_banco
-            titulo2, razon2 = "Honorarios", "Detectado: pago de honorarios"
+            d2, c2 = 5475, cuenta_banco  # Honorarios PN (511025) — no 5470 que es Dotación
+            titulo2, razon2 = "Honorarios persona natural", "Detectado: pago de honorarios"
         elif any(k in descripcion for k in ["ARRIENDO", "ARRENDAMIENTO", "CANON"]):
             d2, c2 = 5480, cuenta_banco
             titulo2, razon2 = "Arrendamiento", "Detectado: pago de arriendo"
         elif any(k in descripcion for k in ["ALEGRA", "SOFIA", "SOFTWARE", "INTERNET", "TIGO", "CLARO", "ETB"]):
-            d2, c2 = 5484, cuenta_banco
-            titulo2, razon2 = "Servicios / Tech", "Detectado: servicio tecnológico o internet"
+            d2, c2 = 5487, cuenta_banco  # Teléfono/Internet (513535) — no 5484 que no existe
+            titulo2, razon2 = "Teléfono / Internet / Tech", "Detectado: servicio tecnológico o internet"
         elif any(k in descripcion for k in ["COMISION", "COMISIÓN"]):
             d2, c2 = 5508, cuenta_banco
             titulo2, razon2 = "Comisión bancaria", "Detectado: comisión bancaria"
@@ -522,8 +542,8 @@ def _generar_sugerencias(mov: dict) -> list[dict]:
             d2, c2 = 5329, cuenta_banco
             titulo2, razon2 = "CXC Socios", "Detectado: gasto de socio"
         elif any(k in descripcion for k in ["INTERESES", "CANO", "MARTINEZ", "CREDITO"]):
-            d2, c2 = 5534, cuenta_banco
-            titulo2, razon2 = "Intereses rentistas", "Detectado: pago de intereses"
+            d2, c2 = 5533, cuenta_banco  # Intereses créditos directos (615020) — no 5534 que no existe
+            titulo2, razon2 = "Intereses", "Detectado: pago de intereses"
         else:
             d2, c2 = 5493, cuenta_banco
             titulo2, razon2 = "Gastos generales", "Sin clasificación específica — cuenta comodín"

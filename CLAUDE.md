@@ -575,10 +575,98 @@ Schedule: cada 5 min, timezone `America/Bogota`
 - SIEMPRE yyyy-MM-dd (ej: 2026-04-02)
 - NUNCA ISO-8601 con timezone (ej: 2026-04-02T00:00:00Z da error)
 
-### Cuentas contables
-- Fallback cuenta gastos: ID 5493 (Gastos Generales) — NUNCA ID 5495
-- IDs son numéricos internos de Alegra — nunca usar código PUC directamente
-- Plan completo en MongoDB colección plan_cuentas_roddos
+### Cuentas contables — PLAN CANÓNICO RODDOS
+**FUENTE DE VERDAD**: MongoDB `plan_cuentas_roddos` + `CUENTAS_ACTIVOS` en `accounting_engine.py`
+**REGLA**: NUNCA inventar IDs. NUNCA usar un ID sin verificarlo aquí primero.
+**Fallback gastos**: ID 5493 (Gastos Generales) — NUNCA ID 5495 (ese es Representación/Eventos)
+
+#### Gastos — Personal (cod. PUC 510x / 511x)
+| alegra_id | cuenta_codigo | cuenta_nombre |
+|-----------|---------------|---------------|
+| 5462 | 510506 | Sueldos y salarios |
+| 5466 | 510530 | Cesantías |
+| 5468 | 510536 | Prima de servicios |
+| 5469 | 510539 | Vacaciones |
+| 5470 | 510551 | Dotación a trabajadores |
+| 5472 | 510570 | Aportes seguridad social |
+| 5475 | 511025 | Honorarios persona natural |
+| 5476 | 511030 | Honorarios persona jurídica |
+
+#### Gastos — Impuestos (cod. PUC 511x)
+| alegra_id | cuenta_codigo | cuenta_nombre |
+|-----------|---------------|---------------|
+| 5478 | 511505 | Industria y Comercio — ICA / Predial |
+
+#### Gastos — Operaciones (cod. PUC 512x / 513x / 519x)
+| alegra_id | cuenta_codigo | cuenta_nombre |
+|-----------|---------------|---------------|
+| 5480 | 512010 | Arrendamientos |
+| 5482 | 513505 | Aseo y vigilancia |
+| 5483 | 513515 | Asistencia técnica / Mantenimiento |
+| 5485 | 513525 | Alcantarillado / Acueducto / Servicios públicos |
+| 5487 | 513535 | Teléfono / Internet / Comunicaciones |
+| 5495 | 519520 | Gastos de representación / Publicidad / Eventos |
+| 5497 | 519530 | Útiles, papelería y fotocopia |
+| 5498 | 519535 | Combustibles y lubricantes |
+| 5499 | 519545 | Taxis y buses / Transporte |
+
+#### Gastos — Financiero (cod. PUC 530x / 531x)
+| alegra_id | cuenta_codigo | cuenta_nombre |
+|-----------|---------------|---------------|
+| 5507 | 530505 | Gastos bancarios |
+| 5508 | 530515 | Comisiones bancarias |
+| 5509 | 531520 | Gravamen al movimiento financiero — GMF 4×1000 |
+
+#### Gastos — Otros
+| alegra_id | cuenta_codigo | cuenta_nombre |
+|-----------|---------------|---------------|
+| 5493 | 5195 | Gastos generales (FALLBACK — usar cuando no hay categoría) |
+| 5501 | 5160 | Depreciación |
+
+#### Ingresos (cod. PUC 615x)
+| alegra_id | cuenta_codigo | cuenta_nombre |
+|-----------|---------------|---------------|
+| 5533 | 615020 | Intereses créditos directos |
+
+#### Activos — Cuentas bancarias y caja (cod. PUC 111x)
+| alegra_id | cuenta_nombre | banco |
+|-----------|---------------|-------|
+| 5310 | Caja general / Nequi | nequi |
+| 5311 | Caja Menor RODDOS (cód.PUC 11050502) | caja_menor |
+| 5314 | Bancolombia 2029 | bancolombia |
+| 5315 | Bancolombia 2540 | - |
+| 5316 | Tarjeta débito prepago 9942 | - |
+| 5317 | Tarjeta débito prepago 6588 | - |
+| 5318 | BBVA 0210 | bbva |
+| 5319 | BBVA 0212 | - |
+| 5321 | Banco de Bogotá Ahorros 047674460 | - |
+| 5322 | Davivienda 482 | davivienda |
+| 11100507 | Global66 Colombia | global66 |
+
+#### Activos — CXC y cartera (cod. PUC 1305x / 1406x)
+| alegra_id | cuenta_nombre |
+|-----------|---------------|
+| 5326 | CXC Clientes nacionales |
+| 5327 | Créditos Directos RODDOS — cartera |
+| 5329 | CXC Socios y accionistas (SOLO retiros/gastos personales Andrés/Iván) |
+| 5331 | Anticipos a proveedores |
+| 5332 | Anticipos a empleados |
+
+#### Pasivos — Retenciones por pagar
+| alegra_id | cuenta_nombre |
+|-----------|---------------|
+| 236505 | ReteFuente por pagar |
+| 236560 | ReteICA por pagar |
+
+#### IDs que NO EXISTEN en Alegra (historial de errores — NUNCA usar)
+- ~~5471~~ (confundido con seguridad social — real: 5472)
+- ~~5484~~ (confundido con internet — real: 5487)
+- ~~5490~~ (confundido con mantenimiento — real: 5483)
+- ~~5491~~ (confundido con transporte — real: 5499)
+- ~~5500~~ (confundido con publicidad — real: 5495)
+- ~~5505~~ (confundido con ICA — real: 5478)
+- ~~5510~~ (confundido con seguros — real: 5493)
+- ~~5534~~ (confundido con intereses — real: 5533)
 
 ### Autenticación
 - Basic Auth: Base64(email:token)
