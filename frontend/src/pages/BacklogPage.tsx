@@ -1,22 +1,10 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Clock, CheckCircle, XCircle, AlertCircle, RefreshCw } from "lucide-react";
+import { Clock, CheckCircle, XCircle, AlertCircle, RefreshCw, AlertTriangle } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-
-interface Sugerencia {
-  id: number;
-  titulo: string;
-  cuenta_debito: number;
-  cuenta_debito_nombre: string;
-  cuenta_credito: number;
-  cuenta_credito_nombre: string;
-  observaciones: string;
-  razon: string;
-  es_traslado: boolean;
-}
 
 interface BacklogItem {
   backlog_hash: string;
@@ -36,6 +24,72 @@ interface BacklogItem {
   journal_alegra_id?: string;
   creado_at: string;
   _id?: string;
+}
+
+// ── Plan de cuentas RODDOS completo (IDs reales de Alegra) ────────────────────
+// Nunca usar ID 5495 — fallback siempre es 5493
+const CUENTAS_GASTOS: { id: number; nombre: string; categoria: string; cuando_usar: string }[] = [
+  { id: 5462, nombre: "Sueldos y salarios",       categoria: "Personal",     cuando_usar: "Pago de nómina a Alexa, Liz u otro empleado directo de RODDOS" },
+  { id: 5470, nombre: "Honorarios",                categoria: "Personal",     cuando_usar: "Pagos a abogados, asesores, consultores o freelancers. PN 10% ReteFuente, PJ 11%" },
+  { id: 5471, nombre: "Seguridad social",          categoria: "Personal",     cuando_usar: "Aportes a salud, pensión y ARL de empleados" },
+  { id: 5472, nombre: "Dotaciones",                categoria: "Personal",     cuando_usar: "Compra de uniformes, elementos de protección o dotación para empleados" },
+  { id: 5480, nombre: "Arrendamientos",            categoria: "Operaciones",  cuando_usar: "Pago mensual del arriendo del local. ReteFuente 3.5% + ReteICA 0.414%" },
+  { id: 5484, nombre: "Servicios públicos / Tech", categoria: "Operaciones",  cuando_usar: "Facturas de Alegra, Mercately, software de gestión, servicios cloud (AWS, MongoDB)" },
+  { id: 5487, nombre: "Teléfono / Internet",       categoria: "Operaciones",  cuando_usar: "Facturas de Tigo, Claro, ETB, planes de datos para el equipo" },
+  { id: 5490, nombre: "Mantenimiento",             categoria: "Operaciones",  cuando_usar: "Reparaciones de equipos, muebles, moto de prueba, instalaciones del local" },
+  { id: 5491, nombre: "Transporte",                categoria: "Operaciones",  cuando_usar: "Taxis, combustible, peajes, fletes para operación de RODDOS" },
+  { id: 5493, nombre: "Gastos generales",          categoria: "Otros",        cuando_usar: "COMODÍN — usar cuando no encaja en ninguna cuenta específica. Revisar después." },
+  { id: 5497, nombre: "Papelería y útiles",        categoria: "Operaciones",  cuando_usar: "Compra de papel, tinta, elementos de papelería y útiles de oficina" },
+  { id: 5500, nombre: "Publicidad",                categoria: "Marketing",    cuando_usar: "Meta Ads, Instagram, volantes, pendones, cualquier pauta publicitaria de RODDOS" },
+  { id: 5501, nombre: "Eventos",                   categoria: "Marketing",    cuando_usar: "Gastos de eventos comerciales, ferias, lanzamientos de productos" },
+  { id: 5505, nombre: "ICA",                       categoria: "Impuestos",    cuando_usar: "Pago bimestral del Impuesto de Industria y Comercio a la Secretaría de Hacienda Bogotá" },
+  { id: 5507, nombre: "IVA comisión bancaria",     categoria: "Financiero",   cuando_usar: "IVA cobrado sobre comisiones bancarias. Separar del gasto principal." },
+  { id: 5508, nombre: "Comisiones bancarias",      categoria: "Financiero",   cuando_usar: "Cuota de manejo, comisiones por transferencias, cargos bancarios fijos mensuales" },
+  { id: 5509, nombre: "GMF 4×1000",               categoria: "Financiero",   cuando_usar: "Gravamen al Movimiento Financiero. Aparece en extracto como '4X1000' o 'GMF'" },
+  { id: 5510, nombre: "Seguros",                   categoria: "Financiero",   cuando_usar: "Pólizas de seguro del local, motos de demostración, responsabilidad civil" },
+  { id: 5533, nombre: "Intereses financieros",     categoria: "Financiero",   cuando_usar: "Intereses pagados por préstamos bancarios o créditos de proveedores" },
+  { id: 5534, nombre: "Intereses rentistas",       categoria: "Financiero",   cuando_usar: "Intereses pagados a personas naturales que prestan dinero a RODDOS (socios, terceros)" },
+];
+
+const CUENTAS_BANCOS: { id: number; nombre: string }[] = [
+  { id: 5314, nombre: "Bancolombia 2029" },
+  { id: 5318, nombre: "BBVA 0210" },
+  { id: 5322, nombre: "Davivienda 482" },
+  { id: 5310, nombre: "Nequi / Caja" },
+  { id: 11100507, nombre: "Global66 Colombia" },
+];
+
+const CUENTAS_INGRESOS: { id: number; nombre: string; cuando_usar: string }[] = [
+  { id: 5327, nombre: "Créditos Directos RODDOS (cartera)", cuando_usar: "Pago de cuotas semanales de loanbooks activos" },
+  { id: 5329, nombre: "CXC Socios",                         cuando_usar: "SOLO para retiros o gastos PERSONALES de Andrés (CC 80075452) o Iván (CC 80086601). NO para gastos operativos." },
+];
+
+const CUENTAS_RETENCIONES: { id: number; nombre: string }[] = [
+  { id: 236505, nombre: "ReteFuente por pagar" },
+  { id: 236560, nombre: "ReteICA por pagar" },
+];
+
+const BANCO_CUENTA: Record<string, number> = {
+  bbva: 5318, bancolombia: 5314, davivienda: 5322, nequi: 5310, global66: 11100507,
+};
+
+const TODAS_CUENTAS_DEBITO = [
+  ...CUENTAS_GASTOS,
+  ...CUENTAS_BANCOS.map(c => ({ ...c, categoria: "Banco", cuando_usar: "Cuenta bancaria como débito (ingreso)" })),
+  ...CUENTAS_INGRESOS.map(c => ({ ...c, categoria: "CXC/Ingresos" })),
+  ...CUENTAS_RETENCIONES.map(c => ({ ...c, categoria: "Retenciones", cuando_usar: "Retención practicada" })),
+];
+
+const TODAS_CUENTAS_CREDITO = [
+  ...CUENTAS_BANCOS.map(c => ({ ...c, categoria: "Banco", cuando_usar: "Cuenta bancaria origen del pago" })),
+  ...CUENTAS_GASTOS,
+  ...CUENTAS_INGRESOS.map(c => ({ ...c, categoria: "CXC/Ingresos" })),
+  ...CUENTAS_RETENCIONES.map(c => ({ ...c, categoria: "Retenciones", cuando_usar: "Retención practicada" })),
+];
+
+function nombreCuenta(id: number): string {
+  const todas = [...CUENTAS_GASTOS, ...CUENTAS_BANCOS, ...CUENTAS_INGRESOS, ...CUENTAS_RETENCIONES];
+  return todas.find(c => c.id === id)?.nombre ?? `Cuenta ${id}`;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -64,151 +118,224 @@ function EstadoBadge({ estado }: { estado: string }) {
   );
 }
 
-// ── Modal Causar con sugerencias inteligentes ─────────────────────────────────
+// ── Modal Causar ──────────────────────────────────────────────────────────────
 
 function ModalCausar({
-  item, onClose, onConfirm, loading, api,
+  item, onClose, onConfirm, loading,
 }: {
   item: BacklogItem;
   onClose: () => void;
   onConfirm: (cuentaDebito: number, cuentaCredito: number, obs: string) => void;
   loading: boolean;
-  api: any;
 }) {
-  const [sugerencias, setSugerencias] = useState<Sugerencia[]>([]);
-  const [loadingSug, setLoadingSug] = useState(true);
-  const [seleccionada, setSeleccionada] = useState(0);
-  const [obs, setObs] = useState("");
+  const banco = item.banco?.toLowerCase() ?? "bbva";
+  const cuentaBanco = BANCO_CUENTA[banco] ?? 5318;
+  const tipo = (item.tipo ?? "EGRESO").toUpperCase();
 
-  useEffect(() => {
-    const id = item._id || item.backlog_hash;
-    setLoadingSug(true);
-    api.get(`/contabilidad_pendientes/backlog/sugerencias/${id}`)
-      .then((r: any) => {
-        const sugs: Sugerencia[] = r.data.sugerencias || [];
-        setSugerencias(sugs);
-        if (sugs.length > 0) {
-          setSeleccionada(0);
-          setObs(sugs[0].observaciones);
-        }
-      })
-      .catch(() => {
-        // Fallback sin nombres si el endpoint falla
-        const banco = item.banco || "bbva";
-        const bancoCuenta: Record<string, number> = { bbva: 5318, bancolombia: 5314, davivienda: 5322, nequi: 5310 };
-        const fb: Sugerencia = {
-          id: 1, titulo: "Gastos generales",
-          cuenta_debito: 5493, cuenta_debito_nombre: "Gastos generales",
-          cuenta_credito: bancoCuenta[banco] || 5318, cuenta_credito_nombre: banco.toUpperCase(),
-          observaciones: item.descripcion, razon: "Cuenta comodín",
-          es_traslado: false,
-        };
-        setSugerencias([fb]);
-        setObs(item.descripcion);
-      })
-      .finally(() => setLoadingSug(false));
-  }, []);  // eslint-disable-line
+  // Pre-seleccionar con la sugerencia del motor
+  const defaultDebito = tipo === "EGRESO"
+    ? (item.cuenta_debito_sugerida ?? 5493)
+    : cuentaBanco;
+  const defaultCredito = tipo === "EGRESO"
+    ? cuentaBanco
+    : (item.cuenta_credito_sugerida ?? 5327);
 
-  const sug = sugerencias[seleccionada];
-  const esTraslado = sug?.es_traslado;
+  const [cuentaDebito, setCuentaDebito] = useState<number>(defaultDebito);
+  const [cuentaCredito, setCuentaCredito] = useState<number>(defaultCredito);
+  const [obs, setObs] = useState(item.descripcion ?? "");
+
+  const esCxcSocios = cuentaDebito === 5329 || cuentaCredito === 5329;
+  const esCxcSociosDebito = cuentaDebito === 5329;
+
+  // Hint de la cuenta seleccionada
+  const hintDebito = TODAS_CUENTAS_DEBITO.find(c => c.id === cuentaDebito)?.cuando_usar ?? "";
+  const hintCredito = TODAS_CUENTAS_CREDITO.find(c => c.id === cuentaCredito)?.cuando_usar ?? "";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 p-6">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl mx-4 p-6 max-h-[92vh] overflow-y-auto">
+
         {/* Header */}
         <h2 className="text-base font-bold mb-1" style={{ color: "#1c1b1f" }}>Causar movimiento</h2>
-        <p className="text-xs mb-1" style={{ color: "#9e9a97" }}>
-          {item.fecha} · {item.banco.toUpperCase()} · {formatCOP(Math.abs(item.monto))}
-        </p>
-        <p className="text-xs font-medium mb-5 truncate" style={{ color: "#49454f" }} title={item.descripcion}>
+        <div className="flex flex-wrap gap-2 mb-1">
+          <span className="text-xs font-mono px-2 py-0.5 rounded-full bg-slate-100" style={{ color: "#49454f" }}>{item.fecha}</span>
+          <span className="text-xs font-bold uppercase px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">{item.banco}</span>
+          <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: "rgba(0,110,42,0.08)", color: "#006e2a" }}>
+            {formatCOP(Math.abs(item.monto))}
+          </span>
+          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${tipo === "EGRESO" ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>
+            {tipo}
+          </span>
+        </div>
+        <p className="text-xs font-medium mb-4 truncate" style={{ color: "#49454f" }} title={item.descripcion}>
           {item.descripcion}
         </p>
-
-        {loadingSug ? (
-          <div className="flex justify-center py-8">
-            <div className="w-6 h-6 border-2 border-[#0F2A5C] border-t-transparent rounded-full animate-spin" />
+        {item.razon_baja_confianza && (
+          <div className="mb-3 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200">
+            <p className="text-[11px] text-amber-700">⚠️ Baja confianza del motor: {item.razon_baja_confianza}</p>
           </div>
-        ) : (
-          <>
-            {/* Radio group de sugerencias */}
-            <div className="mb-4">
-              <p className="text-[11px] font-semibold uppercase tracking-wide mb-2" style={{ color: "#9e9a97" }}>
-                Asiento contable — selecciona una opción
-              </p>
-              <div className="space-y-2">
-                {sugerencias.map((s, i) => (
-                  <label
-                    key={s.id}
-                    className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
-                      seleccionada === i
-                        ? "border-[#0f2a5c] bg-[#0f2a5c]/[0.04]"
-                        : "border-slate-200 bg-slate-50 hover:bg-slate-100"
-                    }`}
-                    onClick={() => { setSeleccionada(i); setObs(s.observaciones); }}
-                  >
-                    <input
-                      type="radio"
-                      checked={seleccionada === i}
-                      onChange={() => { setSeleccionada(i); setObs(s.observaciones); }}
-                      className="mt-0.5 accent-[#0f2a5c]"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="text-xs font-bold" style={{ color: "#0f2a5c" }}>{s.titulo}</span>
-                        {s.es_traslado && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-semibold">
-                            Traslado
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-[11px]" style={{ color: "#49454f" }}>
-                        <span className="font-semibold">{s.cuenta_debito_nombre}</span>
-                        <span style={{ color: "#9e9a97" }}> → </span>
-                        <span className="font-semibold">{s.cuenta_credito_nombre}</span>
-                      </div>
-                      <div className="text-[10px] mt-0.5" style={{ color: "#9e9a97" }}>{s.razon}</div>
-                    </div>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            {/* Descripción del journal */}
-            <div className="mb-4">
-              <label className="text-xs font-semibold block mb-1" style={{ color: "#49454f" }}>
-                Descripción del journal en Alegra
-              </label>
-              <input
-                type="text"
-                value={obs}
-                onChange={e => setObs(e.target.value)}
-                className="w-full border rounded-lg px-3 py-2 text-sm"
-                style={{ borderColor: "rgba(28,27,31,0.15)" }}
-              />
-            </div>
-
-            {/* Aviso traslado */}
-            {esTraslado && (
-              <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                <p className="text-xs text-amber-700">
-                  ⚠️ Este movimiento es un traslado interno. Se recomienda <strong>Descartar</strong> en su lugar.
-                </p>
-              </div>
-            )}
-          </>
         )}
 
+        {/* Alerta CXC Socios */}
+        {esCxcSocios && (
+          <div className="mb-4 px-3 py-2.5 rounded-lg bg-red-50 border border-red-200 flex gap-2 items-start">
+            <AlertTriangle size={14} className="text-red-600 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-xs font-bold text-red-700 mb-0.5">⛔ CXC Socios — revisar antes de causar</p>
+              <p className="text-[11px] text-red-600">
+                Esta cuenta es EXCLUSIVA para gastos personales de <strong>Andrés Sanjuan (CC 80075452)</strong> o <strong>Iván Echeverri (CC 80086601)</strong>. 
+                Si es un gasto operativo de RODDOS, selecciona la cuenta correcta arriba.
+                Causar gastos operativos en CXC Socios distorsiona el P&L.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Cuenta Débito */}
+        <div className="mb-4">
+          <label className="text-xs font-semibold block mb-1.5" style={{ color: "#49454f" }}>
+            Cuenta Débito {tipo === "EGRESO" ? <span className="text-[10px] font-normal text-slate-400">(el gasto va aquí)</span> : <span className="text-[10px] font-normal text-slate-400">(banco que recibió)</span>}
+          </label>
+          <select
+            value={cuentaDebito}
+            onChange={e => setCuentaDebito(Number(e.target.value))}
+            className="w-full border rounded-lg px-3 py-2 text-sm bg-white"
+            style={{ borderColor: "rgba(28,27,31,0.2)" }}
+          >
+            {tipo === "EGRESO" ? (
+              <>
+                <optgroup label="── Gastos operativos ──">
+                  {CUENTAS_GASTOS.map(c => (
+                    <option key={c.id} value={c.id}>{c.nombre} ({c.id})</option>
+                  ))}
+                </optgroup>
+                <optgroup label="── CXC / Ingresos ──">
+                  {CUENTAS_INGRESOS.map(c => (
+                    <option key={c.id} value={c.id}>{c.nombre} ({c.id})</option>
+                  ))}
+                </optgroup>
+                <optgroup label="── Retenciones ──">
+                  {CUENTAS_RETENCIONES.map(c => (
+                    <option key={c.id} value={c.id}>{c.nombre} ({c.id})</option>
+                  ))}
+                </optgroup>
+                <optgroup label="── Bancos ──">
+                  {CUENTAS_BANCOS.map(c => (
+                    <option key={c.id} value={c.id}>{c.nombre} ({c.id})</option>
+                  ))}
+                </optgroup>
+              </>
+            ) : (
+              <>
+                <optgroup label="── Bancos (ingreso al banco) ──">
+                  {CUENTAS_BANCOS.map(c => (
+                    <option key={c.id} value={c.id}>{c.nombre} ({c.id})</option>
+                  ))}
+                </optgroup>
+                <optgroup label="── Gastos ──">
+                  {CUENTAS_GASTOS.map(c => (
+                    <option key={c.id} value={c.id}>{c.nombre} ({c.id})</option>
+                  ))}
+                </optgroup>
+              </>
+            )}
+          </select>
+          {hintDebito && (
+            <p className="text-[11px] mt-1 px-1" style={{ color: "#9e9a97" }}>
+              💡 {hintDebito}
+            </p>
+          )}
+        </div>
+
+        {/* Cuenta Crédito */}
+        <div className="mb-4">
+          <label className="text-xs font-semibold block mb-1.5" style={{ color: "#49454f" }}>
+            Cuenta Crédito {tipo === "EGRESO" ? <span className="text-[10px] font-normal text-slate-400">(banco que pagó)</span> : <span className="text-[10px] font-normal text-slate-400">(origen del ingreso)</span>}
+          </label>
+          <select
+            value={cuentaCredito}
+            onChange={e => setCuentaCredito(Number(e.target.value))}
+            className="w-full border rounded-lg px-3 py-2 text-sm bg-white"
+            style={{ borderColor: "rgba(28,27,31,0.2)" }}
+          >
+            {tipo === "EGRESO" ? (
+              <>
+                <optgroup label="── Bancos (salió de aquí) ──">
+                  {CUENTAS_BANCOS.map(c => (
+                    <option key={c.id} value={c.id}>{c.nombre} ({c.id})</option>
+                  ))}
+                </optgroup>
+                <optgroup label="── Retenciones ──">
+                  {CUENTAS_RETENCIONES.map(c => (
+                    <option key={c.id} value={c.id}>{c.nombre} ({c.id})</option>
+                  ))}
+                </optgroup>
+              </>
+            ) : (
+              <>
+                <optgroup label="── Ingresos / Cartera ──">
+                  {CUENTAS_INGRESOS.map(c => (
+                    <option key={c.id} value={c.id}>{c.nombre} ({c.id})</option>
+                  ))}
+                </optgroup>
+                <optgroup label="── Gastos ──">
+                  {CUENTAS_GASTOS.map(c => (
+                    <option key={c.id} value={c.id}>{c.nombre} ({c.id})</option>
+                  ))}
+                </optgroup>
+                <optgroup label="── Bancos ──">
+                  {CUENTAS_BANCOS.map(c => (
+                    <option key={c.id} value={c.id}>{c.nombre} ({c.id})</option>
+                  ))}
+                </optgroup>
+              </>
+            )}
+          </select>
+          {hintCredito && (
+            <p className="text-[11px] mt-1 px-1" style={{ color: "#9e9a97" }}>
+              💡 {hintCredito}
+            </p>
+          )}
+        </div>
+
+        {/* Resumen del asiento */}
+        <div className="mb-4 px-3 py-2.5 rounded-lg bg-slate-50 border" style={{ borderColor: "rgba(28,27,31,0.08)" }}>
+          <p className="text-[11px] font-semibold mb-1" style={{ color: "#49454f" }}>Asiento que se creará en Alegra:</p>
+          <p className="text-xs font-mono" style={{ color: "#0f2a5c" }}>
+            DÉBITO: {nombreCuenta(cuentaDebito)} ({cuentaDebito}) = {formatCOP(Math.abs(item.monto))}
+          </p>
+          <p className="text-xs font-mono" style={{ color: "#006e2a" }}>
+            CRÉDITO: {nombreCuenta(cuentaCredito)} ({cuentaCredito}) = {formatCOP(Math.abs(item.monto))}
+          </p>
+        </div>
+
+        {/* Concepto editable */}
+        <div className="mb-5">
+          <label className="text-xs font-semibold block mb-1.5" style={{ color: "#49454f" }}>
+            Concepto / Descripción en Alegra <span className="text-[10px] font-normal text-slate-400">(editable)</span>
+          </label>
+          <input
+            type="text"
+            value={obs}
+            onChange={e => setObs(e.target.value)}
+            placeholder="Descripción del movimiento"
+            className="w-full border rounded-lg px-3 py-2 text-sm"
+            style={{ borderColor: "rgba(28,27,31,0.2)" }}
+          />
+        </div>
+
+        {/* Botones */}
         <div className="flex gap-2">
           <Button variant="outline" className="flex-1" onClick={onClose} disabled={loading}>
             Cancelar
           </Button>
           <Button
             className="flex-1"
-            style={{ background: esTraslado ? "#9e9a97" : "#006e2a", color: "#fff" }}
-            onClick={() => sug && onConfirm(sug.cuenta_debito, sug.cuenta_credito, obs)}
-            disabled={loading || loadingSug || !sug}
+            style={{ background: esCxcSocios ? "#dc2626" : "#006e2a", color: "#fff" }}
+            onClick={() => onConfirm(cuentaDebito, cuentaCredito, obs)}
+            disabled={loading || !obs.trim()}
           >
-            {loading ? "Causando..." : esTraslado ? "Causar de todas formas" : "Causar en Alegra"}
+            {loading ? "Causando..." : esCxcSocios ? "⚠️ Causar como CXC Socios" : "Causar en Alegra"}
           </Button>
         </div>
       </div>
@@ -348,8 +475,8 @@ export default function BacklogPage() {
         <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-6 gap-3">
           {[
             { label: "Pendientes", value: stats.total_pendientes, color: "#b45309" },
-            { label: "Causados", value: stats.total_causados, color: "#166534" },
-            { label: "Descartados", value: stats.total_descartados, color: "#64748b" },
+            { label: "Causados",   value: stats.total_causados,   color: "#166534" },
+            { label: "Descartados",value: stats.total_descartados,color: "#64748b" },
           ].map(s => (
             <div key={s.label} className="bg-white rounded-xl p-4 shadow-sm border" style={{ borderColor: "rgba(28,27,31,0.06)" }}>
               <div className="text-xs font-medium mb-1" style={{ color: "#9e9a97" }}>{s.label}</div>
@@ -381,6 +508,7 @@ export default function BacklogPage() {
           <option value="bancolombia">Bancolombia</option>
           <option value="nequi">Nequi</option>
           <option value="davivienda">Davivienda</option>
+          <option value="global66">Global66</option>
         </select>
         <input type="month" value={filterMes} onChange={e => setFilterMes(e.target.value)}
           className="text-sm border rounded-lg px-3 py-1.5" style={{ borderColor: "rgba(28,27,31,0.15)" }} />
@@ -490,7 +618,6 @@ export default function BacklogPage() {
       {causarItem && (
         <ModalCausar
           item={causarItem}
-          api={api}
           onClose={() => setCausarItem(null)}
           onConfirm={(d, c, o) => handleCausar(causarItem._id || causarItem.backlog_hash, d, c, o)}
           loading={actionLoading}
