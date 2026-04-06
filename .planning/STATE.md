@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v23.0
 milestone_name: milestone
-status: Milestone complete
-stopped_at: "Completed 260402-1hh — Fase 1 auditoria completa Alegra: 3 endpoints + 7 tests GREEN"
-last_updated: "2026-04-02T06:20:45.453Z"
+status: Phase complete — ready for verification
+stopped_at: "Completed 08a-01-PLAN.md — CRM Robusto: score multidimensional + acuerdos_pago + 5 endpoints + 10 tests GREEN"
+last_updated: "2026-04-05T17:46:00.502Z"
 progress:
   total_phases: 11
   completed_phases: 11
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-26)
 
 **Core value:** Contabilidad automatizada sin intervencion humana + visibilidad financiera en tiempo real + orquestacion confiable de agentes via bus de eventos
-**Current focus:** Phase 10 — ReAct Nivel 1 + Memoria Persistente
+**Current focus:** Phase 08a — CRM Robusto
 
 ## Current Position
 
-Phase: 10
-Plan: Not started
+Phase: 08a (CRM Robusto) — EXECUTING
+Plan: 1 of 1
 
 ## Performance Metrics
 
@@ -64,6 +64,8 @@ Decisions are logged in PROJECT.md Key Decisions table.
 - [Phase 10]: extract_and_save_memory uses claude-haiku-4-5-20251001 for lightweight memory extraction (NOT Sonnet)
 - [Phase 10]: should_create_plan: READ_TOOLS={consultar_facturas,consultar_cartera}; any write or 2+ tools → create plan for approval
 - [Phase 10]: agent_memory new schema uses 'source' discriminator; legacy 'tipo' docs untouched
+- [Phase 08a]: Score neutro para cliente nuevo = 70 almacenado en crm_clientes; calcular_score_roddos() es la función dinámica
+- [Phase 08a]: T2 usa escenario sin contactabilidad para garantizar score<25 con fórmula exacta PRD
 
 ### Pending Todos
 
@@ -77,14 +79,16 @@ None yet.
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
+| 260406-iju | Hotfix: conectar plan_id del backend con el ExecutionCard existente | 2026-04-06 | f15f9bb | [260406-iju-hotfix-conectar-plan-id-del-backend-con-](.planning/quick/260406-iju-hotfix-conectar-plan-id-del-backend-con-/) |
 | 260330-fs8 | Hotfix ERROR-017: consolidar ALEGRA_BASE_URL, eliminar app.alegra.com/api/r1 (6 archivos) | 2026-03-30 | 26ceb5d | [260330-fs8-hotfix](./quick/260330-fs8-hotfix-cr-tico-error-017-la-url-base-de-/) |
 | 260401-d5z | Knowledge Base Service RAG: service + 22 reglas seed + admin API + process_chat() integration | 2026-04-01 | 78f2764 | [260401-d5z](./quick/260401-d5z-knowledge-base-service-rag-para-agentes-/) |
 | 260401-esw | Global66 webhook router: HMAC-SHA256 + MD5 anti-dup + confianza routing (Alegra /journals vs conciliacion_partidas) | 2026-04-01 | dcac02d | [260401-esw](./quick/260401-esw-global66-webhook-router-post-api-global6/) |
 | 260401-fq4 | Admin seed endpoints: POST /api/admin/run-seed + GET /api/admin/seed-status, 3 tests (knowledge_base/plan_cuentas/invalid) | 2026-04-01 | 567c8ed | [260401-fq4](./quick/260401-fq4-admin-seed-endpoint-post-api-admin-run-s/) |
 | 260402-1hh | Fase 1 auditoria Alegra: GET alegra-completo (paginacion real, clasificacion, duplicados Auteco) + POST aprobar-limpieza + POST anular-bill-duplicada, 7 tests GREEN | 2026-04-02 | f38bd70 | [260402-1hh](./quick/260402-1hh-fase-1-auditoria-completa-de-alegra-dete/) |
+| Phase 08a P01 | 35 | 5 tasks | 6 files |
 
 ## Session Continuity
 
-Last session: 2026-04-02T06:20:45.444Z
-Stopped at: Completed 260402-1hh — Fase 1 auditoria completa Alegra: 3 endpoints + 7 tests GREEN
+Last session: 2026-04-05T17:46:00.496Z
+Stopped at: Completed 08a-01-PLAN.md — CRM Robusto: score multidimensional + acuerdos_pago + 5 endpoints + 10 tests GREEN
 Resume file: None
