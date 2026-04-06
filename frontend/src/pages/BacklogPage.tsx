@@ -28,27 +28,32 @@ interface BacklogItem {
 
 // ── Plan de cuentas RODDOS completo (IDs reales de Alegra) ────────────────────
 // Nunca usar ID 5495 — fallback siempre es 5493
+// IDs verificados contra Alegra real — fuente: plan_cuentas_roddos MongoDB + accounting_engine.py
+// IDs que NO existen: 5471, 5484, 5490, 5491, 5500, 5501, 5505, 5510, 5534 — NUNCA usar
 const CUENTAS_GASTOS: { id: number; nombre: string; categoria: string; cuando_usar: string }[] = [
-  { id: 5462, nombre: "Sueldos y salarios",       categoria: "Personal",     cuando_usar: "Pago de nómina a Alexa, Liz u otro empleado directo de RODDOS" },
-  { id: 5470, nombre: "Honorarios",                categoria: "Personal",     cuando_usar: "Pagos a abogados, asesores, consultores o freelancers. PN 10% ReteFuente, PJ 11%" },
-  { id: 5471, nombre: "Seguridad social",          categoria: "Personal",     cuando_usar: "Aportes a salud, pensión y ARL de empleados" },
-  { id: 5472, nombre: "Dotaciones",                categoria: "Personal",     cuando_usar: "Compra de uniformes, elementos de protección o dotación para empleados" },
-  { id: 5480, nombre: "Arrendamientos",            categoria: "Operaciones",  cuando_usar: "Pago mensual del arriendo del local. ReteFuente 3.5% + ReteICA 0.414%" },
-  { id: 5484, nombre: "Servicios públicos / Tech", categoria: "Operaciones",  cuando_usar: "Facturas de Alegra, Mercately, software de gestión, servicios cloud (AWS, MongoDB)" },
-  { id: 5487, nombre: "Teléfono / Internet",       categoria: "Operaciones",  cuando_usar: "Facturas de Tigo, Claro, ETB, planes de datos para el equipo" },
-  { id: 5490, nombre: "Mantenimiento",             categoria: "Operaciones",  cuando_usar: "Reparaciones de equipos, muebles, moto de prueba, instalaciones del local" },
-  { id: 5491, nombre: "Transporte",                categoria: "Operaciones",  cuando_usar: "Taxis, combustible, peajes, fletes para operación de RODDOS" },
-  { id: 5493, nombre: "Gastos generales",          categoria: "Otros",        cuando_usar: "COMODÍN — usar cuando no encaja en ninguna cuenta específica. Revisar después." },
-  { id: 5497, nombre: "Papelería y útiles",        categoria: "Operaciones",  cuando_usar: "Compra de papel, tinta, elementos de papelería y útiles de oficina" },
-  { id: 5500, nombre: "Publicidad",                categoria: "Marketing",    cuando_usar: "Meta Ads, Instagram, volantes, pendones, cualquier pauta publicitaria de RODDOS" },
-  { id: 5501, nombre: "Eventos",                   categoria: "Marketing",    cuando_usar: "Gastos de eventos comerciales, ferias, lanzamientos de productos" },
-  { id: 5505, nombre: "ICA",                       categoria: "Impuestos",    cuando_usar: "Pago bimestral del Impuesto de Industria y Comercio a la Secretaría de Hacienda Bogotá" },
-  { id: 5507, nombre: "IVA comisión bancaria",     categoria: "Financiero",   cuando_usar: "IVA cobrado sobre comisiones bancarias. Separar del gasto principal." },
-  { id: 5508, nombre: "Comisiones bancarias",      categoria: "Financiero",   cuando_usar: "Cuota de manejo, comisiones por transferencias, cargos bancarios fijos mensuales" },
-  { id: 5509, nombre: "GMF 4×1000",               categoria: "Financiero",   cuando_usar: "Gravamen al Movimiento Financiero. Aparece en extracto como '4X1000' o 'GMF'" },
-  { id: 5510, nombre: "Seguros",                   categoria: "Financiero",   cuando_usar: "Pólizas de seguro del local, motos de demostración, responsabilidad civil" },
-  { id: 5533, nombre: "Intereses financieros",     categoria: "Financiero",   cuando_usar: "Intereses pagados por préstamos bancarios o créditos de proveedores" },
-  { id: 5534, nombre: "Intereses rentistas",       categoria: "Financiero",   cuando_usar: "Intereses pagados a personas naturales que prestan dinero a RODDOS (socios, terceros)" },
+  { id: 5462, nombre: "Sueldos y salarios (510506)",           categoria: "Personal",     cuando_usar: "Pago de nómina a Alexa, Liz u otro empleado directo de RODDOS" },
+  { id: 5466, nombre: "Cesantías (510530)",                    categoria: "Personal",     cuando_usar: "Provisión o pago de cesantías a empleados" },
+  { id: 5468, nombre: "Prima de servicios (510536)",           categoria: "Personal",     cuando_usar: "Prima semestral de servicios a empleados" },
+  { id: 5469, nombre: "Vacaciones (510539)",                   categoria: "Personal",     cuando_usar: "Provisión o pago de vacaciones a empleados" },
+  { id: 5470, nombre: "Dotación a trabajadores (510551)",      categoria: "Personal",     cuando_usar: "Compra de uniformes, elementos de protección o dotación para empleados" },
+  { id: 5472, nombre: "Aportes seguridad social (510570)",     categoria: "Personal",     cuando_usar: "Aportes a salud, pensión y ARL de empleados" },
+  { id: 5475, nombre: "Honorarios persona natural (511025)",   categoria: "Personal",     cuando_usar: "Pagos a abogados, asesores, consultores freelancers PN. ReteFuente 10%" },
+  { id: 5476, nombre: "Honorarios persona jurídica (511030)",  categoria: "Personal",     cuando_usar: "Pagos a empresas de consultoría o asesoría. ReteFuente 11%" },
+  { id: 5478, nombre: "Industria y Comercio — ICA (511505)",   categoria: "Impuestos",    cuando_usar: "Pago bimestral del ICA a la Secretaría de Hacienda Bogotá" },
+  { id: 5480, nombre: "Arrendamientos (512010)",               categoria: "Operaciones",  cuando_usar: "Pago mensual del arriendo del local. ReteFuente 3.5% + ReteICA 0.414%" },
+  { id: 5482, nombre: "Aseo y vigilancia (513505)",            categoria: "Operaciones",  cuando_usar: "Servicios de aseo, vigilancia y seguridad del local" },
+  { id: 5483, nombre: "Asistencia técnica / Mantenimiento (513515)", categoria: "Operaciones", cuando_usar: "Reparaciones de equipos, muebles, moto de prueba, instalaciones del local" },
+  { id: 5485, nombre: "Servicios públicos / Acueducto (513525)", categoria: "Operaciones", cuando_usar: "Facturas de agua, alcantarillado, energía eléctrica del local" },
+  { id: 5487, nombre: "Teléfono / Internet / Comunicaciones (513535)", categoria: "Operaciones", cuando_usar: "Facturas de Tigo, Claro, ETB, Alegra, Mercately, software SaaS, planes de datos" },
+  { id: 5495, nombre: "Gastos de representación / Publicidad / Eventos (519520)", categoria: "Marketing", cuando_usar: "Meta Ads, Instagram, volantes, eventos comerciales, ferias, relaciones públicas" },
+  { id: 5497, nombre: "Útiles, papelería y fotocopia (519530)", categoria: "Operaciones", cuando_usar: "Compra de papel, tinta, elementos de papelería y útiles de oficina" },
+  { id: 5498, nombre: "Combustibles y lubricantes (519535)",   categoria: "Operaciones",  cuando_usar: "Gasolina, aceite y lubricantes para motos o vehículos de la operación" },
+  { id: 5499, nombre: "Taxis y buses / Transporte (519545)",   categoria: "Operaciones",  cuando_usar: "Taxis, Uber, buses, peajes, fletes para operación de RODDOS" },
+  { id: 5493, nombre: "Gastos generales (FALLBACK)",           categoria: "Otros",        cuando_usar: "COMODÍN — usar cuando no encaja en ninguna cuenta específica. Revisar después." },
+  { id: 5507, nombre: "Gastos bancarios (530505)",             categoria: "Financiero",   cuando_usar: "IVA sobre comisiones bancarias y gastos bancarios menores" },
+  { id: 5508, nombre: "Comisiones bancarias (530515)",         categoria: "Financiero",   cuando_usar: "Cuota de manejo, comisiones por transferencias, cargos bancarios fijos mensuales" },
+  { id: 5509, nombre: "GMF 4×1000 (531520)",                  categoria: "Financiero",   cuando_usar: "Gravamen al Movimiento Financiero. Aparece en extracto como '4X1000' o 'GMF'" },
+  { id: 5533, nombre: "Intereses créditos directos (615020)", categoria: "Financiero",   cuando_usar: "Intereses pagados por préstamos bancarios o a personas naturales (socios, terceros)" },
 ];
 
 const CUENTAS_BANCOS: { id: number; nombre: string }[] = [
