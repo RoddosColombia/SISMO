@@ -91,7 +91,7 @@ def extract_proveedor(descripcion: str) -> str:
 # ACTIVOS (raíz: 5307) — Solo movement
 CUENTAS_ACTIVOS = {
     "caja_general": {"id": 5310, "nombre": "Caja general", "use": "movement"},
-    "caja_menor": {"id": 5311, "nombre": "Caja menor", "use": "movement"},
+    "caja_menor": {"id": 5311, "nombre": "Caja Menor RODDOS (cód.PUC 11050502)", "use": "movement"},
     "bancolombia_2029": {"id": 5314, "nombre": "Bancolombia 2029", "use": "movement"},
     "bancolombia_2540": {"id": 5315, "nombre": "Bancolombia 2540", "use": "movement"},
     "tarjeta_debito_9942": {"id": 5316, "nombre": "Tarjeta débito prepago 9942", "use": "movement"},
@@ -364,9 +364,24 @@ REGLAS_CLASIFICACION = {
     },
 
     # 7. TRASLADO CUENTAS PROPIAS O INTERNO — NO contabilizar, confianza 95%
+    # REGLA CONTABLE ABSOLUTA: ningún traslado entre cuentas propias genera asiento
     "traslado_interno": {
-        "palabras_clave": ["traslado de la 212 a la 210", "traslado de dinero", "abono por domic traslado"],
-        "cuenta_debito": 5535,  # Cuenta de control
+        "palabras_clave": [
+            # Patrones originales
+            "traslado de la 212 a la 210", "traslado de dinero", "abono por domic traslado",
+            # Patrones adicionales detectados en backlog RODDOS (abr 2026)
+            "traslado bbva", "traslado bancolombia", "traslado nequi", "traslado davivienda",
+            "transfer bbva", "transfer bancolombia",
+            "envio entre cuentas", "abono entre cuentas",
+            "consignacion propia", "traslado fondos", "fondeo cuenta",
+            "transfer from", "transfer to",
+            "recarga nequi", "recarga desde bancolombia", "recarga en punto red",
+            "bancolombia a bbva", "bbva a bancolombia", "bbva a nequi", "nequi a bbva",
+            "entre cuentas propias", "trf entre cta", "traspaso entre",
+            "deposito mismo titular", "mismo titular",
+            "traslado entre productos", "traslado 212", "traslado 210",
+        ],
+        "cuenta_debito": 5535,  # Cuenta de control — NO contabilizar
         "cuenta_credito": None,
         "confianza_min": 0.95,
         "es_transferencia_interna": True,  # NO contabilizar

@@ -393,11 +393,12 @@ CUENTAS_RODDOS: dict[int, str] = {
     5510: "Seguros",
     5533: "Intereses financieros",
     5534: "Intereses rentistas",
-    # Bancos
+    # Cuentas bancarias
     5314: "Bancolombia 2029",
     5318: "BBVA 0210",
     5322: "Davivienda 482",
     5310: "Caja / Nequi",
+    5311: "Caja Menor RODDOS (cód.PUC 11050502)",
     # Ingresos y CXC
     5327: "Créditos Directos RODDOS (cartera)",
     5329: "CXC Socios",
@@ -411,6 +412,8 @@ BANCO_CUENTA: dict[str, int] = {
     "bancolombia": 5314,
     "davivienda": 5322,
     "nequi": 5310,
+    "global66": 11100507,
+    "caja_menor": 5311,
 }
 
 

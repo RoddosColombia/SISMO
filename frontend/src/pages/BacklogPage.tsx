@@ -56,6 +56,7 @@ const CUENTAS_BANCOS: { id: number; nombre: string }[] = [
   { id: 5318, nombre: "BBVA 0210" },
   { id: 5322, nombre: "Davivienda 482" },
   { id: 5310, nombre: "Nequi / Caja" },
+  { id: 5311, nombre: "Caja Menor RODDOS (cód.PUC 11050502)" },
   { id: 11100507, nombre: "Global66 Colombia" },
 ];
 
@@ -552,7 +553,12 @@ export default function BacklogPage() {
                     </td>
                     <td className="px-4 py-3 max-w-[220px]">
                       <p className="text-xs truncate" style={{ color: "#1c1b1f" }} title={item.descripcion}>{item.descripcion}</p>
-                      {item.razon_baja_confianza && (
+                      {item.es_transferencia_interna && (
+                        <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded mt-0.5" style={{ background: "rgba(15,42,92,0.08)", color: "#0f2a5c" }}>
+                          ⇔ Traslado interno
+                        </span>
+                      )}
+                      {item.razon_baja_confianza && !item.es_transferencia_interna && (
                         <p className="text-[10px] mt-0.5" style={{ color: "#9e9a97" }}>{item.razon_baja_confianza}</p>
                       )}
                     </td>
@@ -576,15 +582,19 @@ export default function BacklogPage() {
                     <td className="px-4 py-3">
                       {item.estado === "pendiente" && (
                         <div className="flex gap-1.5">
-                          <button onClick={() => setCausarItem(item)}
-                            className="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition hover:opacity-80"
-                            style={{ background: "rgba(0,110,42,0.08)", color: "#006e2a" }}>
-                            Causar
-                          </button>
+                          {!item.es_transferencia_interna && (
+                            <button onClick={() => setCausarItem(item)}
+                              className="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition hover:opacity-80"
+                              style={{ background: "rgba(0,110,42,0.08)", color: "#006e2a" }}>
+                              Causar
+                            </button>
+                          )}
                           <button onClick={() => setDescartarItem(item)}
                             className="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition hover:opacity-80"
-                            style={{ background: "rgba(220,38,38,0.08)", color: "#dc2626" }}>
-                            Descartar
+                            style={item.es_transferencia_interna
+                              ? { background: "rgba(15,42,92,0.08)", color: "#0f2a5c" }
+                              : { background: "rgba(220,38,38,0.08)", color: "#dc2626" }}>
+                            {item.es_transferencia_interna ? "Descartar traslado" : "Descartar"}
                           </button>
                         </div>
                       )}
