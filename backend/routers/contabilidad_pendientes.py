@@ -331,22 +331,22 @@ async def backlog_causar(
     }
 
     try:
-        # POST a Alegra — crear journal
-        journal_response = await service.crear_journal(journal_payload)
-        if not journal_response or not journal_response.get("id"):
-            raise HTTPException(status_code=500, detail="Alegra no retornó ID del journal creado")
+        logger.info(f"[backlog_causar] Iniciando causación de movimiento {id}")
+        logger.info(f"[backlog_causar] Payload: {journal_payload}")
         
-        journal_id = journal_response.get("id")
+        # ROG-1: POST a Alegra + GET verificación (request_with_verify())
+        result = await service.request_with_verify("journals", "POST", journal_payload)
+        logger.info(f"[backlog_causar] request_with_verify retornó: {result}")
         
-        # GET de verificación — ROG-1: nunca reportar éxito sin verificar HTTP 200
-        verify_response = await service.obtener_journal(journal_id)
-        if not verify_response:
-            raise HTTPException(status_code=500, detail=f"Journal creado ({journal_id}) pero no se pudo verificar en Alegra")
-            
-    except HTTPException:
-        raise
     except Exception as e:
+        logger.error(f"[backlog_causar] ERROR en AlegraService.request_with_verify para {id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error creando journal en Alegra: {str(e)}")
+
+    # Extraer journal_id del resultado
+    journal_id = result.get("id") if isinstance(result, dict) else None
+    if not journal_id:
+        logger.error(f"[backlog_causar] AlegraService.request_with_verify no retornó ID para {id}")
+        raise HTTPException(status_code=500, detail="Alegra no retornó ID del journal creado")
 
     await db.contabilidad_pendientes.update_one(
         {"_id": mov["_id"]},
