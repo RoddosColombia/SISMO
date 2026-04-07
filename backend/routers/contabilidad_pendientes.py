@@ -331,13 +331,22 @@ async def backlog_causar(
     }
 
     try:
-        result = await service.request_with_verify("journals", "POST", journal_payload)
+        # POST a Alegra — crear journal
+        journal_response = await service.crear_journal(journal_payload)
+        if not journal_response or not journal_response.get("id"):
+            raise HTTPException(status_code=500, detail="Alegra no retornó ID del journal creado")
+        
+        journal_id = journal_response.get("id")
+        
+        # GET de verificación — ROG-1: nunca reportar éxito sin verificar HTTP 200
+        verify_response = await service.obtener_journal(journal_id)
+        if not verify_response:
+            raise HTTPException(status_code=500, detail=f"Journal creado ({journal_id}) pero no se pudo verificar en Alegra")
+            
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error creando journal en Alegra: {str(e)}")
-
-    journal_id = result.get("id") if isinstance(result, dict) else None
-    if not journal_id:
-        raise HTTPException(status_code=500, detail="Alegra no retornó ID del journal")
 
     await db.contabilidad_pendientes.update_one(
         {"_id": mov["_id"]},
