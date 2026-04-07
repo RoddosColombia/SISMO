@@ -1,4 +1,10 @@
 """RODDOS Contable IA — FastAPI entry point.
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
+
+
+
 Thin bootstrap: middleware, startup, shutdown, webhook handler, include_routers.
 All business logic lives in routers/.
 """
