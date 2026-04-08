@@ -1499,7 +1499,7 @@ def clasificar_movimiento(
     # 12. PAGO PSE RECARGA NEQUI — confianza 25%, REQUIERE CONTEXTO
     if any(kw in desc_check for kw in REGLAS_CLASIFICACION["pago_pse_nequi"]["palabras_clave"]):
         return ClasificacionResult(
-            cuenta_debito=5496,
+            cuenta_debito=5535,
             cuenta_credito=5376,
             confianza=0.25,
             requiere_confirmacion=True,
@@ -2697,3 +2697,4 @@ def clasificar_gasto_chat(
         "confianza": 0.50,
         "razon": "Clasificación por defecto — cuenta fallback 5493 (Gastos Generales, NUNCA 5495)",
     }
+
