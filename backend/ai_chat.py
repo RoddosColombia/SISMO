@@ -4403,6 +4403,20 @@ async def execute_chat_action(action_type: str, payload: dict, db, user: dict) -
         clasif_data = payload.pop("_clasificacion", None)
         clasif_hint = payload.pop("_clasificacion_hint", None)
 
+        # ── BUILD 25 PHASE 0: VALIDATION LAYER ──────────────────────────────────
+        try:
+            from services.validation_layer import validate_journal_pre_submission
+            validation_result = await validate_journal_pre_submission(payload, clasif_data, db)
+            if not validation_result.get("valid"):
+                return {
+                    "success": False,
+                    "error": f"❌ Validación fallida: {validation_result.get('reason', 'Razón desconocida')}"
+                }
+        except ImportError:
+            logger.warning("[BUILD 25] validation_layer no disponible, continuando sin validación adicional")
+        except Exception as e:
+            logger.error(f"[BUILD 25] Error en validation_layer: {str(e)}")
+
         # POST a Alegra via request_with_verify() para garantizar HTTP 200
         try:
             result = await service.request_with_verify("journals", "POST", payload)
