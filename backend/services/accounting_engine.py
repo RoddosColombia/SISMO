@@ -419,12 +419,13 @@ REGLAS_CLASIFICACION = {
         "confianza_min": 0.85,
     },
 
-    # 12. PAGO PSE RECARGA NEQUI — Baja confianza, requiere contexto
+    # 12. PAGO PSE RECARGA NEQUI — Traslado interno (NO contabilizar), confianza 95%
     "pago_pse_nequi": {
-        "palabras_clave": ["pago pse comerc recarga nequi"],
-        "cuenta_debito": 5496,  # Fallback
+        "palabras_clave": ["pago pse", "pago pse comerc recarga"],
+        "cuenta_debito": 5535,  # Traslado interno — NO contabilizar
         "cuenta_credito": None,
-        "confianza_min": 0.25,  # MUY baja confianza
+        "confianza_min": 0.60,
+        "es_transferencia_interna": True,  # NO contabilizar
     },
 
     # 13. COMISIÓN BBVA (BBVAC) → Comisiones bancarias (5508), confianza 92%

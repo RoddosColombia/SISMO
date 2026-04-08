@@ -545,7 +545,7 @@ def _generar_sugerencias(mov: dict) -> list[dict]:
         elif any(k in descripcion for k in ["IMPUESTO", "4X1000", "GMF"]):
             d2, c2 = 5509, cuenta_banco
             titulo2, razon2 = "GMF 4×1000", "Detectado: gravamen al movimiento financiero"
-        elif any(k in descripcion for k in ["CXC", "SOCIO", "ANDRES", "IVAN"]):
+        elif any(k in descripcion for k in ["CXC SOCIO", "RETIRO SOCIO", "GASTO PERSONAL", "ANTICIPO SOCIO", "ENVIO A ANDRES", "ENVIO A IVAN", "COMPRA ANDRES", "PAGO LIZBETH"]):
             d2, c2 = 5329, cuenta_banco
             titulo2, razon2 = "CXC Socios", "Detectado: gasto de socio"
         elif any(k in descripcion for k in ["INTERESES", "CANO", "MARTINEZ", "CREDITO"]):

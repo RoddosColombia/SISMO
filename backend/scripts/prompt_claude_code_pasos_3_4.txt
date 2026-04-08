@@ -1,0 +1,112 @@
+PASOS 3 Y 4 — ALEGRA→SISMO JOURNAL SYNC + GUARD ANTI-DUPLICADO
+Stack: FastAPI Python 3.11, MongoDB Motor async, Alegra API /journals
+
+CONTEXTO TÉCNICO (leer antes de escribir código)
+=================================================
+- Alegra base URL: https://api.alegra.com/api/v1/ — NUNCA app.alegra.com/api/r1/
+- Endpoint journals: GET /journals con params limit=30, offset=N
+- AlegraService(db) ya existe en alegra_service.py — usar .request() para GET
+- EventBusService ya existe en services/event_bus_service.py
+- scheduler.py usa APScheduler con timezone America/Bogota
+- NO modificar: accounting_engine.py, ai_chat.py, alegra_service.py, routers/ventas.py
+- NO modificar ningún test existente
+- COMMIT PROTOCOL: 4 greps + pytest antes de cada commit
+
+PASO 3 — SYNC ALEGRA→SISMO JOURNALS (nueva colección alegra_journals_cache)
+=============================================================================
+
+3A. En backend/routers/alegra_webhooks.py — agregar al final del archivo esta función:
+
+async def sincronizar_journals_recientes() -> int:
+    Hace GET /journals paginado (offset 0, limit 30) y guarda/actualiza cada journal
+    en la colección alegra_journals_cache de MongoDB.
+    
+    Schema de cada documento en alegra_journals_cache:
+      alegra_id: str (ID de Alegra, índice único)
+      fecha: str (YYYY-MM-DD)
+      observations: str
+      total_debito: float (suma de todos los entries con debit > 0)
+      entries: list[dict] con {account_id, debit, credit}
+      synced_at: str (ISO UTC)
+      estado: str ("open" | "closed" | desconocido)
+    
+    Upsert por alegra_id — nunca duplicar.
+    Retorna cantidad de journals nuevos o actualizados.
+    Manejo de errores: si Alegra da 503/429 → loguear y retornar 0 sin lanzar excepción.
+    Si is_demo_mode() → retornar 0 inmediatamente.
+
+3B. En backend/services/scheduler.py — agregar un job que llame a
+sincronizar_journals_recientes() cada 5 minutos junto a los otros cron jobs existentes.
+El job se llama sync_alegra_journals. NO modificar los jobs existentes.
+
+3C. Crear índice único en alegra_journals_cache por campo alegra_id.
+Hacerlo en el inicio de sincronizar_journals_recientes() con create_index(..., unique=True).
+
+PASO 4 — GUARD ANTI-DUPLICADO EN bank_reconciliation.py
+========================================================
+
+En backend/services/bank_reconciliation.py, en el método _crear_journal_en_alegra(),
+ANTES de la línea que hace el POST a Alegra (result = await alegra.request_with_verify(...)),
+agregar esta verificación:
+
+    # GUARD: verificar si ya existe en alegra_journals_cache (Alegra→SISMO sync)
+    existe_en_alegra = await self._journal_ya_en_cache(movimiento.fecha, movimiento.monto)
+    if existe_en_alegra:
+        journal_id_existente = existe_en_alegra.get("alegra_id", "desconocido")
+        self.logger.warning(
+            f"[GUARD] Movimiento ya existe en Alegra (cache): "
+            f"fecha={movimiento.fecha} monto={movimiento.monto} "
+            f"journal_id={journal_id_existente} — saltando"
+        )
+        return False, None, f"duplicado_en_alegra:{journal_id_existente}"
+
+Implementar _journal_ya_en_cache() como método de la clase BankReconciliationService:
+    async def _journal_ya_en_cache(self, fecha: str, monto: float) -> dict | None:
+        Busca en alegra_journals_cache un documento donde:
+          - fecha == fecha exacta (YYYY-MM-DD)
+          - abs(total_debito - monto) <= 1.0  (tolerancia de $1 COP por redondeos)
+        Retorna el documento si existe, None si no.
+        Si la consulta falla por cualquier motivo → retornar None (fail-open: si el cache
+        no está disponible, se permite la creación para no bloquear la operación).
+
+TESTS OBLIGATORIOS
+==================
+
+Crear backend/tests/test_alegra_sync_guard.py con estos 5 tests:
+
+T1: sincronizar_journals_recientes() con Alegra en demo mode → retorna 0, no toca MongoDB
+
+T2: sincronizar_journals_recientes() con Alegra devolviendo 3 journals → MongoDB tiene
+    3 documentos en alegra_journals_cache con los campos correctos
+
+T3: sincronizar_journals_recientes() llamado 2 veces con los mismos datos → MongoDB sigue
+    con 3 documentos (upsert idempotente, no duplica)
+
+T4: _journal_ya_en_cache() con cache vacío → retorna None → journal se crea normalmente
+
+T5: _journal_ya_en_cache() con un journal de fecha=2026-01-02 monto=3614953 en cache →
+    retorna el documento → _crear_journal_en_alegra() retorna (False, None, "duplicado_en_alegra:XXX")
+    sin hacer ningún POST a Alegra
+
+CRITERIOS DE ÉXITO
+==================
+- pytest tests/test_alegra_sync_guard.py → 5/5 PASS
+- grep "sincronizar_journals_recientes" scheduler.py → aparece en el job list
+- grep "alegra_journals_cache" bank_reconciliation.py → aparece en _journal_ya_en_cache
+- grep "_journal_ya_en_cache" bank_reconciliation.py → aparece en _crear_journal_en_alegra
+- pytest tests/ -x → todos los tests existentes siguen pasando (no regresiones)
+
+REPORTE FINAL
+=============
+Al terminar reportar:
+[ ] T1 PASS/FAIL
+[ ] T2 PASS/FAIL
+[ ] T3 PASS/FAIL
+[ ] T4 PASS/FAIL
+[ ] T5 PASS/FAIL
+[ ] Tests existentes: N/N pasando
+[ ] Línea del guard en bank_reconciliation.py: [número de línea]
+[ ] Job en scheduler.py: [nombre del job y cron expresión]
+[ ] Colección alegra_journals_cache: índice único creado en campo alegra_id
+
+VEREDICTO: COMPLETO solo si los 5 tests nuevos pasan Y todos los tests existentes siguen pasando.
