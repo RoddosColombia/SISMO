@@ -106,6 +106,10 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="RODDOS Contable IA", version="2.0.0")
 
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
@@ -170,6 +174,12 @@ async def receive_webhook(request: Request):
 # ─── Include routers ──────────────────────────────────────────────────────────
 
 PREFIX = "/api"
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
+
+
 app.include_router(auth.router,      prefix=PREFIX)
 app.include_router(settings.router,  prefix=PREFIX)
 app.include_router(alegra.router,    prefix=PREFIX)
