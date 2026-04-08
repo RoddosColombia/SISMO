@@ -207,7 +207,7 @@ REGLAS_CLASIFICACION = {
     "gmf": {
         "palabras_clave": ["4x1000", "4x1.000", "impuesto 4x1000", "impuesto 4x1.000", "gravamen", "gmf"],
         "cuenta_debito": 5509,
-        "cuenta_credito": 5376,  # Se toma del banco de origen
+        "cuenta_credito": None,  # Se toma del banco de origen
         "confianza_min": 0.9,
     },
 
@@ -216,7 +216,7 @@ REGLAS_CLASIFICACION = {
         "palabras_clave": ["comision", "cargo bbva cash", "cuota manejo",
                            "cuota plan canal", "iva cuota plan"],
         "cuenta_debito": 5508,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.85,
     },
 
@@ -224,7 +224,7 @@ REGLAS_CLASIFICACION = {
     "gastos_bancarios": {
         "palabras_clave": ["costo transferencia", "traslado dinero", "iva traslado"],
         "cuenta_debito": 5507,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.8,
     },
 
@@ -234,7 +234,7 @@ REGLAS_CLASIFICACION = {
         "palabras_clave": ["gasto socio", "anticipo nomina socio", "gasolina vehiculo",
                            "pico y placa", "gasto personal socio"],
         "cuenta_debito": 5329,
-        "cuenta_credito": 5376,  # Banco de origen
+        "cuenta_credito": None,  # Banco de origen
         "confianza_min": 0.9,
     },
 
@@ -251,7 +251,7 @@ REGLAS_CLASIFICACION = {
     "nomina": {
         "palabras_clave": ["nomina", "pago nomina", "salario", "sueldo"],
         "cuenta_debito": 5462,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.85,
     },
 
@@ -319,7 +319,7 @@ REGLAS_CLASIFICACION = {
     "cxc_gasto_socio_andres": {
         "palabras_clave": ["cxc gasto socio andres", "gasto socio andres"],
         "cuenta_debito": 5329,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.95,
     },
 
@@ -327,7 +327,7 @@ REGLAS_CLASIFICACION = {
     "cxc_gasto_socio_ivan": {
         "palabras_clave": ["cxc gasto socio ivan", "gasto socio ivan"],
         "cuenta_debito": 5329,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.95,
     },
 
@@ -335,7 +335,7 @@ REGLAS_CLASIFICACION = {
     "anticipo_nomina_andres": {
         "palabras_clave": ["anticipo nomina andres"],
         "cuenta_debito": 5329,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.92,
     },
 
@@ -343,7 +343,7 @@ REGLAS_CLASIFICACION = {
     "nomina_roddos": {
         "palabras_clave": ["nomina roddos"],
         "cuenta_debito": 5462,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.92,
     },
 
@@ -359,7 +359,7 @@ REGLAS_CLASIFICACION = {
     "intereses_rentistas_especifico": {
         "palabras_clave": ["intereses andres cano", "intereses david martinez"],
         "cuenta_debito": 5534,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.95,
     },
 
@@ -382,7 +382,7 @@ REGLAS_CLASIFICACION = {
             "traslado entre productos", "traslado 212", "traslado 210",
         ],
         "cuenta_debito": 5535,  # Cuenta de control — NO contabilizar
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.95,
         "es_transferencia_interna": True,  # NO contabilizar
     },
@@ -422,9 +422,9 @@ REGLAS_CLASIFICACION = {
     # 12. PAGO PSE RECARGA NEQUI — Traslado interno (NO contabilizar), confianza 95%
     "pago_pse_nequi": {
         "palabras_clave": ["pago pse", "pago pse comerc recarga"],
-        "cuenta_debito": 5493,  # Gastos Generales � CORRECCI�N — NO contabilizar
-        "cuenta_credito": 5376,
-        "confianza_min": 0.85,
+        "cuenta_debito": 5535,  # Traslado interno — NO contabilizar
+        "cuenta_credito": None,
+        "confianza_min": 0.60,
         "es_transferencia_interna": True,  # NO contabilizar
     },
 
@@ -432,7 +432,7 @@ REGLAS_CLASIFICACION = {
     "bbva_comision_bbvac": {
         "palabras_clave": ["comision bbvac", "bbvac"],
         "cuenta_debito": 5508,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.92,
     },
 
@@ -440,7 +440,7 @@ REGLAS_CLASIFICACION = {
     "bbva_intereses_raul": {
         "palabras_clave": ["intereses raul", "prestamo raul", "int raul"],
         "cuenta_debito": 5534,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.95,
     },
 
@@ -448,7 +448,7 @@ REGLAS_CLASIFICACION = {
     "bbva_liquidacion_liliana": {
         "palabras_clave": ["liquidacion liliana", "liq liliana", "nomina liliana"],
         "cuenta_debito": 5462,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.92,
     },
 
@@ -456,7 +456,7 @@ REGLAS_CLASIFICACION = {
     "bbva_aseo_monica": {
         "palabras_clave": ["aseo monica", "pago monica aseo", "servicio aseo monica"],
         "cuenta_debito": 5482,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.92,
     },
 
@@ -476,7 +476,7 @@ REGLAS_CLASIFICACION = {
     "bc_cuota_plan_canal": {
         "palabras_clave": ["cuota plan canal negocios"],
         "cuenta_debito": 5508,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.92,
     },
 
@@ -484,7 +484,7 @@ REGLAS_CLASIFICACION = {
     "bc_iva_cuota_plan": {
         "palabras_clave": ["iva cuota plan canal"],
         "cuenta_debito": 5507,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.92,
     },
 
@@ -492,7 +492,7 @@ REGLAS_CLASIFICACION = {
     "bc_cuota_manejo_trj": {
         "palabras_clave": ["cuota manejo trj deb"],
         "cuenta_debito": 5507,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.92,
     },
 
@@ -500,7 +500,7 @@ REGLAS_CLASIFICACION = {
     "bc_ajuste_interes_ahorros": {
         "palabras_clave": ["ajuste interes ahorros db"],
         "cuenta_debito": 5507,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.90,
     },
 
@@ -532,7 +532,7 @@ REGLAS_CLASIFICACION = {
     "bc_retiro_cajero": {
         "palabras_clave": ["retiro cajero"],
         "cuenta_debito": 5496,  # Fallback
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.25,
     },
 
@@ -540,7 +540,7 @@ REGLAS_CLASIFICACION = {
     "bc_transferencia_nequi": {
         "palabras_clave": ["transferencia desde nequi"],
         "cuenta_debito": 5496,  # Fallback
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.30,
     },
 
@@ -548,7 +548,7 @@ REGLAS_CLASIFICACION = {
     "bc_pago_pse_davivienda": {
         "palabras_clave": ["pago pse banco davivienda"],
         "cuenta_debito": 5496,  # Fallback
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.25,
     },
 
@@ -564,7 +564,7 @@ REGLAS_CLASIFICACION = {
     "bc_compra_d1": {
         "palabras_clave": ["compra en tienda d1"],
         "cuenta_debito": 5329,  # CXC socio
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.45,
     },
 
@@ -572,7 +572,7 @@ REGLAS_CLASIFICACION = {
     "bc_compra_personal": {
         "palabras_clave": ["compra en uber", "compra en rappi", "compra en mc donald", "compra en burger"],
         "cuenta_debito": 5329,  # CXC socio
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.80,
     },
 
@@ -580,7 +580,7 @@ REGLAS_CLASIFICACION = {
     "bc_compra_personal_otros": {
         "palabras_clave": ["compra en fontanar", "compra en optica", "compra en casa d bta"],
         "cuenta_debito": 5329,  # CXC socio
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.75,
     },
 
@@ -588,7 +588,7 @@ REGLAS_CLASIFICACION = {
     "bc_transferencia_cta_virtual": {
         "palabras_clave": ["transferencia cta suc virtual"],
         "cuenta_debito": 5535,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.90,
         "es_transferencia_interna": True,
     },
@@ -605,7 +605,7 @@ REGLAS_CLASIFICACION = {
     "bc_pago_gou": {
         "palabras_clave": ["pago pse gou payments"],
         "cuenta_debito": 5496,  # Fallback
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.30,
     },
 
@@ -629,7 +629,7 @@ REGLAS_CLASIFICACION = {
             "cxc gast socio andres", "cxc gast socio ivan",
         ],
         "cuenta_debito": 5413,   # Salarios por pagar — reduce saldo diferido
-        "cuenta_credito": 5376,  # banco_origen como fallback
+        "cuenta_credito": None,  # banco_origen como fallback
         "confianza_min": 0.85,
     },
 
@@ -645,7 +645,7 @@ REGLAS_CLASIFICACION = {
     "bc_combustible": {
         "palabras_clave": ["compra en eds norman", "compra en eds amborc", "compra en texaco eds"],
         "cuenta_debito": 5498,
-        "cuenta_credito": 5376,  # banco_origen como fallback
+        "cuenta_credito": None,  # banco_origen como fallback
         "confianza_min": 0.85,
     },
 
@@ -653,7 +653,7 @@ REGLAS_CLASIFICACION = {
     "bc_parqueadero": {
         "palabras_clave": ["compra en parqueader"],
         "cuenta_debito": 5499,
-        "cuenta_credito": 5376,  # banco_origen como fallback
+        "cuenta_credito": None,  # banco_origen como fallback
         "confianza_min": 0.85,
     },
 
@@ -697,7 +697,7 @@ REGLAS_CLASIFICACION = {
             "transf de mary suarez", "ajuste compra intl confirmaf",
         ],
         "cuenta_debito": 5507,
-        "cuenta_credito": 5376,  # banco_origen como fallback
+        "cuenta_credito": None,  # banco_origen como fallback
         "confianza_min": 0.85,
     },
 
@@ -714,7 +714,7 @@ REGLAS_CLASIFICACION = {
     "bc_prestamo_empleada_mary": {
         "palabras_clave": ["pago a prov mary alexandra"],
         "cuenta_debito": 5332,   # Avances y anticipos a empleados
-        "cuenta_credito": 5376,  # banco_origen como fallback
+        "cuenta_credito": None,  # banco_origen como fallback
         "confianza_min": 0.95,
     },
 
@@ -727,7 +727,7 @@ REGLAS_CLASIFICACION = {
     "nequi_traslado_roddos_sas": {
         "palabras_clave": ["roddos sas"],
         "cuenta_debito": 5535,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.95,
         "es_transferencia_interna": True,
     },
@@ -736,7 +736,7 @@ REGLAS_CLASIFICACION = {
     "nequi_envio_banco_roddos": {
         "palabras_clave": ["envio a otros bancos a roddos"],
         "cuenta_debito": 5535,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.95,
         "es_transferencia_interna": True,
     },
@@ -749,7 +749,7 @@ REGLAS_CLASIFICACION = {
             "recarga en punto red",
         ],
         "cuenta_debito": 5535,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.95,
         "es_transferencia_interna": True,
     },
@@ -795,7 +795,7 @@ REGLAS_CLASIFICACION = {
     "nequi_flypass_peajes": {
         "palabras_clave": ["compra pse en f2x sas", "f2x sas"],
         "cuenta_debito": 5499,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.92,
     },
 
@@ -809,7 +809,7 @@ REGLAS_CLASIFICACION = {
             "para lina montes del valle",
         ],
         "cuenta_debito": 5413,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.90,
     },
 
@@ -817,7 +817,7 @@ REGLAS_CLASIFICACION = {
     "nequi_compra_beneficiencia": {
         "palabras_clave": ["compra pse en beneficiencia de", "beneficiencia de"],
         "cuenta_debito": 5413,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.90,
     },
 
@@ -825,7 +825,7 @@ REGLAS_CLASIFICACION = {
     "nequi_envio_andres": {
         "palabras_clave": ["envio con bre-b a: andres"],
         "cuenta_debito": 5413,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.90,
     },
 
@@ -833,7 +833,7 @@ REGLAS_CLASIFICACION = {
     "nequi_envio_diana": {
         "palabras_clave": ["envio con bre-b a: diana"],
         "cuenta_debito": 5413,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.90,
     },
 
@@ -841,7 +841,7 @@ REGLAS_CLASIFICACION = {
     "nequi_para_ivan": {
         "palabras_clave": ["para ivan echeverri gomez"],
         "cuenta_debito": 5413,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.95,
     },
 
@@ -849,7 +849,7 @@ REGLAS_CLASIFICACION = {
     "nequi_pago_lizbeth": {
         "palabras_clave": ["para lizbeth rincon rojas"],
         "cuenta_debito": 5462,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.92,
     },
 
@@ -865,7 +865,7 @@ REGLAS_CLASIFICACION = {
     "nequi_envio_nelson": {
         "palabras_clave": ["envio con bre-b a: nelson"],
         "cuenta_debito": 5496,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.30,
     },
 
@@ -873,7 +873,7 @@ REGLAS_CLASIFICACION = {
     "nequi_no_identificado": {
         "palabras_clave": ["vital tree", "pago en qr bre-b"],
         "cuenta_debito": 5496,
-        "cuenta_credito": 5376,
+        "cuenta_credito": None,
         "confianza_min": 0.25,
     },
 }
