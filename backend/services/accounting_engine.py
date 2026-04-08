@@ -1,4 +1,4 @@
-"""
+﻿"""
 accounting_engine.py — Motor de Clasificación Contable RODDOS (BUILD 22)
 
 Clasifica automáticamente transacciones bancarias a cuentas de Alegra.
@@ -422,10 +422,10 @@ REGLAS_CLASIFICACION = {
     # 12. PAGO PSE RECARGA NEQUI — Traslado interno (NO contabilizar), confianza 95%
     "pago_pse_nequi": {
         "palabras_clave": ["pago pse", "pago pse comerc recarga"],
-        "cuenta_debito": 5535,  # Traslado interno — NO contabilizar
-        "cuenta_credito": None,
-        "confianza_min": 0.60,
-        "es_transferencia_interna": True,  # NO contabilizar
+        "cuenta_debito": 5493,  # Traslado interno — NO contabilizar
+        "cuenta_credito": 5376,
+        "confianza_min": 0.85,
+
     },
 
     # 13. COMISIÓN BBVA (BBVAC) → Comisiones bancarias (5508), confianza 92%
@@ -1499,12 +1499,12 @@ def clasificar_movimiento(
     # 12. PAGO PSE RECARGA NEQUI — confianza 25%, REQUIERE CONTEXTO
     if any(kw in desc_check for kw in REGLAS_CLASIFICACION["pago_pse_nequi"]["palabras_clave"]):
         return ClasificacionResult(
-            cuenta_debito=5535,
+            cuenta_debito=5493,
             cuenta_credito=5376,
-            confianza=0.25,
-            requiere_confirmacion=True,
-            razon="Recarga NEQUI → Esperando contexto vía WhatsApp",
-            categoria="RECARGA_NEQUI"
+            confianza=0.85,
+            requiere_confirmacion=False,
+            razon="Pago PSE recarga Nequi → Gastos Generales (5493)",
+            categoria="GASTOS_GENERALES"
         )
 
     # 13. COMISIÓN BBVA (BBVAC) — confianza 92%
