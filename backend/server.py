@@ -266,6 +266,13 @@ app.include_router(auditoria_router.router,                    prefix=PREFIX)
 app.include_router(sync_manual_router.router,                  prefix=PREFIX)
 app.include_router(diagnostico_router.router,                  prefix=PREFIX)
 
+try:
+    from routers import cartera_legacy as cartera_legacy_router
+    app.include_router(cartera_legacy_router.router,           prefix=PREFIX)
+    print("[OK] cartera_legacy router loaded")
+except Exception as e:
+    print(f"[ERROR] cartera_legacy router: {e}")
+
 
 # ─── Bus Health (BUS-05 / D-11) ──────────────────────────────────────────────
 
